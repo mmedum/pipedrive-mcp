@@ -27,10 +27,12 @@ func BaseURL(domain string) string {
 // process; the MCP server hands a pointer to every tool's Register()
 // function.
 //
-// The per-resource field caches (DealFields, …) live on the Client
+// The per-resource field caches (dealFields, …) live on the Client
 // because their lifetime matches the process and they reuse the
-// Client's transport. Persons / organizations / products will add
-// siblings here as their PRs land.
+// Client's transport. Callers go through the typed accessor methods
+// (ResolveDealCustomFields, WarmDealFields, ReloadDealFields) rather
+// than the unexported field. Persons / organizations / products will
+// add siblings as their PRs land.
 type Client struct {
 	host        string // https://{domain}.pipedrive.com (no path suffix)
 	token       string
@@ -39,7 +41,7 @@ type Client struct {
 	maxAttempts int           // retry attempts for 429 and 5xx; default 3
 	baseDelay   time.Duration // base for jittered exponential backoff; default 1s
 
-	DealFields *FieldCache // lazy-loaded; first ListDeals/GetDeal triggers fetch
+	dealFields *FieldCache // lazy-loaded; first ListDeals/GetDeal triggers fetch
 }
 
 // Options configures a new Client. BaseURL is the v2 base (e.g.
@@ -79,7 +81,7 @@ func New(opts Options) *Client {
 		maxAttempts: 3,
 		baseDelay:   time.Second,
 	}
-	c.DealFields = NewFieldCache(c.ListDealFields)
+	c.dealFields = NewFieldCache(c.ListDealFields)
 	return c
 }
 
@@ -270,12 +272,10 @@ func shouldRetryNetwork(err error) bool {
 	return true
 }
 
-// readBody reads up to 8 MiB. Tool inputs cap list page sizes at 100,
-// so a deals page with heavy custom fields tops out a few hundred KiB
-// in practice; the cap is generous enough that an unexpected
-// /dealFields blob (workspaces with hundreds of custom fields) won't
-// truncate either. Hard-limited to keep a runaway upstream from
-// pinning memory.
+// readBody reads up to 8 MiB. The driving case is /dealFields and
+// (eventually) /personFields blobs in workspaces with hundreds of
+// custom fields — the data list of 100 deals is well under 1 MiB.
+// Hard-limited to keep a runaway upstream from pinning memory.
 func readBody(r io.Reader) ([]byte, error) {
 	const limit = 8 << 20
 	return io.ReadAll(io.LimitReader(r, limit))

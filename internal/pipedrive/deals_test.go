@@ -160,13 +160,13 @@ func TestClient_DealFieldsCacheLazyLoad(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv)
-	// Cache is nil-safe: NameOf via the wrapper triggers a load.
-	if name, ok := c.DealFields.NameOf(context.Background(), "abc"); !ok || name != "Account Manager" {
-		t.Errorf("NameOf(abc) = (%q,%v); want (Account Manager,true)", name, ok)
+	got := c.ResolveDealCustomFields(context.Background(), map[string]any{"abc": "Alice"})
+	if got["Account Manager"] != "Alice" {
+		t.Errorf("ResolveDealCustomFields didn't rename hash to name: %v", got)
 	}
 	// Subsequent lookups don't re-fetch.
 	for range 5 {
-		_, _ = c.DealFields.NameOf(context.Background(), "abc")
+		_ = c.ResolveDealCustomFields(context.Background(), map[string]any{"abc": "Alice"})
 	}
 	if hits != 1 {
 		t.Errorf("dealFields HTTP hits = %d; want 1", hits)

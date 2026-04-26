@@ -60,6 +60,7 @@ type dealRow struct {
 	LostReason        string         `json:"lost_reason,omitempty"`
 	AddTime           string         `json:"add_time,omitempty"`
 	UpdateTime        string         `json:"update_time,omitempty"`
+	Probability       *int           `json:"probability,omitempty"`
 	CustomFields      map[string]any `json:"custom_fields,omitempty"`
 	URL               string         `json:"url"`
 }
