@@ -78,6 +78,23 @@ type AdditionalData struct {
 	NextCursor string `json:"next_cursor,omitempty"`
 }
 
+// itemEnvelope decodes Pipedrive v2's single-item response shape.
+// One generic replaces a per-resource wrapper struct on every read
+// endpoint.
+type itemEnvelope[T any] struct {
+	Success bool `json:"success"`
+	Data    T    `json:"data"`
+}
+
+// listEnvelope decodes Pipedrive v2's list response shape, including
+// the cursor-based pagination envelope. AdditionalData is harmless
+// when the endpoint doesn't paginate (decodes to its zero value).
+type listEnvelope[T any] struct {
+	Success        bool           `json:"success"`
+	Data           []T            `json:"data"`
+	AdditionalData AdditionalData `json:"additional_data"`
+}
+
 // ContactPoint is one row in a Person's emails / phones array.
 // Pipedrive returns these as arrays of {value, primary, label}
 // objects rather than flat strings so a single record can carry

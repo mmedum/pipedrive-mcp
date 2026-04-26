@@ -2,18 +2,11 @@ package pipedrive
 
 import "context"
 
-type dealFieldsResponse struct {
-	Success bool    `json:"success"`
-	Data    []Field `json:"data"`
-}
-
 // ListDealFields returns the field metadata for deals. Used by the
 // auth probe (limit=1 form is in probe.go) and by the per-Client
-// deal field cache. The full call is unpaginated and bounded — a
-// workspace can have hundreds of custom fields but never enough to
-// matter for memory.
+// deal field cache.
 func (c *Client) ListDealFields(ctx context.Context) ([]Field, error) {
-	var resp dealFieldsResponse
+	var resp listEnvelope[Field]
 	if err := c.do(ctx, "/dealFields", &resp); err != nil {
 		return nil, err
 	}
@@ -37,7 +30,6 @@ func (c *Client) WarmDealFields(ctx context.Context) {
 }
 
 // ReloadDealFields clears the cache so the next access refetches.
-// Hook for the Phase 1.9 refresh_field_cache tool.
 func (c *Client) ReloadDealFields() {
 	c.dealFields.Reload()
 }

@@ -132,17 +132,16 @@ func summarizeHit(h pipedrive.SearchHit) searchHit {
 	} else {
 		out.Name = pipedrive.ItemString(h.Item, "name")
 	}
-	details := make(map[string]any, len(h.Item))
 	for k, v := range h.Item {
 		switch k {
 		case "id", "type", "name", "title":
 			continue
 		default:
-			details[k] = v
+			if out.Details == nil {
+				out.Details = make(map[string]any, len(h.Item))
+			}
+			out.Details[k] = v
 		}
-	}
-	if len(details) > 0 {
-		out.Details = details
 	}
 	return out
 }

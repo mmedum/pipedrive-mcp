@@ -6,11 +6,6 @@ import (
 	"strconv"
 )
 
-type stagesResponse struct {
-	Success bool    `json:"success"`
-	Data    []Stage `json:"data"`
-}
-
 // ListStages returns the stages, optionally filtered to one pipeline.
 // Pass pipelineID = 0 to return stages across every pipeline.
 func (c *Client) ListStages(ctx context.Context, pipelineID int64) ([]Stage, error) {
@@ -18,7 +13,7 @@ func (c *Client) ListStages(ctx context.Context, pipelineID int64) ([]Stage, err
 	if pipelineID > 0 {
 		q.Set("pipeline_id", strconv.FormatInt(pipelineID, 10))
 	}
-	var resp stagesResponse
+	var resp listEnvelope[Stage]
 	if err := c.do(ctx, buildPath("/stages", q), &resp); err != nil {
 		return nil, err
 	}
