@@ -21,6 +21,32 @@ breaking changes require a MAJOR bump.
   behavior change in the happy path.
 
 ### Added
+- `get_activity` and `list_activities` tools — fetch and filter
+  Pipedrive activities (calls / emails / meetings / tasks). Filters
+  cover status (`open` / `done` / `all`), owner, deal, person,
+  organization, lead, and update window. Default sort is
+  `update_time desc` (most-recently-touched first) for the natural
+  "what's been happening with X lately" query; pass
+  `sort_by=due_date status=open` for an upcoming-calendar view.
+  `include_attendees=true` opts into the calendar attendees array.
+  `include_notes=true` opts into `note` + `public_description`
+  (off by default — these are often multi-KB HTML and would bloat
+  LLM context on a sweep). `get_activity` always returns notes.
+  Activity-type filtering is intentionally client-side: Pipedrive v2
+  dropped the `type` query param and the documented behaviour is to
+  filter the returned rows on `type` post-hoc. The LLM-facing
+  `activitySummary` is a parallel shadow of `pipedrive.Activity`
+  (matching the `dealSummary` / `personSummary` / `organizationSummary`
+  pattern); jsonschema annotations are scoped to `internal/tools`.
+
+### Changed
+- `internal/tools` — `list_deals`, `list_activities`, and `search`
+  now share a single page-size policy (`defaultListLimit=25`,
+  `maxListLimit=100`, `clampLimit()` helper in
+  `internal/tools/pagination.go`). Per-tool constants and the
+  identical clamp blocks were removed. No user-visible behavior
+  change — the caps were already aligned; the consolidation prevents
+  silent drift.
 - `pipedrive-mcp status` subcommand. Reports the active workspace
   domain (and where it was resolved from), the token source (keyring
   or env var), and the result of an auth probe against Pipedrive.

@@ -8,12 +8,12 @@ exposes [Pipedrive CRM](https://pipedrive.com) over stdio to LLM-driven
 clients such as Claude Desktop and Claude Code. Single static Go binary,
 distroless Docker image, signed releases, semver-disciplined surface.
 
-> **Status: Phase 1 in progress, pre-`v0.1.0`.** Seven read tools are
+> **Status: Phase 1 in progress, pre-`v0.1.0`.** Nine read tools are
 > registered against Pipedrive v2: `list_pipelines`, `list_stages`,
-> `get_deal`, `list_deals`, `get_person`, `get_organization`, and
-> `search` (the natural-language gateway tool). Write tools, the
-> `refresh_field_cache` tool, and the v0.1.0 tag follow. See
-> `CHANGELOG.md` for what's landed.
+> `get_deal`, `list_deals`, `get_person`, `get_organization`,
+> `get_activity`, `list_activities`, and `search` (the natural-language
+> gateway tool). Write tools, the `refresh_field_cache` tool, and the
+> v0.1.0 tag follow. See `CHANGELOG.md` for what's landed.
 
 ## Highlights
 
@@ -175,6 +175,8 @@ authoritative list of tools the binary registers. As of the current
 | `list_deals` | Deals filtered by status / pipeline / stage / owner / person / org, cursor-paginated. |
 | `get_person` | One person by id, with emails / phones / org link / custom fields. |
 | `get_organization` | One organization by id, with structured address and custom fields. |
+| `get_activity` | One activity (call / email / meeting / task) by id, with location, participants, and conference details. |
+| `list_activities` | Activities filtered by status / owner / deal / person / org / lead / update window, cursor-paginated. |
 
 The remaining categories below are the planned surface; see
 [`CHANGELOG.md`](CHANGELOG.md) for what has actually shipped.

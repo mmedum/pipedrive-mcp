@@ -11,6 +11,7 @@ const (
 	WebURLDeal         WebURLKind = "deal"
 	WebURLPerson       WebURLKind = "person"
 	WebURLOrganization WebURLKind = "organization"
+	WebURLActivity     WebURLKind = "activity"
 )
 
 // WebURL returns the Pipedrive web-UI URL for a resource by id. Tool

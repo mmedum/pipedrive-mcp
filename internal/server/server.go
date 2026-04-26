@@ -33,6 +33,7 @@ func New(ctx context.Context, name, version string, client *pipedrive.Client, do
 	tools.RegisterDeals(srv, client, domain)
 	tools.RegisterPersons(srv, client, domain)
 	tools.RegisterOrganizations(srv, client, domain)
+	tools.RegisterActivities(srv, client, domain)
 	tools.RegisterSearch(srv, client)
 
 	if client != nil {
