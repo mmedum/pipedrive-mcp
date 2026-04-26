@@ -29,11 +29,16 @@ type Stage struct {
 // /personFields, /organizationFields, /productFields — same shape
 // across all of them, so one type covers the field caches for every
 // resource.
+//
+// Note: v2 renamed the fields from v1 (`key` → `field_code`,
+// `name` → `field_name`, `edit_flag` → `is_custom_field`). This struct
+// is v2-shaped; v1 callers (notes, when those land) will need their
+// own type if they touch field metadata.
 type Field struct {
-	Key       string `json:"key"`        // 40-char hash for custom fields, plain identifier for built-ins
-	Name      string `json:"name"`       // human-readable label
-	FieldType string `json:"field_type"` // varchar, monetary, enum, set, date, ...
-	EditFlag  bool   `json:"edit_flag"`  // true = custom (user-defined); false = built-in
+	Key       string `json:"field_code"`      // 40-char hash for custom fields, plain identifier for built-ins ("id", "title", ...)
+	Name      string `json:"field_name"`      // human-readable label
+	FieldType string `json:"field_type"`      // varchar, monetary, enum, set, date, ...
+	EditFlag  bool   `json:"is_custom_field"` // true = custom (user-defined); false = built-in
 }
 
 // Deal is a Pipedrive deal record (subset). Custom fields are nested

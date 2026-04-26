@@ -17,8 +17,8 @@ func TestClient_ListDealFields(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"success":true,"data":[
-			{"key":"title","name":"Title","field_type":"varchar","edit_flag":false},
-			{"key":"abc123","name":"Account Manager","field_type":"user","edit_flag":true}
+			{"field_code":"title","field_name":"Title","field_type":"varchar","is_custom_field":false},
+			{"field_code":"abc123","field_name":"Account Manager","field_type":"user","is_custom_field":true}
 		]}`)
 	}))
 	defer srv.Close()
@@ -40,8 +40,8 @@ func TestClient_GetDeal(t *testing.T) {
 		if r.URL.Path != "/api/v2/deals/42" {
 			t.Errorf("path = %q, want /api/v2/deals/42", r.URL.Path)
 		}
-		if r.URL.Query().Get("include_fields") != "custom_fields" {
-			t.Errorf("missing include_fields=custom_fields query")
+		if r.URL.RawQuery != "" {
+			t.Errorf("unexpected query string %q (v2 returns custom_fields by default — no opt-in needed)", r.URL.RawQuery)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"success":true,"data":{
@@ -101,13 +101,12 @@ func TestClient_ListDeals_FiltersAndCursor(t *testing.T) {
 	defer srv.Close()
 
 	deals, next, err := newTestClient(srv).ListDeals(context.Background(), ListDealsOptions{
-		Status:        "open",
-		PipelineID:    2,
-		StageID:       5,
-		OwnerID:       7,
-		Limit:         25,
-		Cursor:        "opaque-cursor-1",
-		IncludeCustom: true,
+		Status:     "open",
+		PipelineID: 2,
+		StageID:    5,
+		OwnerID:    7,
+		Limit:      25,
+		Cursor:     "opaque-cursor-1",
 	})
 	if err != nil {
 		t.Fatalf("ListDeals: %v", err)
@@ -120,11 +119,14 @@ func TestClient_ListDeals_FiltersAndCursor(t *testing.T) {
 	}
 	for _, want := range []string{
 		"status=open", "pipeline_id=2", "stage_id=5", "owner_id=7",
-		"limit=25", "cursor=opaque-cursor-1", "include_fields=custom_fields",
+		"limit=25", "cursor=opaque-cursor-1",
 	} {
 		if !strings.Contains(sawQuery, want) {
 			t.Errorf("query %q missing %q", sawQuery, want)
 		}
+	}
+	if strings.Contains(sawQuery, "include_fields") {
+		t.Errorf("query %q should not contain include_fields (v2 returns custom_fields by default; the param is rejected with a 400)", sawQuery)
 	}
 }
 
@@ -153,7 +155,7 @@ func TestClient_DealFieldsCacheLazyLoad(t *testing.T) {
 			hits++
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"success":true,"data":[{"key":"abc","name":"Account Manager","field_type":"user","edit_flag":true}]}`)
+		_, _ = io.WriteString(w, `{"success":true,"data":[{"field_code":"abc","field_name":"Account Manager","field_type":"user","is_custom_field":true}]}`)
 	}))
 	defer srv.Close()
 

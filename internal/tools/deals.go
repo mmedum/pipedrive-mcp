@@ -121,15 +121,14 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string) {
 			limit = listDealsMaxLimit
 		}
 		opts := pipedrive.ListDealsOptions{
-			Status:        in.Status,
-			PipelineID:    in.PipelineID,
-			StageID:       in.StageID,
-			OwnerID:       in.OwnerID,
-			PersonID:      in.PersonID,
-			OrgID:         in.OrgID,
-			Limit:         limit,
-			Cursor:        in.Cursor,
-			IncludeCustom: true,
+			Status:     in.Status,
+			PipelineID: in.PipelineID,
+			StageID:    in.StageID,
+			OwnerID:    in.OwnerID,
+			PersonID:   in.PersonID,
+			OrgID:      in.OrgID,
+			Limit:      limit,
+			Cursor:     in.Cursor,
 		}
 		deals, next, err := c.ListDeals(ctx, opts)
 		if err != nil {
