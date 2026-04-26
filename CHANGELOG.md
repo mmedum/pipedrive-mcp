@@ -13,6 +13,13 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Changed
+- Cache-warm goroutine in `server.New` now respects the parent
+  context, so SIGTERM mid-warm cancels in-flight `/dealFields` /
+  `/personFields` / `/organizationFields` requests cleanly instead
+  of letting them run orphaned to completion. No user-visible
+  behavior change in the happy path.
+
 ### Added
 - `pipedrive-mcp status` subcommand. Reports the active workspace
   domain (and where it was resolved from), the token source (keyring
