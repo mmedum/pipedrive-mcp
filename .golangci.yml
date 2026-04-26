@@ -1,0 +1,67 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gocyclo
+    - misspell
+    - unparam
+    - gocritic
+    - revive
+    - bodyclose
+    - errorlint
+    - nilerr
+    - prealloc
+    - makezero
+    - rowserrcheck
+
+  settings:
+    gocyclo:
+      min-complexity: 15
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+    revive:
+      rules:
+        - name: var-naming
+        - name: exported
+          arguments: ["disableStutteringCheck"]
+        - name: unused-parameter
+        - name: empty-block
+        - name: unreachable-code
+        - name: redefines-builtin-id
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+        - opinionated
+      disabled-checks:
+        - whyNoLint
+        - hugeParam
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gocyclo
+          - errcheck
+          - gocritic
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

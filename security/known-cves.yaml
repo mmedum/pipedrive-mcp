@@ -1,0 +1,18 @@
+# Trivy ignore list for base-image CVEs that are inside our grace period.
+#
+# Grace policy (per spec §9):
+#   critical CVEs: 7 days from discovery before the gate becomes blocking
+#   high     CVEs: 14 days from discovery before the gate becomes blocking
+#
+# Each entry must include:
+#   - the CVE ID
+#   - severity
+#   - the date the maintainer first observed it (`discovered`)
+#   - the deadline by which it must be fixed or an exception filed (`expires`)
+#   - the named owner responsible for remediation
+#   - a one-line note
+#
+# Trivy reads only the bare CVE IDs from this file (one per line, leading `-`).
+# The metadata block above each ID is for human bookkeeping; trivy ignores it.
+
+# (no entries yet)
