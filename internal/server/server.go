@@ -19,7 +19,11 @@ import (
 // client may be nil (used by the --dump-schemas path, where tool
 // handlers never execute — only their schemas are dumped). domain is
 // used for URL injection in tool outputs.
-func New(name, version string, client *pipedrive.Client, domain string) *mcp.Server {
+//
+// The parent ctx governs the cache-warm goroutine's lifetime. When
+// it cancels (e.g. SIGTERM), the warm-up's in-flight HTTP requests
+// cancel cleanly instead of running orphaned to completion.
+func New(ctx context.Context, name, version string, client *pipedrive.Client, domain string) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{
 		Name:    name,
 		Version: version,
@@ -38,14 +42,16 @@ func New(name, version string, client *pipedrive.Client, domain string) *mcp.Ser
 		// mid-warm just blocks on the same fetch — never duplicates.
 		// Fan out across resources so a slow tail on one fetch
 		// doesn't delay the others (cuts wall-clock to max(t1,t2,t3)).
+		// The 30s timeout caps the warm cycle; the parent ctx
+		// shortens it further on shutdown.
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			warmCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
 			var wg sync.WaitGroup
 			wg.Add(3)
-			go func() { defer wg.Done(); client.WarmDealFields(ctx) }()
-			go func() { defer wg.Done(); client.WarmPersonFields(ctx) }()
-			go func() { defer wg.Done(); client.WarmOrganizationFields(ctx) }()
+			go func() { defer wg.Done(); client.WarmDealFields(warmCtx) }()
+			go func() { defer wg.Done(); client.WarmPersonFields(warmCtx) }()
+			go func() { defer wg.Done(); client.WarmOrganizationFields(warmCtx) }()
 			wg.Wait()
 		}()
 	}

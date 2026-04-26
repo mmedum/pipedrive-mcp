@@ -73,7 +73,7 @@ func runServer() {
 	}
 
 	if dumpSchemas {
-		_ = server.New(serverName, version.Version, nil, "")
+		_ = server.New(context.Background(), serverName, version.Version, nil, "")
 		if err := tools.DumpJSON(os.Stdout, version.Version); err != nil {
 			fail("dump schemas: %v", err)
 		}
@@ -120,7 +120,7 @@ func runServer() {
 		)
 	}
 
-	srv := server.New(serverName, version.Version, client, cfg.CompanyDomain)
+	srv := server.New(ctx, serverName, version.Version, client, cfg.CompanyDomain)
 	if err := srv.Run(ctx, &mcp.StdioTransport{}); err != nil && !isCleanShutdown(err) {
 		fail("server: %v", err)
 	}
