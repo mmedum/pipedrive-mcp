@@ -16,7 +16,7 @@ distroless Docker image, signed releases, semver-disciplined surface.
 ## Highlights
 
 - **Pipedrive API v2 first.** The legacy v1 sunsets 2026-07-31; this
-  server commits to v2 with a small set of [documented carve-outs](docs/v1-carveouts.md).
+  server commits to v2.
 - **No destructive tools by default.** Deletes are gated behind
   `PIPEDRIVE_ENABLE_DESTRUCTIVE`. A server-wide `PIPEDRIVE_DRY_RUN` makes
   every write a rehearsal that returns "would have done X" without firing
@@ -165,16 +165,6 @@ Planned categories:
 - **Workflows** — move deal to stage, mark won/lost, complete activity,
   log activity composite.
 - **Destructive (opt-in)** — detach product from deal.
-
-## v1 dependencies
-
-Pipedrive's API v2 does not yet cover every resource. This server stays
-on v2 wherever possible and documents each v1 carve-out with its upstream
-tracking link in [`docs/v1-carveouts.md`](docs/v1-carveouts.md).
-
-Current carve-outs:
-
-- Notes (read and write) → tracked for migration when `/api/v2/notes` ships.
 
 ## Troubleshooting
 
