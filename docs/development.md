@@ -10,7 +10,7 @@ For the operations run book see [`operations.md`](operations.md).
 
 | Tool | Version | Purpose |
 | --- | --- | --- |
-| Go | `1.26.0` | Build and test. The `toolchain` directive in `go.mod` will fetch this automatically on Go ≥ 1.21 hosts. |
+| Go | `1.26.2` | Build and test. The `toolchain` directive in `go.mod` will fetch this automatically on Go ≥ 1.21 hosts. |
 | Docker | any recent | Local Docker build, trivy scan, Docker stdio smoke. Optional if you don't need to verify the Docker path. |
 | `golangci-lint` | latest | Lint gate. Install: `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`. |
 | `govulncheck` | latest | Vulnerability gate. Install: `go install golang.org/x/vuln/cmd/govulncheck@latest`. |

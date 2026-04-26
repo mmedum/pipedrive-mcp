@@ -11,7 +11,7 @@ permissions:
   attestations: write
 
 env:
-  GO_VERSION: "1.26.0"
+  GO_VERSION: "1.26.2"
   GORELEASER_VERSION: "v2.13.1"
 
 jobs:

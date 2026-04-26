@@ -6,7 +6,7 @@
 # pre-tag check refuses to build when either FROM line lacks a digest.
 # See docs/operations.md for the pinning procedure.
 
-FROM golang:1.26.0-alpine AS builder
+FROM golang:1.26.2-alpine AS builder
 WORKDIR /src
 RUN apk add --no-cache ca-certificates git
 COPY go.mod go.sum* ./
