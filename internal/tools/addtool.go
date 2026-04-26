@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"fmt"
 	"reflect"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -22,14 +23,18 @@ import (
 // tool. Don't call mcp.AddTool + Add() separately — use this.
 func AddTool[In, Out any](s *mcp.Server, t *mcp.Tool, h mcp.ToolHandlerFor[In, Out]) {
 	if t.InputSchema == nil {
-		if schema, err := jsonschema.For[In](nil); err == nil {
-			t.InputSchema = schema
+		schema, err := jsonschema.For[In](nil)
+		if err != nil {
+			panic(fmt.Sprintf("tools.AddTool: infer input schema for %q: %v", t.Name, err))
 		}
+		t.InputSchema = schema
 	}
 	if t.OutputSchema == nil && reflect.TypeFor[Out]() != reflect.TypeFor[any]() {
-		if schema, err := jsonschema.For[Out](nil); err == nil {
-			t.OutputSchema = schema
+		schema, err := jsonschema.For[Out](nil)
+		if err != nil {
+			panic(fmt.Sprintf("tools.AddTool: infer output schema for %q: %v", t.Name, err))
 		}
+		t.OutputSchema = schema
 	}
 	mcp.AddTool(s, t, h)
 	Add(t)

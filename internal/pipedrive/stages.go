@@ -2,7 +2,8 @@ package pipedrive
 
 import (
 	"context"
-	"fmt"
+	"net/url"
+	"strconv"
 )
 
 type stagesResponse struct {
@@ -13,12 +14,12 @@ type stagesResponse struct {
 // ListStages returns the stages, optionally filtered to one pipeline.
 // Pass pipelineID = 0 to return stages across every pipeline.
 func (c *Client) ListStages(ctx context.Context, pipelineID int64) ([]Stage, error) {
-	path := "/stages"
+	q := url.Values{}
 	if pipelineID > 0 {
-		path = fmt.Sprintf("/stages?pipeline_id=%d", pipelineID)
+		q.Set("pipeline_id", strconv.FormatInt(pipelineID, 10))
 	}
 	var resp stagesResponse
-	if err := c.do(ctx, path, &resp); err != nil {
+	if err := c.do(ctx, buildPath("/stages", q), &resp); err != nil {
 		return nil, err
 	}
 	return resp.Data, nil

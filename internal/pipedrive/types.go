@@ -10,6 +10,10 @@ type Pipeline struct {
 }
 
 // Stage is a Pipedrive stage within a pipeline. Subset of /api/v2/stages.
+//
+// Note: Active maps to the upstream `active_flag` field, while Pipeline
+// uses `active`. This is Pipedrive's API, not a copy-paste error —
+// confirmed against /api/v2/stages and /api/v2/pipelines responses.
 type Stage struct {
 	ID              int64  `json:"id"`
 	Name            string `json:"name"`

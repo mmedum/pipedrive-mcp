@@ -2,8 +2,6 @@ package tools_test
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
@@ -33,6 +31,18 @@ func (f *fakePipelinesClient) ListStages(_ context.Context, pipelineID int64) ([
 	return f.stages, f.stagesErr
 }
 
+// pipelineRow / stageRow mirror the JSON shape RegisterPipelines emits.
+// We can't reference the unexported handler-local structs directly, so
+// the tests carry a parallel shape. Drift is caught by the JSON tag
+// names, not by Go type identity.
+type pipelineRow struct {
+	ID      int64  `json:"id"`
+	Name    string `json:"name"`
+	OrderNr int    `json:"order_nr"`
+	Active  bool   `json:"active"`
+	URL     string `json:"url"`
+}
+
 func TestListPipelines_HappyPath(t *testing.T) {
 	fake := &fakePipelinesClient{
 		pipelines: []pipedrive.Pipeline{
@@ -55,11 +65,9 @@ func TestListPipelines_HappyPath(t *testing.T) {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
 	var out struct {
-		Pipelines []tools.PipelineSummary `json:"pipelines"`
+		Pipelines []pipelineRow `json:"pipelines"`
 	}
-	if err := decodeStructured(res.StructuredContent, &out); err != nil {
-		t.Fatalf("decode StructuredContent: %v (raw: %#v)", err, res.StructuredContent)
-	}
+	testutil.DecodeStructured(t, res.StructuredContent, &out)
 	if len(out.Pipelines) != 2 {
 		t.Fatalf("got %d pipelines, want 2", len(out.Pipelines))
 	}
@@ -151,12 +159,10 @@ func TestListStages_OmittedFilterMeansAll(t *testing.T) {
 }
 
 func TestListPipelines_RegistersInDumpRegistry(t *testing.T) {
-	// Sanity: after Register runs, Default dump-schemas registry has
-	// our tools recorded so --dump-schemas (and the CI schema-diff
-	// gate) sees them.
-	tools.Default = tools.New() // reset for test isolation
-	t.Cleanup(func() { tools.Default = tools.New() })
-
+	// Sanity: after Register runs, the dump-schemas registry has our
+	// tools recorded so --dump-schemas (and the CI schema-diff gate)
+	// sees them. We assert presence, not exclusivity, so other tests
+	// in this binary can register their own tools without ordering.
 	h := testutil.Connect(t, func(s *mcp.Server) {
 		tools.RegisterPipelines(s, &fakePipelinesClient{}, "acme")
 	})
@@ -181,24 +187,4 @@ func contentText(res *mcp.CallToolResult) string {
 		}
 	}
 	return ""
-}
-
-// decodeStructured re-encodes the SDK's StructuredContent (a map[string]any
-// after the JSON-RPC roundtrip) into the test's expected type.
-func decodeStructured(v any, into any) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(b, into)
-}
-
-// Sanity check that errors.Is wiring stays consistent with the tool's
-// error-class mapping.
-func TestErrorClassWiring(t *testing.T) {
-	// This is here as a marker; the real coverage is in
-	// TestListPipelines_UpstreamError and similar.
-	if !errors.Is(&pipedrive.APIError{Class: pipedrive.ErrNotFound}, pipedrive.ErrNotFound) {
-		t.Fatal("APIError.Unwrap broken")
-	}
 }

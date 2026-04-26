@@ -2,8 +2,6 @@ package tools
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -15,12 +13,13 @@ import (
 // the real HTTP client (tests pass a fake).
 type pipelinesClient interface {
 	ListPipelines(ctx context.Context) ([]pipedrive.Pipeline, error)
+	// ListStages returns stages, optionally filtered to a single pipeline.
+	// pipelineID == 0 is the "all pipelines" sentinel — Pipedrive's
+	// /api/v2/stages endpoint omits the query param entirely in that case.
 	ListStages(ctx context.Context, pipelineID int64) ([]pipedrive.Stage, error)
 }
 
-// PipelineSummary is the LLM-facing shape of a single pipeline.
-// The url field points back at the Pipedrive web UI for human follow-up.
-type PipelineSummary struct {
+type pipelineSummary struct {
 	ID      int64  `json:"id" jsonschema:"the pipeline's numeric id"`
 	Name    string `json:"name" jsonschema:"human-readable pipeline name"`
 	OrderNr int    `json:"order_nr" jsonschema:"display order; lower numbers come first in Pipedrive's UI"`
@@ -28,8 +27,7 @@ type PipelineSummary struct {
 	URL     string `json:"url" jsonschema:"link to the pipeline in the Pipedrive web UI"`
 }
 
-// StageSummary is the LLM-facing shape of a single stage.
-type StageSummary struct {
+type stageSummary struct {
 	ID              int64  `json:"id" jsonschema:"the stage's numeric id"`
 	Name            string `json:"name" jsonschema:"human-readable stage name"`
 	OrderNr         int    `json:"order_nr" jsonschema:"display order within the pipeline; lower comes first"`
@@ -44,7 +42,7 @@ type StageSummary struct {
 type listPipelinesInput struct{}
 
 type listPipelinesOutput struct {
-	Pipelines []PipelineSummary `json:"pipelines" jsonschema:"every pipeline the API token's user can see"`
+	Pipelines []pipelineSummary `json:"pipelines" jsonschema:"every pipeline the API token's user can see"`
 }
 
 type listStagesInput struct {
@@ -52,7 +50,7 @@ type listStagesInput struct {
 }
 
 type listStagesOutput struct {
-	Stages []StageSummary `json:"stages" jsonschema:"matching stages, sorted by Pipedrive's order_nr within each pipeline"`
+	Stages []stageSummary `json:"stages" jsonschema:"matching stages, sorted by Pipedrive's order_nr within each pipeline"`
 }
 
 // RegisterPipelines wires list_pipelines and list_stages into the MCP
@@ -70,14 +68,14 @@ func RegisterPipelines(s *mcp.Server, c pipelinesClient, companyDomain string) {
 		if err != nil {
 			return errorResult(err), listPipelinesOutput{}, nil
 		}
-		out := listPipelinesOutput{Pipelines: make([]PipelineSummary, 0, len(got))}
+		out := listPipelinesOutput{Pipelines: make([]pipelineSummary, 0, len(got))}
 		for _, p := range got {
-			out.Pipelines = append(out.Pipelines, PipelineSummary{
+			out.Pipelines = append(out.Pipelines, pipelineSummary{
 				ID:      p.ID,
 				Name:    p.Name,
 				OrderNr: p.OrderNr,
 				Active:  p.Active,
-				URL:     pipelineURL(companyDomain, p.ID),
+				URL:     pipedrive.WebURL(companyDomain, pipedrive.WebURLPipeline, p.ID),
 			})
 		}
 		return nil, out, nil
@@ -92,9 +90,9 @@ func RegisterPipelines(s *mcp.Server, c pipelinesClient, companyDomain string) {
 		if err != nil {
 			return errorResult(err), listStagesOutput{}, nil
 		}
-		out := listStagesOutput{Stages: make([]StageSummary, 0, len(got))}
+		out := listStagesOutput{Stages: make([]stageSummary, 0, len(got))}
 		for _, st := range got {
-			out.Stages = append(out.Stages, StageSummary{
+			out.Stages = append(out.Stages, stageSummary{
 				ID:              st.ID,
 				Name:            st.Name,
 				OrderNr:         st.OrderNr,
@@ -105,48 +103,4 @@ func RegisterPipelines(s *mcp.Server, c pipelinesClient, companyDomain string) {
 		}
 		return nil, out, nil
 	})
-}
-
-// errorResult wraps an internal/pipedrive error into a CallToolResult
-// with isError: true. Per CLAUDE.md (MCP error mapping): upstream API
-// failures become tool execution errors, not JSON-RPC protocol errors,
-// so the LLM client gets a renderable error message rather than a
-// generic transport failure.
-func errorResult(err error) *mcp.CallToolResult {
-	msg := err.Error()
-	// Strip the `pipedrive: ` prefix for shorter LLM-facing text.
-	const prefix = "pipedrive: "
-	if len(msg) >= len(prefix) && msg[:len(prefix)] == prefix {
-		msg = msg[len(prefix):]
-	}
-	// Surface the typed class as a leading word so the LLM can branch.
-	var class string
-	switch {
-	case errors.Is(err, pipedrive.ErrUnauthorized):
-		class = "auth"
-	case errors.Is(err, pipedrive.ErrForbiddenPermission):
-		class = "permission"
-	case errors.Is(err, pipedrive.ErrForbiddenBusinessRule):
-		class = "business_rule"
-	case errors.Is(err, pipedrive.ErrNotFound):
-		class = "not_found"
-	case errors.Is(err, pipedrive.ErrRateLimited):
-		class = "rate_limited"
-	case errors.Is(err, pipedrive.ErrServerError):
-		class = "server_error"
-	case errors.Is(err, pipedrive.ErrValidation):
-		class = "validation"
-	default:
-		class = "error"
-	}
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: fmt.Sprintf("[%s] %s", class, msg)},
-		},
-	}
-}
-
-func pipelineURL(domain string, id int64) string {
-	return fmt.Sprintf("https://%s.pipedrive.com/pipeline/%d", domain, id)
 }
