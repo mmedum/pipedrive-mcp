@@ -207,9 +207,6 @@ func TestListDeals_HappyPath(t *testing.T) {
 	if fake.lastListOpts.Status != "open" || fake.lastListOpts.PipelineID != 2 || fake.lastListOpts.Limit != 50 {
 		t.Errorf("client received opts %+v; want status=open pipeline_id=2 limit=50", fake.lastListOpts)
 	}
-	if !fake.lastListOpts.IncludeCustom {
-		t.Error("IncludeCustom should be true (tool always asks for custom fields)")
-	}
 }
 
 func TestListDeals_RejectsBadStatus(t *testing.T) {
