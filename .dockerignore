@@ -1,0 +1,16 @@
+.git
+.github
+.idea
+.vscode
+docs
+scripts
+*.md
+!README.md
+*.test
+*.out
+cov.out
+.env
+.env.*
+.entire
+.claude
+dist/
