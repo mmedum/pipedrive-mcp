@@ -52,7 +52,8 @@ pipedrive-mcp/
 │   │   ├── persons.go         # /persons + /personFields + cache wiring
 │   │   ├── organizations.go   # /organizations + /organizationFields + cache wiring
 │   │   ├── pipelines.go       # /pipelines
-│   │   └── stages.go          # /stages
+│   │   ├── stages.go          # /stages
+│   │   └── activities.go      # /activities
 │   ├── server/                # MCP SDK wiring + cache warm-up fan-out
 │   │   ├── server.go
 │   │   └── testutil/          # in-memory MCP transport for tool-handler tests
@@ -64,6 +65,7 @@ pipedrive-mcp/
 │       ├── deals.go           # get_deal + list_deals
 │       ├── persons.go         # get_person
 │       ├── organizations.go   # get_organization
+│       ├── activities.go      # get_activity + list_activities
 │       └── search.go          # search (unified itemSearch wrapper)
 ├── docs/                      # operator docs (this tree)
 └── scripts/                   # CI helper scripts

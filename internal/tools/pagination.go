@@ -1,0 +1,23 @@
+package tools
+
+// Cursor-paginated list_X tools share a single page-size policy.
+// Putting it here (rather than re-declaring `(25, 100)` in every
+// resource file) prevents the caps from drifting apart silently —
+// nothing else enforced that `list_deals` and `list_activities`
+// matched.
+const (
+	defaultListLimit = 25
+	maxListLimit     = 100
+)
+
+// clampLimit returns in clamped to [1, maxListLimit], with 0/negative
+// defaulting to defaultListLimit.
+func clampLimit(in int) int {
+	if in <= 0 {
+		return defaultListLimit
+	}
+	if in > maxListLimit {
+		return maxListLimit
+	}
+	return in
+}
