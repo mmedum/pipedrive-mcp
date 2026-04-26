@@ -13,6 +13,26 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Added
+- `pipedrive-mcp status` subcommand. Reports the active workspace
+  domain (and where it was resolved from), the token source (keyring
+  or env var), and the result of an auth probe against Pipedrive.
+  Supports `--no-probe` for offline status checks.
+- After `pipedrive-mcp login` succeeds, the chosen workspace domain is
+  now recorded in `os.UserConfigDir()/pipedrive-mcp/config.json`
+  (`~/.config/pipedrive-mcp/config.json` on Linux). Subsequent
+  invocations of `pipedrive-mcp` (server) and `pipedrive-mcp status`
+  no longer require `PIPEDRIVE_COMPANY_DOMAIN` to be set in env when a
+  default is recorded. Resolution order: env > userconfig > error.
+- `pipedrive-mcp logout` clears the recorded default domain when it
+  matches the workspace being logged out of; other workspaces' tokens
+  and pointers are left untouched.
+- `internal/userconfig/` package wrapping the JSON config file, with
+  atomic write, 0600 file perms, and 0700 dir perms.
+- `config.LoadFor(domain)` so callers (the server entrypoint) can
+  resolve the domain from any source and validate it through the
+  same code path as `config.Load()`.
+
 ### Added (Phase 1)
 - **`list_pipelines`** tool — returns every Pipedrive pipeline the API
   token's user can see (id, name, order, active flag, link to the
