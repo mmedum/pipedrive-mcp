@@ -1,6 +1,6 @@
 // Package pipedrive contains the typed HTTP client for the Pipedrive REST
-// API (v2, with documented v1 carve-outs). The client has no MCP imports;
-// it is reusable independently of the transport.
+// API. The client has no MCP imports; it is reusable independently of
+// the transport.
 package pipedrive
 
 import (
@@ -40,7 +40,8 @@ func (e *APIError) Unwrap() error { return e.Class }
 // classify actually reads. The full v2 envelope also has `success`,
 // `data`, and `additional_data.next_cursor`; those are decoded by the
 // success path into caller-typed structs and don't belong here. v1
-// uses the same error shape for the notes carve-out.
+// uses the same error shape, so this struct also covers v1 calls when
+// they're added.
 //
 // On v2, error_info is free text ("Please check developers.pipedrive.com").
 // Do not parse it as a structured discriminator — disambiguate 403s on

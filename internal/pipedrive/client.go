@@ -48,9 +48,9 @@ type Client struct {
 }
 
 // Options configures a new Client. BaseURL is the v2 base (e.g.
-// "https://acme.pipedrive.com/api/v2"); only the scheme+host portion is
-// retained — v1 paths are composed against the same host for the
-// documented carve-outs.
+// "https://acme.pipedrive.com/api/v2"); only the scheme+host portion
+// is retained, and v1 paths (when needed) are composed against the
+// same host via the unexported apiPath helper.
 type Options struct {
 	BaseURL string
 	Token   string

@@ -52,7 +52,7 @@ in the user's plan file under
 - `internal/tools/` — MCP tool registrations. One file per resource type.
   Each `Register(...)` adds tools to both `mcp.AddTool` and the parallel
   registry in `registry.go` (so `--dump-schemas` can walk them).
-- `docs/` — user-facing documentation (configuration, operations, security, v1 carve-outs, architecture overview, development).
+- `docs/` — user-facing documentation (configuration, operations, security, architecture overview, development, release runbook).
 - `audit/security-reviews/` — committed `/security-review` outputs from each release boundary.
 - `audit/release-smoke/` — committed Claude Desktop release smoke transcripts.
 - `scripts/` — CI helper scripts.
