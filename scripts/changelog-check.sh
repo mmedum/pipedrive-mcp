@@ -39,8 +39,13 @@ if ! git diff "$base_sha" "$head_sha" -- CHANGELOG.md | grep -qE '^\+'; then
   exit 1
 fi
 
-# Verify the new lines land under the [Unreleased] section.
-unreleased_added=$(git diff "$base_sha" "$head_sha" -- CHANGELOG.md \
+# Verify the new lines land under the [Unreleased] section. Use a
+# generous unified-context window so the [Unreleased] header is
+# always present in the diff regardless of how long the changelog
+# has grown — without this, hunks for new entries land far below
+# the header and the awk state machine never flips into "in
+# Unreleased" mode.
+unreleased_added=$(git diff --unified=99999 "$base_sha" "$head_sha" -- CHANGELOG.md \
   | awk '
       /^@@/ { inhunk=1 }
       inhunk && /^\+## \[/ { in_unreleased = ($0 ~ /\[Unreleased\]/); next }
