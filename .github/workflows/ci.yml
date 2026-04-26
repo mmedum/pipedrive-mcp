@@ -12,6 +12,7 @@ env:
   GO_VERSION: "1.26.2"
   GOVULNCHECK_VERSION: "v1.1.4"
   GO_LICENSES_VERSION: "v1.6.0"
+  GOLANGCI_LINT_VERSION: "v2.11.4"
 
 jobs:
   build-and-test:
@@ -74,9 +75,9 @@ jobs:
           done
           [ "$fail" = "0" ]
 
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
 
   govulncheck:
     name: govulncheck
