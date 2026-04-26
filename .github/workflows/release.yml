@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+env:
+  GO_VERSION: "1.26.0"
+  GORELEASER_VERSION: "v2.13.1"
+
+jobs:
+  archives:
+    name: Build, sign, publish archives
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: false
+          cache: true
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Install goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: ${{ env.GORELEASER_VERSION }}
+          install-only: true
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          bash scripts/extract-release-notes.sh "${GITHUB_REF_NAME}" > /tmp/notes.md
+          if [ ! -s /tmp/notes.md ]; then
+            echo "::error::No CHANGELOG.md section found for ${GITHUB_REF_NAME} — release-prep step missed?"
+            exit 1
+          fi
+
+      - name: Reproducible-build sanity check (goreleaser single-target)
+        # Run goreleaser in single-target snapshot mode twice and diff
+        # the produced binary. Single source of truth for build flags
+        # (no drift between this check and the actual release build),
+        # and goreleaser strips the `v` prefix the same way both runs.
+        run: |
+          set -euo pipefail
+          for i in 1 2; do
+            goreleaser build --single-target --snapshot --clean --output "/tmp/repro-${i}"
+          done
+          a=$(sha256sum /tmp/repro-1 | awk '{print $1}')
+          b=$(sha256sum /tmp/repro-2 | awk '{print $1}')
+          if [ "$a" != "$b" ]; then
+            echo "::error::reproducible-build sanity check FAILED: $a != $b"
+            exit 1
+          fi
+          echo "reproducible-build OK ($a)"
+
+      - name: Run goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: ${{ env.GORELEASER_VERSION }}
+          args: release --clean --release-notes=/tmp/notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate SLSA L2 build-provenance attestations
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: 'dist/pipedrive-mcp-*.tar.gz dist/pipedrive-mcp-*.zip dist/SHA256SUMS'
