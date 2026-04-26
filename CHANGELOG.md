@@ -45,6 +45,21 @@ breaking changes require a MAJOR bump.
   same code path as `config.Load()`.
 
 ### Added (Phase 1)
+- **`search`** tool — free-text search across deals, persons,
+  organizations, products, files, and leads via Pipedrive's
+  `/api/v2/itemSearch`. Designed as the gateway tool for natural-
+  language CRM queries: when a user asks about "deals for GLS", the
+  LLM calls `search(term="GLS", types=["organization"])` first to
+  resolve the org_id, then drills into `list_deals(org_id=...)` /
+  `get_deal(...)`. Returns id, type, name, relevance score, and
+  type-specific details (org country/city, person email/phone, deal
+  value/currency/status). Cursor-paginated; default limit 25, max
+  100. Output includes a `truncated` boolean — set when more results
+  exist beyond the page — so the LLM never silently undercounts.
+  Tool description disambiguates use vs `list_deals`: search for
+  name/term lookups, `list_deals` for structured filters
+  (stage/owner/value/dates) since itemSearch only covers a subset of
+  custom-field types.
 - **`get_deal`** tool — fetch a single Pipedrive deal by `deal_id`.
   Returns id, title, value, currency, status (open | won | lost |
   deleted), stage_id, pipeline_id, owner_id, person_id, org_id,
