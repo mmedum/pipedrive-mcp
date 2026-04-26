@@ -61,7 +61,7 @@ func RegisterSearch(s *mcp.Server, c searchClient) {
 		Name: "search",
 		Description: "Search Pipedrive for deals, persons, organizations, products, files, or leads matching a free-text term. " +
 			"Use this to resolve a name to a numeric id BEFORE calling get_deal, list_deals, or other id-keyed tools — " +
-			"e.g. when the user asks about \"deals for GLS\", call search(term=\"GLS\", types=[\"organization\"]) first to get the org_id, " +
+			"e.g. when the user asks about \"deals for Acme\", call search(term=\"Acme\", types=[\"organization\"]) first to get the org_id, " +
 			"then call list_deals(org_id=...). Returns id, type, name, relevance score, and type-specific details per hit. " +
 			"Default limit is 25, max 100. " +
 			"When `truncated` is true, more results exist — paginate via `next_cursor` or refine the term; do not treat the page as exhaustive. " +
