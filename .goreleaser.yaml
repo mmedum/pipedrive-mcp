@@ -1,0 +1,118 @@
+# goreleaser config for pipedrive-mcp.
+#
+# This file owns: cross-compiled archives, SHA256SUMS, cosign-signed
+# blobs, CycloneDX SBOM, GitHub Release publishing.
+#
+# It does NOT own:
+#   - Docker image build/push (see .github/workflows/docker-publish.yml)
+#   - SLSA build-provenance attestation (see .github/workflows/release.yml)
+#   - Release-notes generation; we keep CHANGELOG.md as the source of
+#     truth and the workflow extracts the matching section before
+#     calling goreleaser.
+
+version: 2
+
+project_name: pipedrive-mcp
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod verify
+
+builds:
+  - id: pipedrive-mcp
+    main: ./cmd/pipedrive-mcp
+    binary: pipedrive-mcp
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/mmedum/pipedrive-mcp/internal/version.Version={{ .Version }}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: SHA256SUMS
+  algorithm: sha256
+
+signs:
+  # Sign every artifact (archives + checksums) via cosign keyless OIDC.
+  # Produces .sig and .cert next to each artifact.
+  - id: cosign-keyless
+    cmd: cosign
+    args:
+      - sign-blob
+      - "--yes"
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+    artifacts: all
+    output: true
+
+sboms:
+  - id: cyclonedx
+    artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.cdx.json"
+    cmd: syft
+    args:
+      - scan
+      - "{{ .Path }}"
+      - --source-name
+      - "{{ .ProjectName }}"
+      - --source-version
+      - "{{ .Version }}"
+      - -o
+      - "cyclonedx-json={{ .Document }}"
+
+changelog:
+  # We maintain CHANGELOG.md by hand (Keep a Changelog format with rich
+  # `### Security` / `### Breaking` sections). Goreleaser's commit-log
+  # changelog can't reproduce that, so we disable it and pass our own
+  # extracted section to `goreleaser release --release-notes`.
+  disable: true
+
+release:
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    Verify a binary signature:
+
+    ```sh
+    cosign verify-blob \
+      --certificate pipedrive-mcp-{{ .Version }}-linux-amd64.tar.gz.cert \
+      --signature   pipedrive-mcp-{{ .Version }}-linux-amd64.tar.gz.sig \
+      --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.+' \
+      --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+      pipedrive-mcp-{{ .Version }}-linux-amd64.tar.gz
+    ```
+
+    Verify the SLSA build-provenance attestation:
+
+    ```sh
+    gh attestation verify pipedrive-mcp-{{ .Version }}-linux-amd64.tar.gz --owner mmedum
+    ```

@@ -1,0 +1,223 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.26.2"
+  GOVULNCHECK_VERSION: "v1.1.4"
+  GO_LICENSES_VERSION: "v1.6.0"
+  GOLANGCI_LINT_VERSION: "v2.11.4"
+
+jobs:
+  build-and-test:
+    name: Build, vet, lint, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: false
+          cache: true
+
+      - name: Verify gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "gofmt issues:" >&2
+            echo "$out" >&2
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Build (host target)
+        run: go build ./...
+
+      - name: go mod verify
+        run: go mod verify
+
+      - name: Test (race, shuffle, coverage)
+        run: go test -race -shuffle=on -count=1 -coverprofile=cov.out ./...
+
+      - name: Coverage thresholds
+        run: |
+          set -euo pipefail
+          if [ ! -s cov.out ]; then
+            echo "no coverage output (no Go packages yet?) — skipping threshold check"
+            exit 0
+          fi
+          # Compute statement-weighted coverage per package directly from
+          # cov.out. Each non-header line is "path:range numStatements count";
+          # statement coverage = sum(numStatements where count > 0) /
+          # sum(numStatements). Matches what `go test` prints.
+          fail=0
+          for pkg in internal/pipedrive internal/tools internal/credentials; do
+            total=$(awk -v p="$pkg" 'NR > 1 && index($1, p) { s += $2 } END { print s+0 }' cov.out)
+            if [ "$total" = "0" ]; then
+              echo "$pkg not present yet — skipped"
+              continue
+            fi
+            covered=$(awk -v p="$pkg" 'NR > 1 && index($1, p) && $3 > 0 { s += $2 } END { print s+0 }' cov.out)
+            cov=$(awk -v c="$covered" -v t="$total" 'BEGIN { printf "%.1f", c*100/t }')
+            echo "$pkg coverage: ${cov}%"
+            awk -v c="$cov" 'BEGIN { exit !(c+0 < 80) }' && { echo "::error::$pkg coverage ${cov}% < 80%"; fail=1; }
+          done
+          [ "$fail" = "0" ]
+
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: false
+          cache: true
+      - run: |
+          go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}
+          govulncheck ./...
+
+  licenses:
+    name: License compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: false
+          cache: true
+      - run: |
+          go install github.com/google/go-licenses@${{ env.GO_LICENSES_VERSION }}
+          go-licenses check ./... \
+            --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
+
+  staleness:
+    name: Dependency staleness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: false
+          cache: true
+      - run: bash scripts/staleness-check.sh
+
+  changelog:
+    name: CHANGELOG entry
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: bash scripts/changelog-check.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+
+  schema-diff:
+    name: Tool schema diff
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: false
+          cache: true
+      - name: Build PR binary and dump schemas
+        run: |
+          go build -o /tmp/pr-bin ./cmd/pipedrive-mcp
+          /tmp/pr-bin --dump-schemas > /tmp/pr-schemas.json
+      - name: Build base binary and dump schemas
+        run: |
+          set -euo pipefail
+          base=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          if [ -z "$base" ]; then
+            echo "no prior release tag yet — skipping schema diff"
+            exit 0
+          fi
+          git worktree add /tmp/base-tree "$base"
+          cd /tmp/base-tree
+          go build -o /tmp/base-bin ./cmd/pipedrive-mcp || { echo "base build failed — skipping"; exit 0; }
+          /tmp/base-bin --dump-schemas > /tmp/base-schemas.json
+      - name: Diff
+        run: |
+          if [ -f /tmp/base-schemas.json ]; then
+            diff -u /tmp/base-schemas.json /tmp/pr-schemas.json || {
+              if git log -1 --format=%B "${{ github.event.pull_request.head.sha }}" | grep -q "^BREAKING CHANGE:"; then
+                echo "Breaking schema change present, footer present — OK"
+                exit 0
+              fi
+              echo "::error::tool schema changed without BREAKING CHANGE: footer"
+              exit 1
+            }
+          fi
+
+  docker:
+    name: Docker build, scan, smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: pipedrive-mcp:ci
+          build-args: VERSION=ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: pipedrive-mcp:ci
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignorefile: security/known-cves.yaml
+      - name: Stdio smoke (Docker)
+        run: bash scripts/stdio-smoke.sh docker pipedrive-mcp:ci
+
+  stdio-smoke:
+    name: Stdio smoke (binary)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: false
+          cache: true
+      - run: go build -o /tmp/pipedrive-mcp ./cmd/pipedrive-mcp
+      - run: bash scripts/stdio-smoke.sh binary /tmp/pipedrive-mcp
+
+  secret-scan:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

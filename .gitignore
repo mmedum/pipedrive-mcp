@@ -1,0 +1,40 @@
+# Binaries
+/pipedrive-mcp
+/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+*.out
+cov.out
+coverage.html
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local env files (must never be committed)
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build cache
+/build/
+
+# Per-developer tooling state (not portable across contributors).
+# .claude/ holds Claude Code session config; .entire/ holds Entire
+# checkpoint state. Both are user-local.
+.claude/
+.entire/
+
+# direnv
+.envrc
