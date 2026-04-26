@@ -21,7 +21,12 @@ breaking changes require a MAJOR bump.
 - **`list_stages`** tool — returns Pipedrive stages, optionally filtered
   to one pipeline via the `pipeline_id` input. Each stage carries id,
   name, order_nr, active flag, owning pipeline_id, and Pipedrive's
-  default deal_probability (0-100).
+  default deal_probability (0-100). When `pipeline_id` is set, the tool
+  validates the pipeline exists and is visible to the API token's user;
+  unknown IDs return a `[not_found]` error rather than an empty array
+  (Pipedrive's `/api/v2/stages` returns `[]` for both real-but-empty and
+  nonexistent pipelines, so the validation is needed for the LLM to tell
+  them apart).
 - `internal/server/testutil` package — Connect helper that wires an
   in-memory client to a server with a tool registered, via
   `mcp.NewInMemoryTransports`. The canonical pattern for tool-handler

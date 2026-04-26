@@ -20,9 +20,12 @@ type fakePipelinesClient struct {
 	stages          []pipedrive.Stage
 	stagesErr       error
 	lastPipelineArg int64
+
+	listPipelinesCalls int
 }
 
 func (f *fakePipelinesClient) ListPipelines(_ context.Context) ([]pipedrive.Pipeline, error) {
+	f.listPipelinesCalls++
 	return f.pipelines, f.pipelinesErr
 }
 
@@ -110,6 +113,9 @@ func TestListPipelines_UpstreamError(t *testing.T) {
 
 func TestListStages_FilterPassedThrough(t *testing.T) {
 	fake := &fakePipelinesClient{
+		pipelines: []pipedrive.Pipeline{
+			{ID: 5, Name: "Sales", Active: true},
+		},
 		stages: []pipedrive.Stage{
 			{ID: 10, Name: "Lead In", OrderNr: 0, Active: true, PipelineID: 5, DealProbability: 10},
 		},
@@ -131,6 +137,45 @@ func TestListStages_FilterPassedThrough(t *testing.T) {
 	}
 	if fake.lastPipelineArg != 5 {
 		t.Errorf("client received pipelineID=%d, want 5", fake.lastPipelineArg)
+	}
+	if fake.listPipelinesCalls != 1 {
+		t.Errorf("listPipelinesCalls = %d, want 1 (existence check)", fake.listPipelinesCalls)
+	}
+}
+
+func TestListStages_PipelineNotFound(t *testing.T) {
+	fake := &fakePipelinesClient{
+		pipelines: []pipedrive.Pipeline{
+			{ID: 1, Name: "Sales", Active: true},
+		},
+		// Stages slice is intentionally non-empty: if the validation
+		// short-circuit ever regresses, this test surfaces it (we'd
+		// see stage_count=1 instead of an error).
+		stages: []pipedrive.Stage{
+			{ID: 10, Name: "Should Not Be Returned", PipelineID: 1},
+		},
+	}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterPipelines(s, fake, "acme")
+	})
+	defer h.Close()
+
+	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "list_stages",
+		Arguments: map[string]any{"pipeline_id": 99999},
+	})
+	if err != nil {
+		t.Fatalf("CallTool transport error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected isError=true on unknown pipeline, got: %+v", res.Content)
+	}
+	text := contentText(res)
+	if !strings.HasPrefix(text, "[not_found]") {
+		t.Errorf("error text = %q; want [not_found] prefix", text)
+	}
+	if !strings.Contains(text, "99999") {
+		t.Errorf("error text = %q; want it to mention the unknown id 99999", text)
 	}
 }
 
@@ -155,6 +200,9 @@ func TestListStages_OmittedFilterMeansAll(t *testing.T) {
 	}
 	if fake.lastPipelineArg != 0 {
 		t.Errorf("client received pipelineID=%d, want 0 (all pipelines)", fake.lastPipelineArg)
+	}
+	if fake.listPipelinesCalls != 0 {
+		t.Errorf("listPipelinesCalls = %d, want 0 — pipeline_id=0 should skip the existence check", fake.listPipelinesCalls)
 	}
 }
 
