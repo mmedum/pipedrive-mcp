@@ -55,8 +55,18 @@ The other packages are mostly wiring and are not coverage-gated.
 The same gates that run in CI on every PR. Use this before pushing.
 
 ```sh
-make check         # runs gofmt, vet, lint, test (race), govulncheck, licenses
+make install-tools # install govulncheck, go-licenses, golangci-lint at pinned versions
+make check         # runs verify-tool-versions, gofmt, vet, lint, test (race), govulncheck, licenses, staleness
 ```
+
+`make check` includes `verify-tool-versions` as its first step. If
+your local `golangci-lint` version doesn't match the pin in CI
+(`GOLANGCI_LINT_VERSION` in `.github/workflows/ci.yml`), the gate
+fails before doing anything else and tells you to run
+`make install-tools`. This is deliberate: every CI failure on this
+project so far has been a tool-version drift between local and CI,
+and the verify-tool-versions step is the canary that surfaces it
+before a push.
 
 The `Makefile` is the canonical list. Inspect it to see what each
 target does. To run gates one at a time:
