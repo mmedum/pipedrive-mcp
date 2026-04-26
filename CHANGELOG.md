@@ -39,7 +39,7 @@ breaking changes require a MAJOR bump.
   multi-arch (linux/amd64, linux/arm64) push to GHCR with cosign image
   signing by digest. Pattern matches `github/github-mcp-server`.
 - Project documentation tree under `docs/` (architecture, configuration,
-  development, operations, release, security, v1 carve-outs).
+  development, operations, release, security).
 - Project meta files (`SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
   `CLAUDE.md`).
 - CI helper scripts (`scripts/changelog-check.sh`, `scripts/stdio-smoke.sh`,
