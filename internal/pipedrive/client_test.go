@@ -185,7 +185,7 @@ func TestClient_MalformedJSON(t *testing.T) {
 	var out struct {
 		Data []any `json:"data"`
 	}
-	err := newTestClient(srv).do(context.Background(), apiV2, "GET", "/dealFields", nil, &out)
+	err := newTestClient(srv).do(context.Background(), "/dealFields", &out)
 	if err == nil {
 		t.Fatal("expected decode error")
 	}
