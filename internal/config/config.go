@@ -87,16 +87,26 @@ func ValidateDomain(s string) (string, error) {
 }
 
 // Load reads configuration from the process environment and validates it.
+// PIPEDRIVE_COMPANY_DOMAIN is required; for callers that resolve the
+// domain themselves (e.g., from a userconfig file fallback), use LoadFor.
 func Load() (Config, error) {
+	return LoadFor(os.Getenv("PIPEDRIVE_COMPANY_DOMAIN"))
+}
+
+// LoadFor reads configuration with a pre-resolved company domain. The
+// domain is validated through ValidateDomain; an empty or malformed
+// value returns an error. All other config still comes from the
+// environment.
+func LoadFor(rawDomain string) (Config, error) {
 	c := Config{
 		LogLevel:    LogInfo,
 		LogFormat:   LogText,
 		HTTPTimeout: 30 * time.Second,
 	}
 
-	domain, err := ValidateDomain(os.Getenv("PIPEDRIVE_COMPANY_DOMAIN"))
+	domain, err := ValidateDomain(rawDomain)
 	if err != nil {
-		return Config{}, fmt.Errorf("config: PIPEDRIVE_COMPANY_DOMAIN: %w", err)
+		return Config{}, fmt.Errorf("config: company domain: %w", err)
 	}
 	c.CompanyDomain = domain
 
