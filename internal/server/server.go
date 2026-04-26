@@ -22,6 +22,7 @@ func New(name, version string, client *pipedrive.Client, domain string) *mcp.Ser
 	}, nil)
 
 	tools.RegisterPipelines(srv, client, domain)
+	tools.RegisterDeals(srv, client, domain)
 
 	return srv
 }

@@ -45,6 +45,37 @@ breaking changes require a MAJOR bump.
   same code path as `config.Load()`.
 
 ### Added (Phase 1)
+- **`get_deal`** tool — fetch a single Pipedrive deal by `deal_id`.
+  Returns id, title, value, currency, status (open | won | lost |
+  deleted), stage_id, pipeline_id, owner_id, person_id, org_id,
+  expected_close_date, won/lost timestamps, lost_reason, and any
+  custom fields resolved by name. Unknown deal_id returns
+  `[not_found]`.
+- **`list_deals`** tool — search deals with optional filters
+  (`status`, `pipeline_id`, `stage_id`, `owner_id`, `person_id`,
+  `org_id`). Cursor-paginated; default limit 25, max 100. Returns
+  the same shape as `get_deal` plus a `next_cursor` for additional
+  pages.
+- `internal/pipedrive/FieldCache` — generic, lazy-loaded, sync.Once-
+  guarded cache for Pipedrive field metadata. Reload() clears the
+  cache so the future `refresh_field_cache` tool (Phase 1.9) can
+  trigger a refetch. Persons / organizations / products will reuse
+  this same type as their PRs land.
+- `*pipedrive.Client.DealFields` — per-Client deal-field cache wired
+  to `ListDealFields`. First `get_deal` or `list_deals` call
+  triggers the fetch; subsequent calls hit the cache.
+- Custom-field hash-key resolution: deal output's `custom_fields` is
+  keyed by human-readable name (e.g. `"Account Manager"`) where the
+  field metadata is in cache. Unknown keys (newly-created fields the
+  cache hasn't seen yet) pass through under their original 40-char
+  hash so no data is silently lost.
+- Cursor-based pagination plumbing (`additional_data.next_cursor`)
+  surfaced through the deals tools.
+- HTTP body read limit raised from 1 MiB to 8 MiB to accommodate
+  list responses with heavy custom fields. Tool inputs cap page size
+  at 100 so the limit is generous in practice.
+
+
 - **`list_pipelines`** tool — returns every Pipedrive pipeline the API
   token's user can see (id, name, order, active flag, link to the
   Pipedrive UI). No filtering or pagination; workspaces typically have
