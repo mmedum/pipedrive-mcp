@@ -177,6 +177,9 @@ func TestListStages_PipelineNotFound(t *testing.T) {
 	if !strings.Contains(text, "99999") {
 		t.Errorf("error text = %q; want it to mention the unknown id 99999", text)
 	}
+	if fake.lastPipelineArg != 0 {
+		t.Errorf("ListStages was called with pipelineID=%d; want it to never be called when validation fails", fake.lastPipelineArg)
+	}
 }
 
 func TestListStages_OmittedFilterMeansAll(t *testing.T) {

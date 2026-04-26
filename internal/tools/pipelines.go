@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -54,24 +55,6 @@ type listStagesOutput struct {
 	Stages []stageSummary `json:"stages" jsonschema:"matching stages, sorted by Pipedrive's order_nr within each pipeline"`
 }
 
-func pipelineVisible(pipes []pipedrive.Pipeline, id int64) bool {
-	for _, p := range pipes {
-		if p.ID == id {
-			return true
-		}
-	}
-	return false
-}
-
-func pipelineNotFound(id int64) *pipedrive.APIError {
-	return &pipedrive.APIError{
-		Class:    pipedrive.ErrNotFound,
-		Status:   404,
-		Message:  fmt.Sprintf("pipeline %d does not exist or is not visible to the API token's user", id),
-		Endpoint: "/api/v2/pipelines",
-	}
-}
-
 // RegisterPipelines wires list_pipelines and list_stages into the MCP
 // server. The companyDomain is needed for URL injection on outputs;
 // pass cfg.CompanyDomain from the server constructor.
@@ -105,21 +88,19 @@ func RegisterPipelines(s *mcp.Server, c pipelinesClient, companyDomain string) {
 		Description: "List Pipedrive stages, optionally filtered to a single pipeline. A stage represents a step in a pipeline (e.g. \"Lead In\", \"Negotiation\", \"Closed Won\"). Returns id, name, order_nr, active flag, owning pipeline_id, and Pipedrive's default deal_probability (0-100) for each stage.",
 		Annotations: &readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listStagesInput) (*mcp.CallToolResult, listStagesOutput, error) {
-		// Pipedrive's /api/v2/stages?pipeline_id=N returns an empty array
-		// for pipelines that don't exist or aren't visible to the token's
-		// user — same shape as a real-but-empty pipeline. The LLM can't
-		// tell those cases apart from the response alone, so validate the
-		// filter against ListPipelines and surface a [not_found] error
-		// when the ID doesn't match. Phase 1's pipelines list is bounded
-		// (workspaces typically have under 20), so the extra call is
-		// cheap; a future cache lands with the custom-field cache.
+		// Pipedrive's /api/v2/stages returns an empty array both for a
+		// real-but-empty pipeline AND for an unknown/invisible pipeline.
+		// Validate against ListPipelines so the LLM gets a [not_found]
+		// error in the latter case instead of a silently-empty result.
 		if in.PipelineID > 0 {
-			pipes, err := c.ListPipelines(ctx)
+			pipelines, err := c.ListPipelines(ctx)
 			if err != nil {
 				return errorResult(err), listStagesOutput{}, nil
 			}
-			if !pipelineVisible(pipes, in.PipelineID) {
-				return errorResult(pipelineNotFound(in.PipelineID)), listStagesOutput{}, nil
+			matches := func(p pipedrive.Pipeline) bool { return p.ID == in.PipelineID }
+			if !slices.ContainsFunc(pipelines, matches) {
+				err := fmt.Errorf("%w: pipeline %d does not exist or is not visible to the API token's user", pipedrive.ErrNotFound, in.PipelineID)
+				return errorResult(err), listStagesOutput{}, nil
 			}
 		}
 		got, err := c.ListStages(ctx, in.PipelineID)
