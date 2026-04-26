@@ -26,6 +26,7 @@ func New(name, version string, client *pipedrive.Client, domain string) *mcp.Ser
 
 	tools.RegisterPipelines(srv, client, domain)
 	tools.RegisterDeals(srv, client, domain)
+	tools.RegisterSearch(srv, client)
 
 	if client != nil {
 		// Warm the deal-field cache off the critical path so the
