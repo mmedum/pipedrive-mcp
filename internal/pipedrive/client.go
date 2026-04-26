@@ -16,16 +16,17 @@ import (
 )
 
 // BaseURL returns the v2 base URL for a Pipedrive workspace subdomain.
-// v1 paths (the documented carve-outs in docs/v1-carveouts.md) are
-// composed internally against the same host via apiPath; no exported
-// helper is needed until a caller outside this package wants a
-// pre-built v1 URL.
+// v1 paths are composed internally against the same host via apiPath
+// for the rare endpoint that has no v2 equivalent (notes, planned for
+// Phase 2). No exported v1 helper exists until an outside caller
+// genuinely needs one.
 func BaseURL(domain string) string {
 	return fmt.Sprintf("https://%s.pipedrive.com/api/v2", domain)
 }
 
 // apiVersion picks which Pipedrive API base the request targets. v1 is
-// reserved for documented carve-outs (notes); see docs/v1-carveouts.md.
+// only reachable via internal calls for the few endpoints that have no
+// v2 equivalent.
 type apiVersion int
 
 const (

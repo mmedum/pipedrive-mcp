@@ -11,7 +11,6 @@ server or using its tools from an MCP client, this is for you.
 | [`release.md`](release.md) | Release runbook: pre-tag checklist, the `git tag` step, post-release verification (cosign, attestations, smoke). |
 | [`operations.md`](operations.md) | Run book: log shape, token rotation, how 401/429 surface, performance expectations, how to file a bug. |
 | [`security.md`](security.md) | Operator security guidance: token handling, Docker `--env-file` pattern, threat model, scope of `PIPEDRIVE_ENABLE_DESTRUCTIVE` and `PIPEDRIVE_DRY_RUN`, the LLM audit-trail caveat. |
-| [`v1-carveouts.md`](v1-carveouts.md) | Endpoints this server still calls on Pipedrive's API v1, with their migration plans. Updated whenever Pipedrive ships a v2 equivalent. |
 
 For the reporting policy (vulnerabilities, supported versions, response
 targets) see [`../SECURITY.md`](../SECURITY.md). For the project's

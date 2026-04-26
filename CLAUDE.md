@@ -15,11 +15,11 @@ in the user's plan file under
 
 ## Hard rules
 
-1. **Pipedrive v2-only**, with two documented v1 carve-outs: notes
-   (`/api/v1/notes/*`) and any `/users/me`-class workflow if it surfaces in
-   future. The full carve-out list lives in `docs/v1-carveouts.md`. Do not
-   add new v1 dependencies without updating `docs/v1-carveouts.md` and
-   the relevant code comments.
+1. **Pipedrive v2-only.** Phase 0 takes zero v1 dependencies. The notes
+   carve-out (`/api/v1/notes/*`) is planned for Phase 2 and lands with
+   notes. New v1 dependencies need a CHANGELOG entry under `### Changed`
+   explaining why no v2 endpoint exists, plus an inline code comment
+   at the call site.
 2. **Stdout is reserved for MCP JSON-RPC frames**. All logs go to stderr.
    Never `fmt.Println(...)` from anywhere reachable at runtime; use
    `slog` writing to `os.Stderr`.
@@ -33,9 +33,10 @@ in the user's plan file under
    `error_info` (which is free-text on v2). The signal-substring list
    in `internal/pipedrive/errors.go` is the source of truth.
 6. **`whoami` is intentionally absent.** The startup auth probe is
-   `GET /api/v2/dealFields?limit=1` (`/api/v2/users` does NOT exist on v2 either —
-   `/dealFields` is confirmed v2-supported and present in every workspace).
-   Rationale lives in `docs/v1-carveouts.md`.
+   `GET /api/v2/dealFields?limit=1` (`/api/v2/users` does NOT exist on
+   v2 either — `/dealFields` is confirmed v2-supported and present in
+   every workspace). The probe response is discarded; the LLM never
+   sees it.
 7. **No auto-commit, no auto-push.** The user manages git.
 
 ## Where things go
