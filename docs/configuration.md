@@ -64,13 +64,19 @@ The command:
 ### `pipedrive-mcp logout`
 
 ```sh
-pipedrive-mcp logout
-pipedrive-mcp logout --domain other-domain
+pipedrive-mcp logout                  # logs out of the recorded default workspace
+pipedrive-mcp logout --domain other   # logs out of a non-default workspace
 ```
 
-Removes the keyring entry. No-op if no entry exists. Also clears the
-recorded default-domain pointer in the user-config file (see below) if
-it referenced the workspace being logged out of.
+Resolves the workspace in the same flag → env → userconfig order as
+the server. With no flag, the recorded default from `login` is used,
+so single-workspace setups can run plain `pipedrive-mcp logout`. With
+several workspaces stored, `--domain` selects which one to remove.
+
+Removes the keyring entry (no-op if no entry exists for that
+workspace) and clears the recorded default-domain pointer in
+user-config if it referenced the workspace being logged out of.
+Other workspaces' tokens and pointers are left untouched.
 
 ### `pipedrive-mcp status`
 

@@ -206,14 +206,46 @@ func cmdLogin(args []string) int {
 	return 0
 }
 
-// cmdLogout removes the keyring entry for the given domain.
+// cmdLogout removes the keyring entry for the workspace the user
+// asked to log out of. Resolution order: --domain flag,
+// PIPEDRIVE_COMPANY_DOMAIN env, recorded default in userconfig. When
+// the user has only one stored workspace (the common case), plain
+// `pipedrive-mcp logout` Just Works because the userconfig pointer
+// from `login` is still in place. To remove a non-default workspace
+// out of several stored, pass `--domain`.
 func cmdLogout(args []string) int {
-	domain, code := resolveDomainArg("logout", args, func() {
-		fmt.Fprintf(os.Stderr, "usage: pipedrive-mcp logout [--domain <subdomain>]\n")
-	})
-	if code != 0 {
-		return code
+	fs := flag.NewFlagSet("logout", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		_, _ = fmt.Fprintf(os.Stderr, "usage: pipedrive-mcp logout [--domain <subdomain>]\n\n"+
+			"Removes the OS keyring entry for the workspace and clears the\n"+
+			"userconfig pointer if it referenced that workspace. With no\n"+
+			"flag/env, defaults to the workspace recorded by the most\n"+
+			"recent successful `pipedrive-mcp login`.\n")
 	}
+	domainFlag := fs.String("domain", "", "Pipedrive workspace subdomain (overrides PIPEDRIVE_COMPANY_DOMAIN and userconfig)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	var domain string
+	if raw := strings.TrimSpace(*domainFlag); raw != "" {
+		d, err := config.ValidateDomain(raw)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "logout: %v\n", err)
+			return 2
+		}
+		domain = d
+	} else {
+		ucPath, _ := userconfig.DefaultPath()
+		d, _, err := resolveDomain(os.Getenv("PIPEDRIVE_COMPANY_DOMAIN"), ucPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "logout: %v\n", err)
+			return 2
+		}
+		domain = d
+	}
+
 	if err := credentials.Delete(credentials.Default(), domain); err != nil {
 		fmt.Fprintf(os.Stderr, "logout: %v\n", err)
 		return 1
@@ -354,38 +386,6 @@ func resolveDomain(envValue, ucPath string) (string, DomainSource, error) {
 func resolveDomainAtStartup() (string, DomainSource, error) {
 	ucPath, _ := userconfig.DefaultPath() // empty path falls through cleanly
 	return resolveDomain(os.Getenv("PIPEDRIVE_COMPANY_DOMAIN"), ucPath)
-}
-
-// resolveDomainArg parses cmd-specific args, falling back to
-// PIPEDRIVE_COMPANY_DOMAIN, and runs the same regex validation as
-// config.Load. Used by login/logout (which write/clear state) — those
-// subcommands deliberately do NOT consult the userconfig pointer
-// since it's the thing they're managing. Returns the validated domain
-// or a non-zero exit code. usage is the optional --help banner.
-func resolveDomainArg(cmd string, args []string, usage func()) (domain string, exitCode int) {
-	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	if usage != nil {
-		fs.Usage = usage
-	}
-	domainFlag := fs.String("domain", "", "Pipedrive workspace subdomain (overrides PIPEDRIVE_COMPANY_DOMAIN)")
-	if err := fs.Parse(args); err != nil {
-		return "", 2
-	}
-	raw := strings.TrimSpace(*domainFlag)
-	if raw == "" {
-		raw = strings.TrimSpace(os.Getenv("PIPEDRIVE_COMPANY_DOMAIN"))
-	}
-	if raw == "" {
-		fmt.Fprintf(os.Stderr, "%s: provide --domain or set PIPEDRIVE_COMPANY_DOMAIN\n", cmd)
-		return "", 2
-	}
-	domain, err := config.ValidateDomain(raw)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s: %v\n", cmd, err)
-		return "", 2
-	}
-	return domain, 0
 }
 
 // promptDomain reads a Pipedrive workspace subdomain from in (with

@@ -30,9 +30,14 @@ breaking changes require a MAJOR bump.
   invocations of `pipedrive-mcp` (server) and `pipedrive-mcp status`
   no longer require `PIPEDRIVE_COMPANY_DOMAIN` to be set in env when a
   default is recorded. Resolution order: env > userconfig > error.
-- `pipedrive-mcp logout` clears the recorded default domain when it
-  matches the workspace being logged out of; other workspaces' tokens
-  and pointers are left untouched.
+- `pipedrive-mcp logout` no longer requires `--domain` or
+  `PIPEDRIVE_COMPANY_DOMAIN`. Plain `pipedrive-mcp logout` resolves
+  the workspace from the recorded default in user config (the same
+  pointer `login` writes), so the common single-workspace case Just
+  Works. Pass `--domain` to remove a non-default workspace when
+  several are stored. Logout also clears the recorded default domain
+  when it matches the workspace being logged out of; other
+  workspaces' tokens and pointers are left untouched.
 - `internal/userconfig/` package wrapping the JSON config file, with
   atomic write, 0600 file perms, and 0700 dir perms.
 - `config.LoadFor(domain)` so callers (the server entrypoint) can
