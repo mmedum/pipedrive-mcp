@@ -57,7 +57,7 @@ docker pull ghcr.io/mmedum/pipedrive-mcp:latest
 
 ### From source
 
-Requires Go 1.26.0.
+Requires Go 1.26.2.
 
 ```sh
 go install github.com/mmedum/pipedrive-mcp/cmd/pipedrive-mcp@latest

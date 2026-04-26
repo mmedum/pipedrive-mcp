@@ -106,14 +106,14 @@ bugs and feature requests. For security issues see [`../SECURITY.md`](../SECURIT
 
 ## Pinning Docker base images before release
 
-The `Dockerfile` ships with floating tags (`golang:1.26.0-alpine`,
+The `Dockerfile` ships with floating tags (`golang:1.26.2-alpine`,
 `gcr.io/distroless/static-debian12:nonroot`) for development. The
 release workflow refuses to build until both `FROM` lines are pinned by
 SHA256 digest:
 
 ```sh
 # Resolve the current digest for each base image:
-docker buildx imagetools inspect golang:1.26.0-alpine | grep '^Digest:'
+docker buildx imagetools inspect golang:1.26.2-alpine | grep '^Digest:'
 docker buildx imagetools inspect gcr.io/distroless/static-debian12:nonroot | grep '^Digest:'
 
 # Edit Dockerfile, append @sha256:<digest> to each FROM line.

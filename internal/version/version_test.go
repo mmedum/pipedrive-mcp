@@ -11,10 +11,10 @@ func TestInfo_String(t *testing.T) {
 		Commit:    "abcdef1234567890",
 		Time:      "2026-04-26T01:00:00Z",
 		Dirty:     true,
-		GoVersion: "go1.26.0",
+		GoVersion: "go1.26.2",
 	}
 	got := b.String()
-	for _, want := range []string{"v1.2.3", "abcdef123456", "-dirty", "2026-04-26", "go1.26.0"} {
+	for _, want := range []string{"v1.2.3", "abcdef123456", "-dirty", "2026-04-26", "go1.26.2"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("String() = %q; missing %q", got, want)
 		}
