@@ -6,6 +6,7 @@
 //
 //	pipedrive-mcp login    store an API token in the OS keyring
 //	pipedrive-mcp logout   remove the OS keyring entry
+//	pipedrive-mcp status   show the active workspace + token source
 //	pipedrive-mcp          run the MCP server (default)
 //	pipedrive-mcp --version | --dump-schemas
 package main
@@ -32,6 +33,7 @@ import (
 	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
 	"github.com/mmedum/pipedrive-mcp/internal/server"
 	"github.com/mmedum/pipedrive-mcp/internal/tools"
+	"github.com/mmedum/pipedrive-mcp/internal/userconfig"
 	"github.com/mmedum/pipedrive-mcp/internal/version"
 )
 
@@ -44,6 +46,8 @@ func main() {
 			os.Exit(cmdLogin(os.Args[2:]))
 		case "logout":
 			os.Exit(cmdLogout(os.Args[2:]))
+		case "status":
+			os.Exit(cmdStatus(os.Args[2:]))
 		}
 	}
 	runServer()
@@ -76,7 +80,12 @@ func runServer() {
 		return
 	}
 
-	cfg, err := config.Load()
+	domain, domainSource, err := resolveDomainAtStartup()
+	if err != nil {
+		fail("%v", err)
+	}
+
+	cfg, err := config.LoadFor(domain)
 	if err != nil {
 		fail("%v", err)
 	}
@@ -94,6 +103,7 @@ func runServer() {
 	logger.Info("credentials resolved",
 		slog.String("source", string(source)),
 		slog.String("workspace", cfg.CompanyDomain),
+		slog.String("domain_source", string(domainSource)),
 	)
 
 	client := newPipedriveClient(cfg.CompanyDomain, token, cfg.HTTPTimeout, logger)
@@ -120,7 +130,7 @@ func runServer() {
 // validates it via the auth probe, and stores it in the OS keyring
 // under the company domain. Returns the process exit code.
 func cmdLogin(args []string) int {
-	domain, code := resolveDomain("login", args, func() {
+	domain, code := resolveDomainArg("login", args, func() {
 		fmt.Fprintf(os.Stderr, "usage: pipedrive-mcp login [--domain <subdomain>]\n\n"+
 			"Reads a token from the controlling terminal (without echo), validates\n"+
 			"it against Pipedrive, and stores it in the OS keyring. Set\n"+
@@ -151,12 +161,25 @@ func cmdLogin(args []string) int {
 	}
 	fmt.Fprintf(os.Stderr, "login: token stored in OS keyring (service=%s, account=%s)\n",
 		credentials.ServiceName, domain)
+
+	// Best-effort: write domain to userconfig so subsequent runs don't
+	// need PIPEDRIVE_COMPANY_DOMAIN re-supplied. The keyring write
+	// above is the source of truth; userconfig is a convenience pointer.
+	// Failures here become warnings, not errors — a working keyring
+	// with a missing config dir is still a usable install via env.
+	if ucPath, err := userconfig.DefaultPath(); err == nil {
+		if err := userconfig.SetDefaultDomain(ucPath, domain); err != nil {
+			fmt.Fprintf(os.Stderr, "login: warning: %v (set PIPEDRIVE_COMPANY_DOMAIN to use this token)\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "login: default domain recorded in %s\n", ucPath)
+		}
+	}
 	return 0
 }
 
 // cmdLogout removes the keyring entry for the given domain.
 func cmdLogout(args []string) int {
-	domain, code := resolveDomain("logout", args, func() {
+	domain, code := resolveDomainArg("logout", args, func() {
 		fmt.Fprintf(os.Stderr, "usage: pipedrive-mcp logout [--domain <subdomain>]\n")
 	})
 	if code != 0 {
@@ -168,14 +191,143 @@ func cmdLogout(args []string) int {
 	}
 	fmt.Fprintf(os.Stderr, "logout: keyring entry removed (service=%s, account=%s)\n",
 		credentials.ServiceName, domain)
+
+	// Clear the userconfig pointer iff it referenced the domain we
+	// just logged out of. Other workspaces' pointers (if multiple
+	// tokens are stored) are left untouched.
+	if ucPath, err := userconfig.DefaultPath(); err == nil {
+		if err := userconfig.ClearDefaultDomainIfMatches(ucPath, domain); err != nil {
+			fmt.Fprintf(os.Stderr, "logout: warning: %v\n", err)
+		}
+	}
 	return 0
 }
 
-// resolveDomain parses cmd-specific args, falling back to
+// cmdStatus prints the active domain, the token source, and the result
+// of an auth probe. Useful for "is this install configured correctly?"
+// without having to launch the server. Writes to stdout (this is a
+// one-shot CLI command, not the stdio MCP server, so the
+// stdout-reserved-for-frames rule does not apply).
+func cmdStatus(args []string) int {
+	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		_, _ = fmt.Fprintf(os.Stderr, "usage: pipedrive-mcp status [--no-probe]\n\n"+
+			"Reports the active workspace domain, where it came from\n"+
+			"(env or user config), whether a token is available, and\n"+
+			"whether an auth probe against Pipedrive succeeds.\n")
+	}
+	noProbe := fs.Bool("no-probe", false, "skip the network call to Pipedrive (offline mode)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	return runStatus(os.Stdout, *noProbe)
+}
+
+// runStatus is the testable core of cmdStatus. It writes a small
+// fixed-format report to out and returns the process exit code.
+func runStatus(out io.Writer, noProbe bool) int {
+	printf := func(format string, args ...any) {
+		_, _ = fmt.Fprintf(out, format, args...)
+	}
+
+	ucPath, _ := userconfig.DefaultPath()
+	domain, src, err := resolveDomain(os.Getenv("PIPEDRIVE_COMPANY_DOMAIN"), ucPath)
+	if err != nil {
+		printf("domain:    (not set)\nhint:      %v\n", err)
+		return 1
+	}
+	srcLabel := string(src)
+	if src == DomainFromUserConfig && ucPath != "" {
+		srcLabel = fmt.Sprintf("userconfig (%s)", ucPath)
+	}
+	printf("domain:    %s (%s)\n", domain, srcLabel)
+
+	token, tokenSrc, err := credentials.Resolve(credentials.Default(), domain)
+	if err != nil {
+		if errors.Is(err, credentials.ErrNotFound) {
+			printf("token:     (not set)\nhint:      run `pipedrive-mcp login`, or set %s\n", credentials.EnvVar)
+			return 1
+		}
+		printf("token:     unavailable (%v)\n", err)
+		return 1
+	}
+	switch tokenSrc {
+	case credentials.SourceKeyring:
+		printf("token:     keyring (service=%s, account=%s)\n", credentials.ServiceName, domain)
+	case credentials.SourceEnv:
+		printf("token:     env (%s)\n", credentials.EnvVar)
+	default:
+		printf("token:     %s\n", tokenSrc)
+	}
+
+	if noProbe {
+		printf("probe:     skipped (--no-probe)\n")
+		return 0
+	}
+	client := newPipedriveClient(domain, token, 30*time.Second, nil)
+	if err := client.ProbeAuth(context.Background()); err != nil {
+		printf("probe:     fail (%v)\n", err)
+		return 1
+	}
+	printf("probe:     ok (https://%s.pipedrive.com/api/v2)\n", domain)
+	return 0
+}
+
+// DomainSource names where a resolved domain came from. Surfaced in
+// startup logs and `pipedrive-mcp status` so the operator can see
+// which input mechanism is in effect.
+type DomainSource string
+
+// DomainSource values returned by resolveDomain.
+const (
+	DomainFromEnv        DomainSource = "env"
+	DomainFromUserConfig DomainSource = "userconfig"
+)
+
+// resolveDomain returns the active domain for the current process, in
+// this order: PIPEDRIVE_COMPANY_DOMAIN env > userconfig.DefaultDomain.
+// An empty/missing value in both sources returns a clear error pointing
+// the operator at `pipedrive-mcp login`. Inputs are passed explicitly
+// so tests can drive the resolution without env or filesystem
+// manipulation.
+func resolveDomain(envValue, ucPath string) (string, DomainSource, error) {
+	if raw := strings.TrimSpace(envValue); raw != "" {
+		domain, err := config.ValidateDomain(raw)
+		if err != nil {
+			return "", "", fmt.Errorf("config: PIPEDRIVE_COMPANY_DOMAIN: %w", err)
+		}
+		return domain, DomainFromEnv, nil
+	}
+	if ucPath == "" {
+		return "", "", fmt.Errorf("no domain configured: set PIPEDRIVE_COMPANY_DOMAIN, or run `pipedrive-mcp login` to record one")
+	}
+	uc, err := userconfig.Load(ucPath)
+	if err != nil {
+		return "", "", err
+	}
+	if raw := strings.TrimSpace(uc.DefaultDomain); raw != "" {
+		domain, err := config.ValidateDomain(raw)
+		if err != nil {
+			return "", "", fmt.Errorf("userconfig %s: default_domain: %w", ucPath, err)
+		}
+		return domain, DomainFromUserConfig, nil
+	}
+	return "", "", fmt.Errorf("no domain configured: set PIPEDRIVE_COMPANY_DOMAIN, or run `pipedrive-mcp login` to record one")
+}
+
+// resolveDomainAtStartup is the production wrapper around resolveDomain
+// that wires it to the real env + user-config path.
+func resolveDomainAtStartup() (string, DomainSource, error) {
+	ucPath, _ := userconfig.DefaultPath() // empty path falls through cleanly
+	return resolveDomain(os.Getenv("PIPEDRIVE_COMPANY_DOMAIN"), ucPath)
+}
+
+// resolveDomainArg parses cmd-specific args, falling back to
 // PIPEDRIVE_COMPANY_DOMAIN, and runs the same regex validation as
 // config.Load. Returns the validated domain or a non-zero exit code.
 // usage is the optional --help banner (nil for no banner).
-func resolveDomain(cmd string, args []string, usage func()) (domain string, exitCode int) {
+func resolveDomainArg(cmd string, args []string, usage func()) (domain string, exitCode int) {
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	if usage != nil {

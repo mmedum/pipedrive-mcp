@@ -3,9 +3,9 @@
 The API token lives in the **OS keyring** — set it once with
 `pipedrive-mcp login`, then forget about it. Everything else is
 configured through environment variables. Subcommands on the binary
-are `login`, `logout`. Operational flags on the default (server)
-command are `--version`, `--dump-schemas`, and `--skip-probe` (the
-last for CI smoke tests; do not use in production).
+are `login`, `logout`, and `status`. Operational flags on the default
+(server) command are `--version`, `--dump-schemas`, and `--skip-probe`
+(the last for CI smoke tests; do not use in production).
 
 ## Token resolution
 
@@ -59,7 +59,46 @@ pipedrive-mcp logout
 pipedrive-mcp logout --domain other-domain
 ```
 
-Removes the keyring entry. No-op if no entry exists.
+Removes the keyring entry. No-op if no entry exists. Also clears the
+recorded default-domain pointer in the user-config file (see below) if
+it referenced the workspace being logged out of.
+
+### `pipedrive-mcp status`
+
+```sh
+pipedrive-mcp status
+pipedrive-mcp status --no-probe   # offline mode; skip the auth probe
+```
+
+Reports:
+
+- The active workspace domain and where it was resolved from
+  (`env` or `userconfig (<path>)`).
+- The token source (`keyring (service=pipedrive-mcp, account=<domain>)`
+  or `env (PIPEDRIVE_API_TOKEN)`).
+- Whether an auth probe against Pipedrive succeeds.
+
+Exit code is `0` only if all three lines report a healthy state. Use
+this to verify a fresh install before wiring it into Claude Desktop.
+
+## Domain resolution
+
+The workspace domain (the `XXX` in `XXX.pipedrive.com`) is resolved at
+startup from the first non-empty source:
+
+1. **`PIPEDRIVE_COMPANY_DOMAIN` env var.** Highest priority; overrides
+   the recorded default. Use this in CI where env supplies everything.
+2. **`os.UserConfigDir()/pipedrive-mcp/config.json`'s `default_domain`
+   field.** Written by `pipedrive-mcp login` and cleared by
+   `pipedrive-mcp logout` (when the domains match). On Linux this is
+   `~/.config/pipedrive-mcp/config.json`; macOS uses
+   `~/Library/Application Support/pipedrive-mcp/config.json`; Windows
+   uses `%APPDATA%\pipedrive-mcp\config.json`. The file is non-secret
+   (it's a domain pointer, not a token), but is written with `0600`
+   perms in a `0700` parent directory by convention.
+
+If neither source supplies a domain, the server exits non-zero with a
+clear message pointing at `pipedrive-mcp login`.
 
 Validation runs at startup. Missing required vars or malformed values
 cause a clear stderr message and a non-zero exit *before* the MCP server
@@ -84,12 +123,16 @@ announces itself, so an LLM client never sees a half-initialized server.
 
 ### `PIPEDRIVE_COMPANY_DOMAIN`
 
-- **Required**: yes.
+- **Required**: only when no default has been recorded by
+  `pipedrive-mcp login`. See "Domain resolution" above for the full
+  fallback chain.
 - **Type**: string.
 - **Examples**: `acme` for `acme.pipedrive.com`. Just the subdomain — no
   scheme, no path, no trailing slash.
 - **Validation**: matches `^[a-z0-9-]+$` (Pipedrive workspace names).
   Other values exit non-zero with a clear message.
+- **Precedence**: env wins over the userconfig default (use env to
+  point one shell at a different workspace without running `login`).
 
 ### `LOG_LEVEL`
 
