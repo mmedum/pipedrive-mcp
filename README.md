@@ -71,11 +71,15 @@ asking you to paste it into a JSON config. Full reference and
 validation rules: [`docs/configuration.md`](docs/configuration.md).
 
 ```sh
-pipedrive-mcp login --domain your-subdomain
+pipedrive-mcp login
+# Pipedrive workspace subdomain (e.g. acme for acme.pipedrive.com): your-subdomain
 # Pipedrive API token for "your-subdomain": ········
 # login: token stored in OS keyring (service=pipedrive-mcp, account=your-subdomain)
 # login: default domain recorded in ~/.config/pipedrive-mcp/config.json
 ```
+
+Pass `--domain your-subdomain` (or set `PIPEDRIVE_COMPANY_DOMAIN`) to
+skip the domain prompt — useful in scripts.
 
 After that, your MCP client config needs nothing about the workspace
 domain or the token — both are resolved from the keyring + a small

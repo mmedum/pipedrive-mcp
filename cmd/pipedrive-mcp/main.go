@@ -126,18 +126,47 @@ func runServer() {
 	}
 }
 
-// cmdLogin reads a token from the controlling terminal (no echo),
-// validates it via the auth probe, and stores it in the OS keyring
-// under the company domain. Returns the process exit code.
+// cmdLogin resolves the workspace domain (flag → env → interactive
+// prompt), reads a token from the controlling terminal (no echo),
+// validates the token via the auth probe, and stores both in their
+// respective stores: token in the OS keyring, domain pointer in the
+// user-config file.
+//
+// The interactive domain prompt mirrors `aws configure` and `gh auth
+// login`: scriptable inputs (flag/env) win, but the bare-hands path
+// is fully interactive instead of failing with "provide --domain".
 func cmdLogin(args []string) int {
-	domain, code := resolveDomainArg("login", args, func() {
-		fmt.Fprintf(os.Stderr, "usage: pipedrive-mcp login [--domain <subdomain>]\n\n"+
-			"Reads a token from the controlling terminal (without echo), validates\n"+
-			"it against Pipedrive, and stores it in the OS keyring. Set\n"+
-			"PIPEDRIVE_COMPANY_DOMAIN, or pass --domain.\n")
-	})
-	if code != 0 {
-		return code
+	fs := flag.NewFlagSet("login", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		_, _ = fmt.Fprintf(os.Stderr, "usage: pipedrive-mcp login [--domain <subdomain>]\n\n"+
+			"Stores a Pipedrive API token in the OS keyring and records the\n"+
+			"workspace domain in user config so subsequent server runs\n"+
+			"resolve them automatically. The domain may be supplied via\n"+
+			"--domain, PIPEDRIVE_COMPANY_DOMAIN, or interactively. The token\n"+
+			"is read without echo and validated before storage.\n")
+	}
+	domainFlag := fs.String("domain", "", "Pipedrive workspace subdomain (overrides PIPEDRIVE_COMPANY_DOMAIN)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	raw := strings.TrimSpace(*domainFlag)
+	if raw == "" {
+		raw = strings.TrimSpace(os.Getenv("PIPEDRIVE_COMPANY_DOMAIN"))
+	}
+	if raw == "" {
+		prompted, err := promptDomain(os.Stdin, os.Stderr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "login: %v\n", err)
+			return 1
+		}
+		raw = prompted
+	}
+	domain, err := config.ValidateDomain(raw)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "login: %v\n", err)
+		return 2
 	}
 
 	token, err := promptToken(os.Stdin, os.Stderr, fmt.Sprintf("Pipedrive API token for %q: ", domain))
@@ -357,6 +386,24 @@ func resolveDomainArg(cmd string, args []string, usage func()) (domain string, e
 		return "", 2
 	}
 	return domain, 0
+}
+
+// promptDomain reads a Pipedrive workspace subdomain from in (with
+// echo — the domain is not a secret), trims whitespace, and returns
+// it. The first non-empty line wins. Empty input returns an error so
+// the caller can decline to proceed; validation against the regex
+// happens at the call site via config.ValidateDomain.
+func promptDomain(in *os.File, prompt io.Writer) (string, error) {
+	_, _ = fmt.Fprint(prompt, "Pipedrive workspace subdomain (e.g. acme for acme.pipedrive.com): ")
+	line, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil && err != io.EOF {
+		return "", err
+	}
+	line = strings.TrimRight(line, "\r\n")
+	if strings.TrimSpace(line) == "" {
+		return "", errors.New("empty subdomain")
+	}
+	return line, nil
 }
 
 // promptToken reads a token without echoing characters when stdin is a
