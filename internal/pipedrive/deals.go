@@ -71,12 +71,7 @@ func (c *Client) ListDeals(ctx context.Context, opts ListDealsOptions) ([]Deal, 
 	if opts.OrgID > 0 {
 		q.Set("org_id", strconv.FormatInt(opts.OrgID, 10))
 	}
-	if opts.Limit > 0 {
-		q.Set("limit", strconv.Itoa(opts.Limit))
-	}
-	if opts.Cursor != "" {
-		q.Set("cursor", opts.Cursor)
-	}
+	setLimitCursor(q, opts.Limit, opts.Cursor)
 
 	var resp dealsResponse
 	if err := c.do(ctx, buildPath("/deals", q), &resp); err != nil {
