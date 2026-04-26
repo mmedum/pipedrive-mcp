@@ -20,11 +20,24 @@ func (c *Client) ListDealFields(ctx context.Context) ([]Field, error) {
 	return resp.Data, nil
 }
 
-// ResolveDealCustomFields delegates to the per-Client deal field
-// cache, returning a copy of raw with hash keys replaced by names.
-// Convenience adapter so tool packages can depend on a single
-// dealsClient interface that also covers GetDeal/ListDeals, instead
-// of plumbing the cache through separately.
+// ResolveDealCustomFields returns a copy of raw with hash keys
+// replaced by their human-readable names. Sole entry point tool
+// packages need; the underlying cache is unexported.
 func (c *Client) ResolveDealCustomFields(ctx context.Context, raw map[string]any) map[string]any {
-	return c.DealFields.Resolve(ctx, raw)
+	return c.dealFields.Resolve(ctx, raw)
+}
+
+// WarmDealFields eagerly triggers the deal-field cache load so the
+// first user-facing get_deal/list_deals call doesn't pay the
+// /dealFields round-trip on the critical path. Errors are silently
+// swallowed: a failed warm-up just means the first real call pays
+// the latency, exactly as the lazy path would.
+func (c *Client) WarmDealFields(ctx context.Context) {
+	_ = c.dealFields.Load(ctx)
+}
+
+// ReloadDealFields clears the cache so the next access refetches.
+// Hook for the Phase 1.9 refresh_field_cache tool.
+func (c *Client) ReloadDealFields() {
+	c.dealFields.Reload()
 }

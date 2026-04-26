@@ -14,16 +14,14 @@ import (
 // default — there is no opt-in query parameter, and supplying
 // `include_fields=custom_fields` is rejected with a 400.
 type ListDealsOptions struct {
-	Status       string // open | won | lost | deleted | all_not_deleted
-	PipelineID   int64
-	StageID      int64
-	OwnerID      int64
-	PersonID     int64
-	OrgID        int64
-	UpdatedSince string // RFC3339-ish, Pipedrive's "2026-04-26 10:00:00" form
-	UpdatedUntil string
-	Limit        int
-	Cursor       string // opaque pagination token from a previous response
+	Status     string // open | won | lost | deleted | all_not_deleted
+	PipelineID int64
+	StageID    int64
+	OwnerID    int64
+	PersonID   int64
+	OrgID      int64
+	Limit      int
+	Cursor     string // opaque pagination token from a previous response
 }
 
 type dealResponse struct {
@@ -72,12 +70,6 @@ func (c *Client) ListDeals(ctx context.Context, opts ListDealsOptions) ([]Deal, 
 	}
 	if opts.OrgID > 0 {
 		q.Set("org_id", strconv.FormatInt(opts.OrgID, 10))
-	}
-	if opts.UpdatedSince != "" {
-		q.Set("updated_since", opts.UpdatedSince)
-	}
-	if opts.UpdatedUntil != "" {
-		q.Set("updated_until", opts.UpdatedUntil)
 	}
 	if opts.Limit > 0 {
 		q.Set("limit", strconv.Itoa(opts.Limit))
