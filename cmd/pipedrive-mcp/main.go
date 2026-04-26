@@ -204,10 +204,9 @@ func cmdLogout(args []string) int {
 }
 
 // cmdStatus prints the active domain, the token source, and the result
-// of an auth probe. Useful for "is this install configured correctly?"
-// without having to launch the server. Writes to stdout (this is a
-// one-shot CLI command, not the stdio MCP server, so the
-// stdout-reserved-for-frames rule does not apply).
+// of an auth probe. Output goes to stdout: this is a one-shot CLI
+// command, not the stdio MCP server, so the stdout-reserved-for-frames
+// rule does not apply.
 func cmdStatus(args []string) int {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -224,24 +223,18 @@ func cmdStatus(args []string) int {
 	return runStatus(os.Stdout, *noProbe)
 }
 
-// runStatus is the testable core of cmdStatus. It writes a small
-// fixed-format report to out and returns the process exit code.
 func runStatus(out io.Writer, noProbe bool) int {
 	printf := func(format string, args ...any) {
 		_, _ = fmt.Fprintf(out, format, args...)
 	}
 
 	ucPath, _ := userconfig.DefaultPath()
-	domain, src, err := resolveDomain(os.Getenv("PIPEDRIVE_COMPANY_DOMAIN"), ucPath)
+	domain, src, err := resolveDomainAtStartup()
 	if err != nil {
 		printf("domain:    (not set)\nhint:      %v\n", err)
 		return 1
 	}
-	srcLabel := string(src)
-	if src == DomainFromUserConfig && ucPath != "" {
-		srcLabel = fmt.Sprintf("userconfig (%s)", ucPath)
-	}
-	printf("domain:    %s (%s)\n", domain, srcLabel)
+	printf("domain:    %s (%s)\n", domain, src.Label(ucPath))
 
 	token, tokenSrc, err := credentials.Resolve(credentials.Default(), domain)
 	if err != nil {
@@ -279,11 +272,24 @@ func runStatus(out io.Writer, noProbe bool) int {
 // which input mechanism is in effect.
 type DomainSource string
 
-// DomainSource values returned by resolveDomain.
 const (
 	DomainFromEnv        DomainSource = "env"
 	DomainFromUserConfig DomainSource = "userconfig"
 )
+
+// Label returns a human-readable description of the source, including
+// the userconfig file path when the source is the userconfig pointer.
+func (s DomainSource) Label(ucPath string) string {
+	if s == DomainFromUserConfig && ucPath != "" {
+		return fmt.Sprintf("userconfig (%s)", ucPath)
+	}
+	return string(s)
+}
+
+// errNoDomain is the user-facing message when neither env nor userconfig
+// supplies a workspace domain. Hoisted to a const so resolveDomain's
+// two terminal branches stay verbatim-equal.
+const errNoDomain = "no domain configured: set PIPEDRIVE_COMPANY_DOMAIN, or run `pipedrive-mcp login` to record one"
 
 // resolveDomain returns the active domain for the current process, in
 // this order: PIPEDRIVE_COMPANY_DOMAIN env > userconfig.DefaultDomain.
@@ -300,7 +306,7 @@ func resolveDomain(envValue, ucPath string) (string, DomainSource, error) {
 		return domain, DomainFromEnv, nil
 	}
 	if ucPath == "" {
-		return "", "", fmt.Errorf("no domain configured: set PIPEDRIVE_COMPANY_DOMAIN, or run `pipedrive-mcp login` to record one")
+		return "", "", errors.New(errNoDomain)
 	}
 	uc, err := userconfig.Load(ucPath)
 	if err != nil {
@@ -313,11 +319,9 @@ func resolveDomain(envValue, ucPath string) (string, DomainSource, error) {
 		}
 		return domain, DomainFromUserConfig, nil
 	}
-	return "", "", fmt.Errorf("no domain configured: set PIPEDRIVE_COMPANY_DOMAIN, or run `pipedrive-mcp login` to record one")
+	return "", "", errors.New(errNoDomain)
 }
 
-// resolveDomainAtStartup is the production wrapper around resolveDomain
-// that wires it to the real env + user-config path.
 func resolveDomainAtStartup() (string, DomainSource, error) {
 	ucPath, _ := userconfig.DefaultPath() // empty path falls through cleanly
 	return resolveDomain(os.Getenv("PIPEDRIVE_COMPANY_DOMAIN"), ucPath)
@@ -325,8 +329,10 @@ func resolveDomainAtStartup() (string, DomainSource, error) {
 
 // resolveDomainArg parses cmd-specific args, falling back to
 // PIPEDRIVE_COMPANY_DOMAIN, and runs the same regex validation as
-// config.Load. Returns the validated domain or a non-zero exit code.
-// usage is the optional --help banner (nil for no banner).
+// config.Load. Used by login/logout (which write/clear state) — those
+// subcommands deliberately do NOT consult the userconfig pointer
+// since it's the thing they're managing. Returns the validated domain
+// or a non-zero exit code. usage is the optional --help banner.
 func resolveDomainArg(cmd string, args []string, usage func()) (domain string, exitCode int) {
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)

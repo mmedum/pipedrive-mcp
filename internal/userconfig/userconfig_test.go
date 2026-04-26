@@ -1,6 +1,8 @@
 package userconfig_test
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -128,7 +130,7 @@ func TestClearDefaultDomainIfMatches_MissingFile(t *testing.T) {
 	if err := userconfig.ClearDefaultDomainIfMatches(p, "anything"); err != nil {
 		t.Errorf("Clear on missing file: unexpected error %v", err)
 	}
-	if _, err := os.Stat(p); !os.IsNotExist(err) {
+	if _, err := os.Stat(p); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("Clear on missing file created it: stat err = %v", err)
 	}
 }

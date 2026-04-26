@@ -18,16 +18,13 @@ import (
 	"path/filepath"
 )
 
-// File is the JSON shape persisted on disk. Optional fields use omitempty
-// so a freshly-cleared file looks like `{}` rather than `{"default_domain":""}`.
+// File is the JSON shape persisted on disk. omitempty so a cleared file
+// is `{}`, not `{"default_domain":""}` — readable when inspected by hand.
 type File struct {
 	DefaultDomain string `json:"default_domain,omitempty"`
 }
 
-// DefaultPath returns the platform-default config path. On Linux this is
-// $XDG_CONFIG_HOME/pipedrive-mcp/config.json (default ~/.config/...);
-// on macOS $HOME/Library/Application Support/pipedrive-mcp/config.json;
-// on Windows %AppData%\pipedrive-mcp\config.json.
+// DefaultPath returns os.UserConfigDir()/pipedrive-mcp/config.json.
 func DefaultPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -55,9 +52,8 @@ func Load(path string) (File, error) {
 }
 
 // Save writes f to path atomically (write-then-rename in the same dir)
-// with 0600 perms on the file and 0700 on the parent dir. Atomic write
-// is needed because login/logout race-window concerns aren't theoretical
-// — a kill -9 mid-write would otherwise leave a half-truncated file.
+// with 0600 perms on the file and 0700 on the parent dir. A kill -9
+// mid-write would otherwise leave a half-truncated file.
 func Save(path string, f File) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -73,25 +69,27 @@ func Save(path string, f File) error {
 		return fmt.Errorf("userconfig: temp file: %w", err)
 	}
 	tmpName := tmp.Name()
-	cleanup := func() { _ = os.Remove(tmpName) }
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.Remove(tmpName)
+		}
+	}()
 	if err := os.Chmod(tmpName, 0o600); err != nil {
 		_ = tmp.Close()
-		cleanup()
 		return fmt.Errorf("userconfig: chmod %s: %w", tmpName, err)
 	}
 	if _, err := tmp.Write(b); err != nil {
 		_ = tmp.Close()
-		cleanup()
 		return fmt.Errorf("userconfig: write %s: %w", tmpName, err)
 	}
 	if err := tmp.Close(); err != nil {
-		cleanup()
 		return fmt.Errorf("userconfig: close %s: %w", tmpName, err)
 	}
 	if err := os.Rename(tmpName, path); err != nil {
-		cleanup()
 		return fmt.Errorf("userconfig: rename %s -> %s: %w", tmpName, path, err)
 	}
+	committed = true
 	return nil
 }
 
