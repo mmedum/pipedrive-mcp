@@ -48,8 +48,8 @@ breaking changes require a MAJOR bump.
 - **`search`** tool — free-text search across deals, persons,
   organizations, products, files, and leads via Pipedrive's
   `/api/v2/itemSearch`. Designed as the gateway tool for natural-
-  language CRM queries: when a user asks about "deals for GLS", the
-  LLM calls `search(term="GLS", types=["organization"])` first to
+  language CRM queries: when a user asks about "deals for Acme", the
+  LLM calls `search(term="Acme", types=["organization"])` first to
   resolve the org_id, then drills into `list_deals(org_id=...)` /
   `get_deal(...)`. Returns id, type, name, relevance score, and
   type-specific details (org country/city, person email/phone, deal

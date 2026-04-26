@@ -48,8 +48,8 @@ type searchOutputRow struct {
 func TestSearch_HappyPath(t *testing.T) {
 	fake := &fakeSearchClient{
 		hits: []pipedrive.SearchHit{
-			hitItem(1.5, map[string]any{"id": float64(47), "type": "organization", "name": "GLS Denmark", "country": "DK"}),
-			hitItem(1.2, map[string]any{"id": float64(11), "type": "deal", "title": "GLS renewal", "value": float64(75000), "currency": "DKK"}),
+			hitItem(1.5, map[string]any{"id": float64(47), "type": "organization", "name": "Acme Inc", "country": "DK"}),
+			hitItem(1.2, map[string]any{"id": float64(11), "type": "deal", "title": "Acme renewal", "value": float64(75000), "currency": "DKK"}),
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
@@ -59,7 +59,7 @@ func TestSearch_HappyPath(t *testing.T) {
 
 	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "search",
-		Arguments: map[string]any{"term": "GLS"},
+		Arguments: map[string]any{"term": "Acme"},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
@@ -74,15 +74,15 @@ func TestSearch_HappyPath(t *testing.T) {
 		t.Fatalf("got %d hits, want 2", len(out.Hits))
 	}
 	// Org: name comes from `name`.
-	if out.Hits[0].ID != 47 || out.Hits[0].Type != "organization" || out.Hits[0].Name != "GLS Denmark" {
-		t.Errorf("hits[0] = %+v; want id=47 type=organization name=GLS Denmark", out.Hits[0])
+	if out.Hits[0].ID != 47 || out.Hits[0].Type != "organization" || out.Hits[0].Name != "Acme Inc" {
+		t.Errorf("hits[0] = %+v; want id=47 type=organization name=Acme Inc", out.Hits[0])
 	}
 	if out.Hits[0].Details["country"] != "DK" {
 		t.Errorf("org country lost: %v", out.Hits[0].Details)
 	}
 	// Deal: name comes from `title`.
-	if out.Hits[1].Type != "deal" || out.Hits[1].Name != "GLS renewal" {
-		t.Errorf("hits[1] = %+v; want type=deal name=GLS renewal", out.Hits[1])
+	if out.Hits[1].Type != "deal" || out.Hits[1].Name != "Acme renewal" {
+		t.Errorf("hits[1] = %+v; want type=deal name=Acme renewal", out.Hits[1])
 	}
 	// Top-level fields stripped from Details.
 	for _, leak := range []string{"id", "type", "name", "title"} {
@@ -93,8 +93,8 @@ func TestSearch_HappyPath(t *testing.T) {
 	if out.Truncated {
 		t.Errorf("Truncated = true; want false (no cursor)")
 	}
-	if fake.lastOpts.Term != "GLS" || fake.lastOpts.Limit != 25 {
-		t.Errorf("client received opts %+v; want term=GLS limit=25", fake.lastOpts)
+	if fake.lastOpts.Term != "Acme" || fake.lastOpts.Limit != 25 {
+		t.Errorf("client received opts %+v; want term=Acme limit=25", fake.lastOpts)
 	}
 }
 
@@ -228,7 +228,7 @@ func TestSearch_PassesThroughTypesAndCursor(t *testing.T) {
 	_, _ = h.Client.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "search",
 		Arguments: map[string]any{
-			"term":   "GLS",
+			"term":   "Acme",
 			"types":  []string{"organization", "person"},
 			"cursor": "tok",
 		},
