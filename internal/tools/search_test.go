@@ -24,6 +24,13 @@ func (f *fakeSearchClient) ItemSearch(_ context.Context, opts pipedrive.SearchOp
 	return f.hits, f.next, f.err
 }
 
+// hitItem builds a raw SearchHit Item map of the shape Pipedrive's
+// /itemSearch returns. JSON numbers come back as float64 from the
+// stdlib decoder, so we mirror that here.
+func hitItem(score float64, fields map[string]any) pipedrive.SearchHit {
+	return pipedrive.SearchHit{Score: score, Item: fields}
+}
+
 type searchHitRow struct {
 	ID      int64          `json:"id"`
 	Type    string         `json:"type"`
@@ -41,8 +48,8 @@ type searchOutputRow struct {
 func TestSearch_HappyPath(t *testing.T) {
 	fake := &fakeSearchClient{
 		hits: []pipedrive.SearchHit{
-			{ID: 47, Type: "organization", Name: "GLS Denmark", Score: 1.5},
-			{ID: 11, Type: "deal", Name: "GLS renewal", Score: 1.2},
+			hitItem(1.5, map[string]any{"id": float64(47), "type": "organization", "name": "GLS Denmark", "country": "DK"}),
+			hitItem(1.2, map[string]any{"id": float64(11), "type": "deal", "title": "GLS renewal", "value": float64(75000), "currency": "DKK"}),
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
@@ -66,11 +73,25 @@ func TestSearch_HappyPath(t *testing.T) {
 	if len(out.Hits) != 2 {
 		t.Fatalf("got %d hits, want 2", len(out.Hits))
 	}
-	if out.Hits[0].Name != "GLS Denmark" {
-		t.Errorf("hits[0].Name = %q, want GLS Denmark", out.Hits[0].Name)
+	// Org: name comes from `name`.
+	if out.Hits[0].ID != 47 || out.Hits[0].Type != "organization" || out.Hits[0].Name != "GLS Denmark" {
+		t.Errorf("hits[0] = %+v; want id=47 type=organization name=GLS Denmark", out.Hits[0])
+	}
+	if out.Hits[0].Details["country"] != "DK" {
+		t.Errorf("org country lost: %v", out.Hits[0].Details)
+	}
+	// Deal: name comes from `title`.
+	if out.Hits[1].Type != "deal" || out.Hits[1].Name != "GLS renewal" {
+		t.Errorf("hits[1] = %+v; want type=deal name=GLS renewal", out.Hits[1])
+	}
+	// Top-level fields stripped from Details.
+	for _, leak := range []string{"id", "type", "name", "title"} {
+		if _, ok := out.Hits[0].Details[leak]; ok {
+			t.Errorf("Details still contains top-level field %q: %v", leak, out.Hits[0].Details)
+		}
 	}
 	if out.Truncated {
-		t.Errorf("Truncated = true; want false (no cursor, hits < default limit)")
+		t.Errorf("Truncated = true; want false (no cursor)")
 	}
 	if fake.lastOpts.Term != "GLS" || fake.lastOpts.Limit != 25 {
 		t.Errorf("client received opts %+v; want term=GLS limit=25", fake.lastOpts)
@@ -79,7 +100,7 @@ func TestSearch_HappyPath(t *testing.T) {
 
 func TestSearch_TruncatedFlagSetWhenCursor(t *testing.T) {
 	fake := &fakeSearchClient{
-		hits: []pipedrive.SearchHit{{ID: 1, Type: "deal", Name: "x"}},
+		hits: []pipedrive.SearchHit{hitItem(1, map[string]any{"id": float64(1), "type": "deal", "title": "x"})},
 		next: "page2",
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
@@ -102,12 +123,13 @@ func TestSearch_TruncatedFlagSetWhenCursor(t *testing.T) {
 	}
 }
 
-func TestSearch_TruncatedFlagSetWhenLimitFull(t *testing.T) {
-	// Page is exactly `limit` deep with no cursor: still truncated
-	// (Pipedrive may have more, the LLM must not assume otherwise).
+func TestSearch_NotTruncatedWhenLimitFullButCursorEmpty(t *testing.T) {
+	// Page is exactly `limit` deep but Pipedrive returned an empty
+	// next_cursor. That's the authoritative "no more results" signal —
+	// don't false-positive Truncated=true.
 	hits := make([]pipedrive.SearchHit, 3)
 	for i := range hits {
-		hits[i] = pipedrive.SearchHit{ID: int64(i + 1), Type: "deal", Name: "x"}
+		hits[i] = hitItem(1, map[string]any{"id": float64(i + 1), "type": "deal", "title": "x"})
 	}
 	fake := &fakeSearchClient{hits: hits, next: ""}
 	h := testutil.Connect(t, func(s *mcp.Server) {
@@ -121,8 +143,8 @@ func TestSearch_TruncatedFlagSetWhenLimitFull(t *testing.T) {
 	})
 	var out searchOutputRow
 	testutil.DecodeStructured(t, res.StructuredContent, &out)
-	if !out.Truncated {
-		t.Error("Truncated = false; want true (page filled to limit)")
+	if out.Truncated {
+		t.Error("Truncated = true; want false (cursor is empty — Pipedrive says no more)")
 	}
 }
 
@@ -155,6 +177,12 @@ func TestSearch_OneCharOKWithExactMatch(t *testing.T) {
 	})
 	if res.IsError {
 		t.Fatalf("expected success with exact_match: %+v", res.Content)
+	}
+	if fake.lastOpts.Term != "a" {
+		t.Errorf("term = %q, want a (didn't reach client)", fake.lastOpts.Term)
+	}
+	if !fake.lastOpts.ExactMatch {
+		t.Errorf("ExactMatch = false; want true (didn't reach client)")
 	}
 }
 

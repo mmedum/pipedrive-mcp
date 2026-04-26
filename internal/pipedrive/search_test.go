@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestClient_ItemSearch_Flattens(t *testing.T) {
+func TestClient_ItemSearch_PreservesRawItem(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v2/itemSearch" {
 			t.Errorf("path = %q, want /api/v2/itemSearch", r.URL.Path)
@@ -19,58 +19,35 @@ func TestClient_ItemSearch_Flattens(t *testing.T) {
 			"success":true,
 			"data":{"items":[
 				{"result_score":1.5,"item":{"id":47,"type":"organization","name":"GLS Denmark","address":"Aarhus","country":"DK"}},
-				{"result_score":1.2,"item":{"id":11,"type":"deal","title":"GLS renewal","value":75000,"currency":"DKK","status":"open"}},
-				{"result_score":0.9,"item":{"id":14,"type":"person","name":"John from GLS","primary_email":"j@gls.dk"}}
+				{"result_score":1.2,"item":{"id":11,"type":"deal","title":"GLS renewal","value":75000,"currency":"DKK"}}
 			]},
 			"additional_data":{"next_cursor":"page2"}
 		}`)
 	}))
 	defer srv.Close()
 
-	hits, next, err := newTestClient(srv).ItemSearch(context.Background(), SearchOptions{
-		Term: "GLS",
-	})
+	hits, next, err := newTestClient(srv).ItemSearch(context.Background(), SearchOptions{Term: "GLS"})
 	if err != nil {
 		t.Fatalf("ItemSearch: %v", err)
 	}
 	if next != "page2" {
 		t.Errorf("next cursor = %q, want page2", next)
 	}
-	if len(hits) != 3 {
-		t.Fatalf("got %d hits, want 3", len(hits))
+	if len(hits) != 2 {
+		t.Fatalf("got %d hits, want 2", len(hits))
 	}
-
-	// Organization: id, type, name, score, details (address+country)
-	org := hits[0]
-	if org.ID != 47 || org.Type != "organization" || org.Name != "GLS Denmark" {
-		t.Errorf("org = %+v; want id=47 type=organization name=GLS Denmark", org)
+	if hits[0].Score != 1.5 {
+		t.Errorf("hit[0].Score = %v, want 1.5", hits[0].Score)
 	}
-	if org.Details["country"] != "DK" {
-		t.Errorf("org.Details lost country: %v", org.Details)
+	// Item map preserves every field — flattening happens in tools.
+	if ItemString(hits[0].Item, "name") != "GLS Denmark" {
+		t.Errorf("hit[0] name lost: %v", hits[0].Item)
 	}
-	// Top-level fields must be stripped from Details.
-	for _, leak := range []string{"id", "type", "name", "title"} {
-		if _, ok := org.Details[leak]; ok {
-			t.Errorf("Details still contains top-level field %q: %v", leak, org.Details)
-		}
+	if hits[0].Item["country"] != "DK" {
+		t.Errorf("hit[0] country lost: %v", hits[0].Item)
 	}
-
-	// Deal: title surfaced as Name, value/currency in Details.
-	deal := hits[1]
-	if deal.Type != "deal" || deal.Name != "GLS renewal" {
-		t.Errorf("deal = %+v; want type=deal name=GLS renewal", deal)
-	}
-	if deal.Details["value"].(float64) != 75000 || deal.Details["currency"] != "DKK" {
-		t.Errorf("deal.Details lost value/currency: %v", deal.Details)
-	}
-
-	// Person: name surfaced, email in Details.
-	person := hits[2]
-	if person.Type != "person" || person.Name != "John from GLS" {
-		t.Errorf("person = %+v", person)
-	}
-	if person.Details["primary_email"] != "j@gls.dk" {
-		t.Errorf("person.Details lost email: %v", person.Details)
+	if ItemString(hits[1].Item, "title") != "GLS renewal" {
+		t.Errorf("hit[1] title lost: %v", hits[1].Item)
 	}
 }
 
@@ -122,5 +99,31 @@ func TestClient_ItemSearch_EmptyResults(t *testing.T) {
 	}
 	if next != "" {
 		t.Errorf("cursor = %q, want empty", next)
+	}
+}
+
+func TestItemInt64_RobustToNumberShapes(t *testing.T) {
+	cases := []struct {
+		name string
+		val  any
+		want int64
+	}{
+		{"float64 (json default)", float64(42), 42},
+		{"int", int(42), 42},
+		{"int64", int64(42), 42},
+		{"string", "42", 0}, // strings are NOT auto-parsed; missing returns 0
+		{"missing", nil, 0},
+		{"nil item", nil, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := map[string]any{}
+			if tc.val != nil {
+				m["id"] = tc.val
+			}
+			if got := ItemInt64(m, "id"); got != tc.want {
+				t.Errorf("ItemInt64 = %d, want %d", got, tc.want)
+			}
+		})
 	}
 }

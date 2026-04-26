@@ -1,6 +1,9 @@
 package pipedrive
 
-import "net/url"
+import (
+	"net/url"
+	"strconv"
+)
 
 // buildPath joins an API path with optional query values. Use this
 // instead of fmt.Sprintf when the endpoint has more than one optional
@@ -16,4 +19,16 @@ func buildPath(base string, q url.Values) string {
 		return base
 	}
 	return base + "?" + q.Encode()
+}
+
+// setLimitCursor adds the standard pagination params to q when set.
+// Both ListDeals and ItemSearch share this idiom; the helper keeps
+// the cursor-pagination shape uniform across resource clients.
+func setLimitCursor(q url.Values, limit int, cursor string) {
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	if cursor != "" {
+		q.Set("cursor", cursor)
+	}
 }

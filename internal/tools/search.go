@@ -13,16 +13,16 @@ type searchClient interface {
 	ItemSearch(ctx context.Context, opts pipedrive.SearchOptions) ([]pipedrive.SearchHit, string, error)
 }
 
-// allowedSearchTypes mirrors Pipedrive's /itemSearch item_types.
-// `lead` is included in v2 even though Phase 1 doesn't ship a lead
-// resource yet — let the LLM at least find leads by name.
+// `lead` is included even though Phase 1 doesn't ship a lead resource
+// yet — it lets the LLM at least find leads by name. Sourced from
+// pipedrive.ItemType constants so the enum has one home.
 var allowedSearchTypes = map[string]bool{
-	"deal":         true,
-	"person":       true,
-	"organization": true,
-	"product":      true,
-	"file":         true,
-	"lead":         true,
+	string(pipedrive.ItemTypeDeal):         true,
+	string(pipedrive.ItemTypePerson):       true,
+	string(pipedrive.ItemTypeOrganization): true,
+	string(pipedrive.ItemTypeProduct):      true,
+	string(pipedrive.ItemTypeFile):         true,
+	string(pipedrive.ItemTypeLead):         true,
 }
 
 const (
@@ -78,8 +78,7 @@ func RegisterSearch(s *mcp.Server, c searchClient) {
 			return errorResult(err), searchOutput{}, nil
 		}
 		for _, t := range in.Types {
-			if !allowedSearchTypes[t] {
-				err := fmt.Errorf("%w: type %q is not one of deal|person|organization|product|file|lead", pipedrive.ErrValidation, t)
+			if err := validateEnum(t, "type", allowedSearchTypes); err != nil {
 				return errorResult(err), searchOutput{}, nil
 			}
 		}
@@ -103,20 +102,47 @@ func RegisterSearch(s *mcp.Server, c searchClient) {
 		out := searchOutput{
 			Hits:       make([]searchHit, 0, len(hits)),
 			NextCursor: next,
-			// Truncated is the explicit "page not exhaustive" signal:
-			// a non-empty next_cursor or a full page both indicate more
-			// results upstream that the LLM must not treat as absent.
-			Truncated: next != "" || len(hits) >= limit,
+			// Pipedrive's empty next_cursor is the authoritative "no
+			// more results" signal — including the case where the
+			// page happens to be exactly `limit` deep. Trusting it
+			// avoids a false-positive truncated=true on full pages
+			// that are actually exhaustive.
+			Truncated: next != "",
 		}
 		for _, h := range hits {
-			out.Hits = append(out.Hits, searchHit{
-				ID:      h.ID,
-				Type:    h.Type,
-				Name:    h.Name,
-				Score:   h.Score,
-				Details: h.Details,
-			})
+			out.Hits = append(out.Hits, summarizeHit(h))
 		}
 		return nil, out, nil
 	})
+}
+
+// summarizeHit translates Pipedrive's raw item map into the
+// LLM-facing searchHit shape. Lives in the tools package because
+// the per-type field choice (deal `title` vs everything else's
+// `name`) is a presentation decision; the pipedrive package
+// returns the raw map so it stays HTTP-only.
+func summarizeHit(h pipedrive.SearchHit) searchHit {
+	out := searchHit{
+		Score: h.Score,
+		ID:    pipedrive.ItemInt64(h.Item, "id"),
+		Type:  pipedrive.ItemString(h.Item, "type"),
+	}
+	if out.Type == string(pipedrive.ItemTypeDeal) {
+		out.Name = pipedrive.ItemString(h.Item, "title")
+	} else {
+		out.Name = pipedrive.ItemString(h.Item, "name")
+	}
+	details := make(map[string]any, len(h.Item))
+	for k, v := range h.Item {
+		switch k {
+		case "id", "type", "name", "title":
+			continue
+		default:
+			details[k] = v
+		}
+	}
+	if len(details) > 0 {
+		out.Details = details
+	}
+	return out
 }
