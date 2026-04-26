@@ -136,3 +136,74 @@ type Organization struct {
 	UpdateTime   string         `json:"update_time"`
 	CustomFields map[string]any `json:"custom_fields,omitempty"`
 }
+
+// ActivityLocation is Pipedrive v2's structured location for an
+// activity (the place a meeting is held, etc.). Street-level
+// components from the upstream schema (route, street_number,
+// sublocality, admin_area_level_*) are intentionally omitted — humans
+// care about "city/country, postal" which is what the LLM-facing
+// output surfaces.
+type ActivityLocation struct {
+	Value      string `json:"value,omitempty"`
+	Country    string `json:"country,omitempty"`
+	Locality   string `json:"locality,omitempty"`
+	PostalCode string `json:"postal_code,omitempty"`
+}
+
+// ActivityParticipant is one row in an Activity's participants array.
+// Pipedrive marks one participant as primary (the contact the activity
+// is principally tied to); the rest are co-participants. Distinct from
+// Attendees, which are calendar invitees.
+type ActivityParticipant struct {
+	PersonID int64 `json:"person_id"`
+	Primary  bool  `json:"primary"`
+}
+
+// ActivityAttendee is one row in an Activity's attendees array.
+// Attendees are calendar-style invitees (email, name, RSVP status).
+// PersonID is non-zero when Pipedrive matched the email to an existing
+// person; UserID is non-zero when it matched a Pipedrive user instead.
+// Both can be zero for an external attendee.
+type ActivityAttendee struct {
+	Email       string `json:"email,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Status      string `json:"status,omitempty"` // accepted | declined | tentative | needsAction (Google-style)
+	IsOrganizer bool   `json:"is_organizer,omitempty"`
+	PersonID    int64  `json:"person_id,omitempty"`
+	UserID      int64  `json:"user_id,omitempty"`
+}
+
+// Activity is a Pipedrive activity record (subset). Pipedrive v2 dropped
+// the v1 `_flag` suffixes — `busy_flag` → `busy`, `done_flag` → `done`.
+// Activities do NOT carry a `custom_fields` block on v2; the v2 schema
+// omits it entirely. Times use Pipedrive's date/time formats (DueDate
+// is YYYY-MM-DD, DueTime / Duration are HH:MM, AddTime / UpdateTime are
+// the v2 RFC3339-with-space). Strings are surfaced raw to the LLM so it
+// can pattern-match without timezone surprises.
+type Activity struct {
+	ID                      int64                 `json:"id"`
+	Subject                 string                `json:"subject"`
+	Type                    string                `json:"type"` // activity-type key (e.g. "call", "email", "meeting", "task"); free-form per workspace
+	OwnerID                 int64                 `json:"owner_id"`
+	DealID                  int64                 `json:"deal_id,omitempty"`
+	PersonID                int64                 `json:"person_id,omitempty"`
+	OrgID                   int64                 `json:"org_id,omitempty"`
+	LeadID                  string                `json:"lead_id,omitempty"`
+	ProjectID               int64                 `json:"project_id,omitempty"`
+	DueDate                 string                `json:"due_date,omitempty"`
+	DueTime                 string                `json:"due_time,omitempty"`
+	Duration                string                `json:"duration,omitempty"`
+	Busy                    bool                  `json:"busy"`
+	Done                    bool                  `json:"done"`
+	MarkedAsDoneTime        string                `json:"marked_as_done_time,omitempty"`
+	Location                *ActivityLocation     `json:"location,omitempty"`
+	Participants            []ActivityParticipant `json:"participants,omitempty"`
+	Attendees               []ActivityAttendee    `json:"attendees,omitempty"`
+	ConferenceMeetingClient string                `json:"conference_meeting_client,omitempty"`
+	ConferenceMeetingURL    string                `json:"conference_meeting_url,omitempty"`
+	ConferenceMeetingID     string                `json:"conference_meeting_id,omitempty"`
+	PublicDescription       string                `json:"public_description,omitempty"`
+	Note                    string                `json:"note,omitempty"`
+	AddTime                 string                `json:"add_time"`
+	UpdateTime              string                `json:"update_time"`
+}

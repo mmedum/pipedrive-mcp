@@ -191,6 +191,38 @@ House style, derived from Anthropic's *Writing tools for agents*:
   destructive tool registration is gated by `PIPEDRIVE_ENABLE_DESTRUCTIVE`
   at server build time, which is enforcement.
 
+## LLM-facing summary types
+
+Every LLM-facing output type (`dealSummary`, `personSummary`,
+`organizationSummary`, `activitySummary`, ...) is a **parallel
+shadow** of its upstream `pipedrive.X` type — defined in
+`internal/tools/<resource>.go` with all `jsonschema:` tags scoped
+to that file. Test-side decode mirrors (`dealRow`, `activityRow`, ...)
+follow the same pattern.
+
+**Do NOT** embed `pipedrive.X` in a summary type. **Do NOT** put
+`jsonschema:` tags on `internal/pipedrive/` types.
+
+**Why:** The duplication is the price of an explicit allow-list
+contract — the next upstream field addition cannot silently leak
+into the LLM-facing schema, and per-tool presentation decisions
+(e.g. `include_notes` stripping `note` / `public_description` from
+`activitySummary` rows) live cleanly in the tools package without
+the architectural exception that an embed would require.
+Precedents: `github/github-mcp-server` (`Minimal*` types with
+`convertToMinimal*` helpers), Anthropic's "Writing tools for
+agents" (concise/detailed `response_format` pattern), and Nigel
+Tao's documented `bug.Gray` / `image.Gray` Go embed-regression
+(<https://nigeltao.github.io/blog/2024/go-embedding-back-compat.html>),
+which proves the upstream-leak risk is real, not theoretical.
+
+**Nested types** (`pipedrive.ContactPoint`, `pipedrive.Address`,
+`pipedrive.ActivityLocation`, ...) may be referenced directly from
+a summary struct without a shadow when the upstream shape matches
+the LLM-facing shape — see `personSummary.Emails` for precedent.
+Wrap only when narrowing fields (e.g. `addressRow` in
+`organizations.go`).
+
 ## Style notes
 
 - Prefer the standard library. Add a third-party Go module only when the
