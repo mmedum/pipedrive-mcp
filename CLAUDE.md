@@ -44,6 +44,7 @@ in the user's plan file under
 - `cmd/pipedrive-mcp/` — main entrypoint. Subcommand dispatch (login/logout/server), flag parsing, thin wiring.
 - `internal/config/` — env-var loading and validation. Does NOT handle the API token — that lives in `internal/credentials/`.
 - `internal/credentials/` — OS keyring-based token storage (`pipedrive-mcp login` writes here). Falls back to `PIPEDRIVE_API_TOKEN` env for CI.
+- `internal/userconfig/` — non-secret JSON pointer file at `os.UserConfigDir()/pipedrive-mcp/config.json`. Records the active workspace domain so subsequent runs don't need `PIPEDRIVE_COMPANY_DOMAIN` re-supplied. Resolution: env > userconfig > error.
 - `internal/version/` — build-time version string.
 - `internal/pipedrive/` — HTTP client. One file per resource type, plus
   shared `client.go`, `errors.go`, `types.go`. No MCP imports here.
@@ -59,9 +60,9 @@ in the user's plan file under
 
 When adding a new tool: add it to `internal/tools/<resource>.go` with a
 `Register` function, ensure the parallel registry pattern is followed, add
-unit tests for input validation and output shape, update the README's tool
-catalog (or run `make readme-tools` once that target lands in Phase 1), add
-a CHANGELOG entry under `[Unreleased]`, and update relevant `docs/`.
+unit tests for input validation and output shape, update the README's
+tool catalog table, add a CHANGELOG entry under `[Unreleased]`, and
+update relevant `docs/`.
 
 ## Definition of done (every PR)
 
@@ -72,7 +73,8 @@ Before declaring a task complete, run **all** of:
 3. `gofmt -l .` (must be empty)
 4. `golangci-lint run`
 5. `go test -race -coverprofile=cov.out ./...` (and verify ≥ 80% on
-   `internal/pipedrive` and `internal/tools` if those packages have code).
+   `internal/pipedrive`, `internal/tools`, and `internal/credentials`
+   — the same threshold the CI gate enforces).
 6. `govulncheck ./...`
 7. `go-licenses check ./...` against the allow-list.
 8. `bash scripts/staleness-check.sh`
@@ -107,7 +109,11 @@ when the time comes.
 Per-phase release gates are in addition to the per-PR gates above:
 
 - `go test -race -count=3 ./...` (three shuffled runs).
-- `go test -tags=integration -race ./...` against the sandbox (Phase 1+).
+- `go test -tags=integration -race ./...` against the sandbox once
+  the integration suite exists (no `//go:build integration` files
+  ship today; live verification is done by manually driving the
+  binary through Claude Code against the sandbox until that suite
+  lands).
 - Eval suite three runs (Phase 4+).
 - `/simplify` and `/security-review` over the cumulative diff since the
   prior tag; outputs committed under `audit/security-reviews/v<tag>.md`.
@@ -164,16 +170,15 @@ House style, derived from Anthropic's *Writing tools for agents*:
   not `user`, `deal`, `pipeline`. Anthropic specifically calls out that
   ambiguous names cost retrieval precision.
 - **State at most one key constraint** in the description (e.g.,
-  "Default limit is 25, max 200."). Move the rest to the input field's
+  "Default limit is 25, max 100."). Move the rest to the input field's
   own `description`.
 - **Enumerate enums verbatim** in the description when the field is
   small ("Status: open | won | lost | deleted"). The LLM uses these
   to pre-validate; making it guess hurts accuracy.
 - **Anti-confabulation guards** for free-text fields the LLM might
   invent: spell out "if the user did not provide a reason, leave
-  blank — do NOT invent one." Documented for `mark_deal_lost`
-  (lost_reason) and `mark_deal_won` (won_note); the same posture
-  applies to any other free-text optional input.
+  blank — do NOT invent one." Apply this to any free-text optional
+  input (e.g. a future `mark_deal_lost`'s `lost_reason`).
 - **Resolve UUIDs to semantic names in OUTPUT** where possible (e.g.,
   custom fields surfaced by name not by 40-char hash). Anthropic:
   *"resolving arbitrary alphanumeric UUIDs to more semantically

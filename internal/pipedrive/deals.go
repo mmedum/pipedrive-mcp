@@ -24,22 +24,11 @@ type ListDealsOptions struct {
 	Cursor     string // opaque pagination token from a previous response
 }
 
-type dealResponse struct {
-	Success bool `json:"success"`
-	Data    Deal `json:"data"`
-}
-
-type dealsResponse struct {
-	Success        bool           `json:"success"`
-	Data           []Deal         `json:"data"`
-	AdditionalData AdditionalData `json:"additional_data"`
-}
-
 // GetDeal fetches a single deal by ID. custom_fields are nested under
 // the deal's `custom_fields` object per Pipedrive v2 — caller resolves
 // hash keys to names via the per-Client FieldCache.
 func (c *Client) GetDeal(ctx context.Context, id int64) (*Deal, error) {
-	var resp dealResponse
+	var resp itemEnvelope[Deal]
 	if err := c.do(ctx, "/deals/"+strconv.FormatInt(id, 10), &resp); err != nil {
 		return nil, err
 	}
@@ -73,7 +62,7 @@ func (c *Client) ListDeals(ctx context.Context, opts ListDealsOptions) ([]Deal, 
 	}
 	setLimitCursor(q, opts.Limit, opts.Cursor)
 
-	var resp dealsResponse
+	var resp listEnvelope[Deal]
 	if err := c.do(ctx, buildPath("/deals", q), &resp); err != nil {
 		return nil, "", err
 	}

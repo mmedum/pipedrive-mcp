@@ -9,8 +9,8 @@ import (
 // and resolves the 40-char custom-field hash keys back to their
 // human-readable names. Loaded behind sync.Once: concurrent callers
 // see one fetch, all subsequent callers observe the same error if the
-// fetch failed. Reload() clears the cache so the future
-// `refresh_field_cache` tool (Phase 1.9) can trigger a refetch.
+// fetch failed. Reload() clears the cache so a refresh tool can
+// trigger a refetch when fields have changed upstream.
 type FieldCache struct {
 	fetch func(context.Context) ([]Field, error)
 
@@ -46,21 +46,6 @@ func (fc *FieldCache) Load(ctx context.Context) error {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
 	return fc.err
-}
-
-// NameOf triggers a Load on first use. Returns ("", false) for
-// unknown keys (and on a failed cache load).
-func (fc *FieldCache) NameOf(ctx context.Context, key string) (string, bool) {
-	if err := fc.Load(ctx); err != nil {
-		return "", false
-	}
-	fc.mu.RLock()
-	defer fc.mu.RUnlock()
-	f, ok := fc.byKey[key]
-	if !ok {
-		return "", false
-	}
-	return f.Name, true
 }
 
 // Resolve returns a copy of raw with hash keys replaced by names.

@@ -45,6 +45,21 @@ breaking changes require a MAJOR bump.
   same code path as `config.Load()`.
 
 ### Added (Phase 1)
+- **`get_person`** tool — fetch a single Pipedrive person by
+  `person_id`. Returns id, full/first/last name, all emails (with
+  primary flag and label), all phones, owner_id, linked org_id,
+  add/update timestamps, and any custom fields resolved by name.
+  Unknown person_id returns `[not_found]`. Pair with `search` to
+  resolve a name to an id first.
+- **`get_organization`** tool — fetch a single Pipedrive organization
+  by `org_id`. Returns id, name, formatted address, owner_id,
+  people_count, add/update timestamps, and any custom fields
+  resolved by name. Unknown org_id returns `[not_found]`.
+- `internal/pipedrive/Client.personFields` and `.organizationFields`
+  — per-resource lazy field caches mirroring the deals pattern.
+  Warmed in `server.New` alongside `dealFields` so the first
+  `get_person`/`get_organization` call doesn't pay the metadata
+  round-trip on the critical path.
 - **`search`** tool — free-text search across deals, persons,
   organizations, products, files, and leads via Pipedrive's
   `/api/v2/itemSearch`. Designed as the gateway tool for natural-
