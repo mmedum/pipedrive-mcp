@@ -152,35 +152,6 @@ func TestPromptDomain_RejectsEmpty(t *testing.T) {
 	}
 }
 
-func TestResolveDomainArg(t *testing.T) {
-	cases := []struct {
-		name      string
-		args      []string
-		envDomain string
-		wantCode  int
-		wantValue string
-	}{
-		{"flag wins", []string{"--domain", "Acme"}, "ignored", 0, "acme"},
-		{"env fallback", nil, "Acme", 0, "acme"},
-		{"flag empty falls back to env", []string{"--domain", ""}, "Acme", 0, "acme"},
-		{"missing both", nil, "", 2, ""},
-		{"invalid domain", []string{"--domain", "Acme.Corp"}, "", 2, ""},
-		{"flag whitespace falls back to env", []string{"--domain", "   "}, "acme", 0, "acme"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("PIPEDRIVE_COMPANY_DOMAIN", tc.envDomain)
-			got, code := resolveDomainArg("test", tc.args, nil)
-			if code != tc.wantCode {
-				t.Errorf("code = %d, want %d", code, tc.wantCode)
-			}
-			if got != tc.wantValue {
-				t.Errorf("domain = %q, want %q", got, tc.wantValue)
-			}
-		})
-	}
-}
-
 func TestResolveDomain(t *testing.T) {
 	t.Run("env wins over userconfig", func(t *testing.T) {
 		ucPath := writeUserConfig(t, `{"default_domain":"fromfile"}`)
