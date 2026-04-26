@@ -25,11 +25,7 @@ var allowedSearchTypes = map[string]bool{
 	string(pipedrive.ItemTypeLead):         true,
 }
 
-const (
-	searchDefaultLimit = 25
-	searchMaxLimit     = 100
-	searchMinTermLen   = 2
-)
+const searchMinTermLen = 2
 
 type searchHit struct {
 	ID      int64          `json:"id" jsonschema:"the matched record's numeric id"`
@@ -82,18 +78,11 @@ func RegisterSearch(s *mcp.Server, c searchClient) {
 				return errorResult(err), searchOutput{}, nil
 			}
 		}
-		limit := in.Limit
-		if limit <= 0 {
-			limit = searchDefaultLimit
-		}
-		if limit > searchMaxLimit {
-			limit = searchMaxLimit
-		}
 		hits, next, err := c.ItemSearch(ctx, pipedrive.SearchOptions{
 			Term:       in.Term,
 			ItemTypes:  in.Types,
 			ExactMatch: in.ExactMatch,
-			Limit:      limit,
+			Limit:      clampLimit(in.Limit),
 			Cursor:     in.Cursor,
 		})
 		if err != nil {

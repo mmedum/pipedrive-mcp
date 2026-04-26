@@ -24,11 +24,6 @@ var allowedDealStatuses = map[string]bool{
 	"deleted": true,
 }
 
-const (
-	listDealsDefaultLimit = 25
-	listDealsMaxLimit     = 100
-)
-
 type dealSummary struct {
 	ID                int64          `json:"id" jsonschema:"the deal's numeric id"`
 	Title             string         `json:"title" jsonschema:"the deal's title"`
@@ -103,13 +98,6 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string) {
 		if err := validateEnum(in.Status, "status", allowedDealStatuses); err != nil {
 			return errorResult(err), listDealsOutput{}, nil
 		}
-		limit := in.Limit
-		if limit <= 0 {
-			limit = listDealsDefaultLimit
-		}
-		if limit > listDealsMaxLimit {
-			limit = listDealsMaxLimit
-		}
 		opts := pipedrive.ListDealsOptions{
 			Status:     in.Status,
 			PipelineID: in.PipelineID,
@@ -117,7 +105,7 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string) {
 			OwnerID:    in.OwnerID,
 			PersonID:   in.PersonID,
 			OrgID:      in.OrgID,
-			Limit:      limit,
+			Limit:      clampLimit(in.Limit),
 			Cursor:     in.Cursor,
 		}
 		deals, next, err := c.ListDeals(ctx, opts)
