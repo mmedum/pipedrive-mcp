@@ -10,6 +10,7 @@ LDFLAGS   = -s -w -X $(PKG)/internal/version.Version=$(VERSION)
 GOBIN    := $(shell $(GO) env GOPATH)/bin
 GOVULNCHECK_VERSION ?= v1.1.4
 GO_LICENSES_VERSION ?= v1.6.0
+GOLANGCI_LINT_VERSION ?= v2.11.4
 
 .PHONY: all
 all: check
@@ -44,9 +45,21 @@ coverage: test ## Open coverage report in browser
 	$(GO) tool cover -html=cov.out
 
 .PHONY: install-tools
-install-tools: ## Install go-installed tools (govulncheck, go-licenses) at pinned versions
+install-tools: ## Install go-installed tools (govulncheck, go-licenses, golangci-lint) at pinned versions
 	$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	$(GO) install github.com/google/go-licenses@$(GO_LICENSES_VERSION)
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+
+.PHONY: verify-tool-versions
+verify-tool-versions: ## Assert locally-installed tool versions match the CI pins
+	@want="$(GOLANGCI_LINT_VERSION)"; \
+	got=$$(golangci-lint --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	if [ "v$$got" != "$$want" ]; then \
+		echo "::error::golangci-lint version mismatch: have v$$got, pin is $$want"; \
+		echo "Run: make install-tools"; \
+		exit 1; \
+	fi
+	@echo "tool versions match CI pins"
 
 .PHONY: vuln
 vuln: ## govulncheck ./...
@@ -64,7 +77,7 @@ staleness: ## scripts/staleness-check.sh
 	bash scripts/staleness-check.sh
 
 .PHONY: check
-check: fmt vet lint test vuln licenses staleness ## Run every per-PR CI gate locally
+check: verify-tool-versions fmt vet lint test vuln licenses staleness ## Run every per-PR CI gate locally
 
 .PHONY: docker
 docker: ## Build the Docker image as pipedrive-mcp:dev
