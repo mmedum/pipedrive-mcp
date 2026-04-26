@@ -9,18 +9,21 @@ import (
 // ListDealsOptions filters a /deals list call. Zero values mean "no
 // filter on this dimension". Limit is clamped to [1, 500] by Pipedrive;
 // the tool layer applies its own (smaller) cap before calling here.
+//
+// Pipedrive v2 returns custom_fields nested in every deal record by
+// default — there is no opt-in query parameter, and supplying
+// `include_fields=custom_fields` is rejected with a 400.
 type ListDealsOptions struct {
-	Status        string // open | won | lost | deleted | all_not_deleted
-	PipelineID    int64
-	StageID       int64
-	OwnerID       int64
-	PersonID      int64
-	OrgID         int64
-	UpdatedSince  string // RFC3339-ish, Pipedrive's "2026-04-26 10:00:00" form
-	UpdatedUntil  string
-	Limit         int
-	Cursor        string // opaque pagination token from a previous response
-	IncludeCustom bool   // include custom_fields in the response
+	Status       string // open | won | lost | deleted | all_not_deleted
+	PipelineID   int64
+	StageID      int64
+	OwnerID      int64
+	PersonID     int64
+	OrgID        int64
+	UpdatedSince string // RFC3339-ish, Pipedrive's "2026-04-26 10:00:00" form
+	UpdatedUntil string
+	Limit        int
+	Cursor       string // opaque pagination token from a previous response
 }
 
 type dealResponse struct {
@@ -38,10 +41,8 @@ type dealsResponse struct {
 // the deal's `custom_fields` object per Pipedrive v2 — caller resolves
 // hash keys to names via the per-Client FieldCache.
 func (c *Client) GetDeal(ctx context.Context, id int64) (*Deal, error) {
-	q := url.Values{}
-	q.Set("include_fields", "custom_fields")
 	var resp dealResponse
-	if err := c.do(ctx, buildPath("/deals/"+strconv.FormatInt(id, 10), q), &resp); err != nil {
+	if err := c.do(ctx, "/deals/"+strconv.FormatInt(id, 10), &resp); err != nil {
 		return nil, err
 	}
 	d := resp.Data
@@ -83,9 +84,6 @@ func (c *Client) ListDeals(ctx context.Context, opts ListDealsOptions) ([]Deal, 
 	}
 	if opts.Cursor != "" {
 		q.Set("cursor", opts.Cursor)
-	}
-	if opts.IncludeCustom {
-		q.Set("include_fields", "custom_fields")
 	}
 
 	var resp dealsResponse
