@@ -1,11 +1,25 @@
 #!/usr/bin/env bash
-# Pipe a single MCP `tools/list` request into the binary (or Docker image) on
-# stdin and assert a well-formed JSON-RPC response on stdout. Used by both
-# the binary and Docker stdio-smoke CI gates.
+# Drive a minimal MCP handshake through the binary (or Docker image) on
+# stdin and assert a well-formed tools/list response on stdout. Used by
+# both the binary and Docker stdio-smoke CI gates.
 #
 # Usage:
 #   stdio-smoke.sh binary <path-to-binary>
 #   stdio-smoke.sh docker <image-ref>
+#
+# Sequence of frames sent on stdin:
+#   1. initialize                              (request, id=1)
+#   2. notifications/initialized               (notification — required by
+#                                              MCP spec after init before
+#                                              the client may issue other
+#                                              requests; older versions of
+#                                              the Go SDK were lenient,
+#                                              newer ones are not, and the
+#                                              Docker container's buffering
+#                                              behavior surfaces this gap)
+#   3. tools/list                              (request, id=2)
+# After writing all frames we hold stdin open with a sleep so the server
+# has time to read, process, and flush both responses before it sees EOF.
 
 set -euo pipefail
 
@@ -17,31 +31,31 @@ if [ -z "$mode" ] || [ -z "$target" ]; then
   exit 2
 fi
 
-# The smoke does not exercise the auth probe — we want to verify stdio framing
-# regardless of token validity. The binary supports --skip-probe for this case.
-# A bad token still exercises the protocol layer.
+# The smoke does not exercise the auth probe — we want to verify stdio
+# framing regardless of token validity. The binary supports --skip-probe.
 export PIPEDRIVE_API_TOKEN="${PIPEDRIVE_API_TOKEN:-smoke-token}"
 export PIPEDRIVE_COMPANY_DOMAIN="${PIPEDRIVE_COMPANY_DOMAIN:-smoke}"
 
-# Initialize + tools/list. Initialize is required by the MCP handshake.
-# After sending both requests we briefly keep stdin open so the SDK has
-# time to flush responses before it sees EOF — without the trailing
-# sleep the server can race the reader and exit before any output lands
-# on stdout.
 request_init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'
+notif_initialized='{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}'
 request_list='{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 
+# Hold stdin open for HOLD seconds after writing all frames. Tuned for
+# Docker cold-start on a CI runner — a tighter value works locally but
+# loses the safety margin we want.
+HOLD_SECS="${HOLD_SECS:-3}"
+
 feed() {
-  printf '%s\n' "$request_init" "$request_list"
-  sleep 0.5
+  printf '%s\n' "$request_init" "$notif_initialized" "$request_list"
+  sleep "$HOLD_SECS"
 }
 
 case "$mode" in
   binary)
-    output=$(feed | timeout 10 "$target" --skip-probe 2>/dev/null || true)
+    output=$(feed | timeout 15 "$target" --skip-probe 2>/dev/null || true)
     ;;
   docker)
-    output=$(feed | timeout 10 docker run -i --rm \
+    output=$(feed | timeout 15 docker run -i --rm \
       -e PIPEDRIVE_API_TOKEN \
       -e PIPEDRIVE_COMPANY_DOMAIN \
       "$target" --skip-probe 2>/dev/null || true)
