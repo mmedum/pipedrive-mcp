@@ -5,21 +5,11 @@ import (
 	"strconv"
 )
 
-type organizationResponse struct {
-	Success bool         `json:"success"`
-	Data    Organization `json:"data"`
-}
-
-type organizationFieldsResponse struct {
-	Success bool    `json:"success"`
-	Data    []Field `json:"data"`
-}
-
 // GetOrganization fetches a single organization by ID. custom_fields
 // are nested under the org's `custom_fields` object per Pipedrive v2 —
 // caller resolves hash keys to names via the per-Client FieldCache.
 func (c *Client) GetOrganization(ctx context.Context, id int64) (*Organization, error) {
-	var resp organizationResponse
+	var resp itemEnvelope[Organization]
 	if err := c.do(ctx, "/organizations/"+strconv.FormatInt(id, 10), &resp); err != nil {
 		return nil, err
 	}
@@ -29,7 +19,7 @@ func (c *Client) GetOrganization(ctx context.Context, id int64) (*Organization, 
 
 // ListOrganizationFields returns the field metadata for organizations.
 func (c *Client) ListOrganizationFields(ctx context.Context) ([]Field, error) {
-	var resp organizationFieldsResponse
+	var resp listEnvelope[Field]
 	if err := c.do(ctx, "/organizationFields", &resp); err != nil {
 		return nil, err
 	}

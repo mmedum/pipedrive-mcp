@@ -9,8 +9,8 @@ import (
 // and resolves the 40-char custom-field hash keys back to their
 // human-readable names. Loaded behind sync.Once: concurrent callers
 // see one fetch, all subsequent callers observe the same error if the
-// fetch failed. Reload() clears the cache so the future
-// `refresh_field_cache` tool (Phase 1.9) can trigger a refetch.
+// fetch failed. Reload() clears the cache so a refresh tool can
+// trigger a refetch when fields have changed upstream.
 type FieldCache struct {
 	fetch func(context.Context) ([]Field, error)
 

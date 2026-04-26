@@ -3,6 +3,7 @@ package tools
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -19,13 +20,46 @@ import (
 // The leading [class] tag lets the LLM branch on the error category
 // (auth, not_found, rate_limited, etc.) without parsing free text.
 func errorResult(err error) *mcp.CallToolResult {
-	msg := strings.TrimPrefix(err.Error(), "pipedrive: ")
 	return &mcp.CallToolResult{
 		IsError: true,
 		Content: []mcp.Content{
-			&mcp.TextContent{Text: fmt.Sprintf("[%s] %s", errorClass(err), msg)},
+			&mcp.TextContent{Text: fmt.Sprintf("[%s] %s", errorClass(err), llmMessage(err))},
 		},
 	}
+}
+
+// llmMessage extracts the action-relevant message from err, stripping
+// the "pipedrive: <class>: " prefixes that fmt.Errorf("%w: ...")
+// embeds and the "HTTP N msg [endpoint]" envelope APIError.Error()
+// emits. The result is the upstream Pipedrive error (or our synthetic
+// one) without class/HTTP-status restating that the [class] tag
+// already conveys.
+func llmMessage(err error) string {
+	var apiErr *pipedrive.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Message
+	}
+	msg := strings.TrimPrefix(err.Error(), "pipedrive: ")
+	for _, s := range allSentinels {
+		prefix := strings.TrimPrefix(s.Error(), "pipedrive: ") + ": "
+		if strings.HasPrefix(msg, prefix) {
+			return strings.TrimPrefix(msg, prefix)
+		}
+	}
+	return msg
+}
+
+// allSentinels enumerates the pipedrive sentinel errors so llmMessage
+// can strip their "<class>: " prefixes from wrapped fmt.Errorf
+// messages without parsing free text.
+var allSentinels = []error{
+	pipedrive.ErrUnauthorized,
+	pipedrive.ErrForbiddenPermission,
+	pipedrive.ErrForbiddenBusinessRule,
+	pipedrive.ErrNotFound,
+	pipedrive.ErrRateLimited,
+	pipedrive.ErrServerError,
+	pipedrive.ErrValidation,
 }
 
 // validatePositiveID returns nil when v > 0, or a wrapped
@@ -54,11 +88,7 @@ func validateEnum(value, fieldName string, allowed map[string]bool) error {
 	}
 	// Sort so the error message is deterministic (matters for tests
 	// that grep on the formatted string).
-	for i := 1; i < len(keys); i++ {
-		for j := i; j > 0 && keys[j] < keys[j-1]; j-- {
-			keys[j], keys[j-1] = keys[j-1], keys[j]
-		}
-	}
+	sort.Strings(keys)
 	return fmt.Errorf("%w: %s %q is not one of %s", pipedrive.ErrValidation, fieldName, value, strings.Join(keys, "|"))
 }
 
