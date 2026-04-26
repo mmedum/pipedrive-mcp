@@ -48,21 +48,6 @@ func (fc *FieldCache) Load(ctx context.Context) error {
 	return fc.err
 }
 
-// NameOf triggers a Load on first use. Returns ("", false) for
-// unknown keys (and on a failed cache load).
-func (fc *FieldCache) NameOf(ctx context.Context, key string) (string, bool) {
-	if err := fc.Load(ctx); err != nil {
-		return "", false
-	}
-	fc.mu.RLock()
-	defer fc.mu.RUnlock()
-	f, ok := fc.byKey[key]
-	if !ok {
-		return "", false
-	}
-	return f.Name, true
-}
-
 // Resolve returns a copy of raw with hash keys replaced by names.
 // Unknown keys pass through verbatim so the LLM never silently loses
 // data when the cache lags behind a freshly-created field; on cache

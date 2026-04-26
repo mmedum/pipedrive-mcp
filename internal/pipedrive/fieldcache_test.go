@@ -11,8 +11,8 @@ import (
 func TestFieldCache_LazyAndOnce(t *testing.T) {
 	var calls atomic.Int64
 	fields := []Field{
-		{Key: "abc123", Name: "Account Manager", FieldType: "user", EditFlag: true},
-		{Key: "title", Name: "Title", FieldType: "varchar", EditFlag: false},
+		{Key: "abc123", Name: "Account Manager"},
+		{Key: "title", Name: "Title"},
 	}
 	fc := NewFieldCache(func(_ context.Context) ([]Field, error) {
 		calls.Add(1)
@@ -25,21 +25,13 @@ func TestFieldCache_LazyAndOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = fc.NameOf(context.Background(), "abc123")
+			_ = fc.Resolve(context.Background(), map[string]any{"abc123": "Alice"})
 		}()
 	}
 	wg.Wait()
 
 	if got := calls.Load(); got != 1 {
 		t.Errorf("fetch invoked %d times; want 1", got)
-	}
-
-	// NameOf returns expected mapping, false for unknown keys.
-	if name, ok := fc.NameOf(context.Background(), "abc123"); !ok || name != "Account Manager" {
-		t.Errorf("NameOf(abc123) = (%q,%v); want (Account Manager,true)", name, ok)
-	}
-	if _, ok := fc.NameOf(context.Background(), "no-such-key"); ok {
-		t.Error("NameOf for unknown key returned ok=true")
 	}
 }
 
@@ -50,10 +42,6 @@ func TestFieldCache_FetchErrorDoesNotPanic(t *testing.T) {
 	})
 	if err := fc.Load(context.Background()); !errors.Is(err, wantErr) {
 		t.Errorf("Load err = %v; want %v", err, wantErr)
-	}
-	// NameOf must return ok=false on a failed cache.
-	if _, ok := fc.NameOf(context.Background(), "abc123"); ok {
-		t.Error("NameOf returned ok=true after failed load")
 	}
 	// Resolve must pass through raw map untouched on a failed cache.
 	raw := map[string]any{"abc123": 42}
@@ -121,19 +109,19 @@ func TestFieldCache_Reload(t *testing.T) {
 		return fields, nil
 	})
 
-	if name, _ := fc.NameOf(context.Background(), "v1"); name != "First" {
-		t.Fatalf("first load: name = %q", name)
+	if got := fc.Resolve(context.Background(), map[string]any{"v1": "x"}); got["First"] != "x" {
+		t.Fatalf("first load: name resolution lost: %v", got)
 	}
 
 	// Mutate the source then reload.
 	fields = []Field{{Key: "v2", Name: "Second"}}
 	fc.Reload()
 
-	if name, _ := fc.NameOf(context.Background(), "v2"); name != "Second" {
-		t.Errorf("post-reload: NameOf(v2) = %q; want Second", name)
+	if got := fc.Resolve(context.Background(), map[string]any{"v2": "y"}); got["Second"] != "y" {
+		t.Errorf("post-reload: name resolution lost: %v", got)
 	}
-	if _, ok := fc.NameOf(context.Background(), "v1"); ok {
-		t.Error("post-reload: stale v1 still present")
+	if got := fc.Resolve(context.Background(), map[string]any{"v1": "stale"}); got["First"] == "stale" {
+		t.Error("post-reload: stale v1 still resolves")
 	}
 	if calls != 2 {
 		t.Errorf("fetch invocation count = %d; want 2 (one before Reload, one after)", calls)

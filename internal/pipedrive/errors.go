@@ -88,26 +88,16 @@ func classify(status int, endpoint string, env envelope) *APIError {
 	return nil
 }
 
-// Case-insensitive substrings in Pipedrive's upstream `error` field that
-// flag a business-logic 403 rather than a permission 403.
-const (
-	signalLocked       = "locked"
-	signalRequired     = "required"
-	signalStage        = "stage"
-	signalPipeline     = "pipeline"
-	signalWorkflow     = "workflow"
-	signalMandatory    = "mandatory"
-	signalRestrictedBy = "restricted by"
-)
-
+// Case-insensitive substrings in Pipedrive's upstream `error` field
+// that flag a business-logic 403 rather than a permission 403.
 var businessRule403Signals = []string{
-	signalLocked,
-	signalRequired,
-	signalStage,
-	signalPipeline,
-	signalWorkflow,
-	signalMandatory,
-	signalRestrictedBy,
+	"locked",
+	"required",
+	"stage",
+	"pipeline",
+	"workflow",
+	"mandatory",
+	"restricted by",
 }
 
 func isBusinessRule403(msg string) bool {

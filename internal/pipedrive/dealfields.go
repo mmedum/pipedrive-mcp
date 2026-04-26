@@ -28,8 +28,3 @@ func (c *Client) ResolveDealCustomFields(ctx context.Context, raw map[string]any
 func (c *Client) WarmDealFields(ctx context.Context) {
 	_ = c.dealFields.Load(ctx)
 }
-
-// ReloadDealFields clears the cache so the next access refetches.
-func (c *Client) ReloadDealFields() {
-	c.dealFields.Reload()
-}

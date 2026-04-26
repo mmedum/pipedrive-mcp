@@ -23,22 +23,14 @@ type Stage struct {
 	DealProbability int    `json:"deal_probability"`
 }
 
-// Field is a Pipedrive field-metadata record (subset). Used for the
-// per-resource field caches that resolve 40-char custom-field hashes
-// into human-readable names in tool output. Returned by /dealFields,
-// /personFields, /organizationFields, /productFields — same shape
-// across all of them, so one type covers the field caches for every
-// resource.
-//
-// Note: v2 renamed the fields from v1 (`key` → `field_code`,
-// `name` → `field_name`, `edit_flag` → `is_custom_field`). This struct
-// is v2-shaped; v1 callers (notes, when those land) will need their
-// own type if they touch field metadata.
+// Field is a Pipedrive field-metadata record (the subset the field
+// caches need: hash-key → human-name resolution). Returned by
+// /dealFields, /personFields, /organizationFields. v2 renamed
+// `key` → `field_code` and `name` → `field_name` from v1; this
+// struct is v2-shaped.
 type Field struct {
-	Key       string `json:"field_code"`      // 40-char hash for custom fields, plain identifier for built-ins ("id", "title", ...)
-	Name      string `json:"field_name"`      // human-readable label
-	FieldType string `json:"field_type"`      // varchar, monetary, enum, set, date, ...
-	EditFlag  bool   `json:"is_custom_field"` // true = custom (user-defined); false = built-in
+	Key  string `json:"field_code"` // 40-char hash for custom fields; plain identifier for built-ins ("id", "title", ...)
+	Name string `json:"field_name"` // human-readable label
 }
 
 // Deal is a Pipedrive deal record (subset). Custom fields are nested
@@ -79,18 +71,14 @@ type AdditionalData struct {
 }
 
 // itemEnvelope decodes Pipedrive v2's single-item response shape.
-// One generic replaces a per-resource wrapper struct on every read
-// endpoint.
 type itemEnvelope[T any] struct {
-	Success bool `json:"success"`
-	Data    T    `json:"data"`
+	Data T `json:"data"`
 }
 
 // listEnvelope decodes Pipedrive v2's list response shape, including
 // the cursor-based pagination envelope. AdditionalData is harmless
 // when the endpoint doesn't paginate (decodes to its zero value).
 type listEnvelope[T any] struct {
-	Success        bool           `json:"success"`
 	Data           []T            `json:"data"`
 	AdditionalData AdditionalData `json:"additional_data"`
 }
@@ -125,21 +113,15 @@ type Person struct {
 
 // Address is Pipedrive v2's structured address record. Returned by
 // /organizations/{id} and /persons/{id} for any address-typed field.
-// Value is the formatted human-readable form ("Pärnu mnt 141, 11314
-// Tallinn"); the component fields are Pipedrive's own parse and may
-// be null individually. /api/v2/itemSearch returns a different,
-// flat string-only shape — the search-side code does not decode
-// into this type.
+// /api/v2/itemSearch returns a different, flat string-only shape —
+// the search-side code does not decode into this type. Street-level
+// components (route, street_number, sublocality, admin areas) are
+// not surfaced today; add them back if a tool starts needing them.
 type Address struct {
-	Value           string `json:"value,omitempty"`
-	Country         string `json:"country,omitempty"`
-	Locality        string `json:"locality,omitempty"`
-	AdminAreaLevel1 string `json:"admin_area_level_1,omitempty"`
-	AdminAreaLevel2 string `json:"admin_area_level_2,omitempty"`
-	Sublocality     string `json:"sublocality,omitempty"`
-	Route           string `json:"route,omitempty"`
-	StreetNumber    string `json:"street_number,omitempty"`
-	PostalCode      string `json:"postal_code,omitempty"`
+	Value      string `json:"value,omitempty"`
+	Country    string `json:"country,omitempty"`
+	Locality   string `json:"locality,omitempty"`
+	PostalCode string `json:"postal_code,omitempty"`
 }
 
 // Organization is a Pipedrive organization record (subset). Custom

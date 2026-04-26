@@ -38,8 +38,3 @@ func (c *Client) ResolvePersonCustomFields(ctx context.Context, raw map[string]a
 func (c *Client) WarmPersonFields(ctx context.Context) {
 	_ = c.personFields.Load(ctx)
 }
-
-// ReloadPersonFields clears the cache so the next access refetches.
-func (c *Client) ReloadPersonFields() {
-	c.personFields.Reload()
-}

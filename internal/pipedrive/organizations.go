@@ -36,8 +36,3 @@ func (c *Client) ResolveOrganizationCustomFields(ctx context.Context, raw map[st
 func (c *Client) WarmOrganizationFields(ctx context.Context) {
 	_ = c.organizationFields.Load(ctx)
 }
-
-// ReloadOrganizationFields clears the cache so the next access refetches.
-func (c *Client) ReloadOrganizationFields() {
-	c.organizationFields.Reload()
-}
