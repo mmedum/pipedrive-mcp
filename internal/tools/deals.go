@@ -102,8 +102,7 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string) {
 		Description: "Search deals by status, pipeline, stage, owner, person, or organization. Returns matching deals with id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, and any custom fields (resolved by name). Default limit is 25, max 100. Omit `status` to include every non-deleted deal. For more results, pass the next_cursor from the previous response.",
 		Annotations: &readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listDealsInput) (*mcp.CallToolResult, listDealsOutput, error) {
-		if in.Status != "" && !allowedDealStatuses[in.Status] {
-			err := fmt.Errorf("%w: status %q is not one of open|won|lost|deleted", pipedrive.ErrValidation, in.Status)
+		if err := validateEnum(in.Status, "status", allowedDealStatuses); err != nil {
 			return errorResult(err), listDealsOutput{}, nil
 		}
 		limit := in.Limit
