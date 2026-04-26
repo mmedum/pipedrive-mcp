@@ -26,6 +26,11 @@ func BaseURL(domain string) string {
 // Safe for concurrent use across goroutines. There is one instance per
 // process; the MCP server hands a pointer to every tool's Register()
 // function.
+//
+// The per-resource field caches (DealFields, …) live on the Client
+// because their lifetime matches the process and they reuse the
+// Client's transport. Persons / organizations / products will add
+// siblings here as their PRs land.
 type Client struct {
 	host        string // https://{domain}.pipedrive.com (no path suffix)
 	token       string
@@ -33,6 +38,8 @@ type Client struct {
 	logger      *slog.Logger
 	maxAttempts int           // retry attempts for 429 and 5xx; default 3
 	baseDelay   time.Duration // base for jittered exponential backoff; default 1s
+
+	DealFields *FieldCache // lazy-loaded; first ListDeals/GetDeal triggers fetch
 }
 
 // Options configures a new Client. BaseURL is the v2 base (e.g.
@@ -59,7 +66,7 @@ func New(opts Options) *Client {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Client{
+	c := &Client{
 		host:  hostOf(opts.BaseURL),
 		token: opts.Token,
 		http: &http.Client{
@@ -72,6 +79,8 @@ func New(opts Options) *Client {
 		maxAttempts: 3,
 		baseDelay:   time.Second,
 	}
+	c.DealFields = NewFieldCache(c.ListDealFields)
+	return c
 }
 
 // hostOf strips the API path suffix from a full base URL, leaving only
@@ -261,10 +270,13 @@ func shouldRetryNetwork(err error) bool {
 	return true
 }
 
-// readBody reads up to 1 MiB. Pipedrive list responses with limit=500 plus
-// heavy custom fields can plausibly exceed this; revisit before Phase 1
-// list endpoints land.
+// readBody reads up to 8 MiB. Tool inputs cap list page sizes at 100,
+// so a deals page with heavy custom fields tops out a few hundred KiB
+// in practice; the cap is generous enough that an unexpected
+// /dealFields blob (workspaces with hundreds of custom fields) won't
+// truncate either. Hard-limited to keep a runaway upstream from
+// pinning memory.
 func readBody(r io.Reader) ([]byte, error) {
-	const limit = 1 << 20
+	const limit = 8 << 20
 	return io.ReadAll(io.LimitReader(r, limit))
 }
