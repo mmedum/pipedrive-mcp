@@ -8,5 +8,5 @@ import "context"
 // does not), every workspace has at least one deal field, and the
 // payload is tiny.
 func (c *Client) ProbeAuth(ctx context.Context) error {
-	return c.do(ctx, apiV2, "GET", "/dealFields?limit=1", nil, nil)
+	return c.do(ctx, "/dealFields?limit=1", nil)
 }
