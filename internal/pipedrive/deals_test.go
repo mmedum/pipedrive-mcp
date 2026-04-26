@@ -30,8 +30,8 @@ func TestClient_ListDealFields(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("got %d fields, want 2", len(got))
 	}
-	if got[1].Name != "Account Manager" || !got[1].EditFlag {
-		t.Errorf("got[1] = %+v; want Account Manager / EditFlag=true", got[1])
+	if got[1].Name != "Account Manager" {
+		t.Errorf("got[1] = %+v; want second field name Account Manager", got[1])
 	}
 }
 

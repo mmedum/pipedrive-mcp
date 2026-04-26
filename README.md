@@ -8,10 +8,12 @@ exposes [Pipedrive CRM](https://pipedrive.com) over stdio to LLM-driven
 clients such as Claude Desktop and Claude Code. Single static Go binary,
 distroless Docker image, signed releases, semver-disciplined surface.
 
-> **Status: pre-implementation, Phase 0.** The server boots and the auth
-> probe runs, but no tools are registered yet. The first tool ships in
-> `v0.1.0`. See `CHANGELOG.md` and the
-> [phase plan](#phase-plan) for what lands when.
+> **Status: Phase 1 in progress, pre-`v0.1.0`.** Seven read tools are
+> registered against Pipedrive v2: `list_pipelines`, `list_stages`,
+> `get_deal`, `list_deals`, `get_person`, `get_organization`, and
+> `search` (the natural-language gateway tool). Write tools, the
+> `refresh_field_cache` tool, and the v0.1.0 tag follow. See
+> `CHANGELOG.md` for what's landed.
 
 ## Highlights
 
@@ -160,16 +162,23 @@ After saving the config, restart Claude Desktop and confirm the
 
 ## Tool catalog
 
-The catalog is auto-generated from the binary's `--dump-schemas` output
-once tools start landing in Phase 1. Until then this section lists the
-planned surface; see [`docs/architecture.md`](docs/architecture.md) and
-[`CHANGELOG.md`](CHANGELOG.md) for what is actually shipped.
+Run `pipedrive-mcp --dump-schemas | jq '[.tools[].name]'` for the
+authoritative list of tools the binary registers. As of the current
+`[Unreleased]` work the seven shipped tools are:
 
-Planned categories:
+| Tool | Surface |
+| --- | --- |
+| `search` | Free-text search across deals / persons / organizations / products / files / leads. The natural-language gateway: resolve a name to an id, then drill in. |
+| `list_pipelines` | Every pipeline the API token's user can see. |
+| `list_stages` | Stages, optionally filtered to one pipeline. |
+| `get_deal` | One deal by id, custom fields resolved by name. |
+| `list_deals` | Deals filtered by status / pipeline / stage / owner / person / org, cursor-paginated. |
+| `get_person` | One person by id, with emails / phones / org link / custom fields. |
+| `get_organization` | One organization by id, with structured address and custom fields. |
 
-- **Reads** — search/get for deals, persons, organizations, activities,
-  pipelines, stages, products, deal-products, notes, plus a
-  cross-resource `search_anything`.
+The remaining categories below are the planned surface; see
+[`CHANGELOG.md`](CHANGELOG.md) for what has actually shipped.
+
 - **Writes** — create/update for deals, persons, organizations,
   activities; add notes; attach/update deal line items.
 - **Workflows** — move deal to stage, mark won/lost, complete activity,
@@ -181,8 +190,9 @@ Planned categories:
 - **`401 Unauthorized` at startup, immediate exit.** The API token is
   invalid, revoked, or for the wrong workspace. Fix the token and restart;
   the server does not poll for token changes mid-process.
-- **`custom_field "Region" not found`.** The cache is stale. Either run
-  the `refresh_field_cache` tool (Phase 1+) or restart the server.
+- **`custom_field "Region" not found`.** The cache is stale. Restart
+  the server to refetch field metadata. (A `refresh_field_cache` tool
+  is on the roadmap to avoid the restart.)
 - **LLM does something surprising.** The MCP transport does not carry the
   user's prompt, so server logs cannot tell you *why* the LLM called a
   tool. Correlate the request ID in stderr with your MCP client's prompt

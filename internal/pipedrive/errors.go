@@ -55,8 +55,7 @@ type envelope struct {
 // APIError. It applies the 403 disambiguation heuristic: business-rule
 // 403s are recognized by signal words in the upstream `error` field
 // (locked, stage, required, restricted, workflow). Permission 403s fall
-// through to the default. The signal list is tightened during the
-// Phase 0 sandbox spike; see CONTRIBUTING.md "Phase 0 spike checklist".
+// through to the default.
 //
 // The raw response body is intentionally not retained on APIError.
 // Pipedrive can echo PII back in error bodies; if a future need for
@@ -89,29 +88,16 @@ func classify(status int, endpoint string, env envelope) *APIError {
 	return nil
 }
 
-// Case-insensitive substrings in Pipedrive's upstream `error` field that
-// flag a business-logic 403 rather than a permission 403. Tightened
-// during the Phase 0 sandbox spike (see CONTRIBUTING.md "Phase 0 spike
-// checklist"); these are reasonable starting points based on the public
-// docs.
-const (
-	signalLocked       = "locked"
-	signalRequired     = "required"
-	signalStage        = "stage"
-	signalPipeline     = "pipeline"
-	signalWorkflow     = "workflow"
-	signalMandatory    = "mandatory"
-	signalRestrictedBy = "restricted by"
-)
-
+// Case-insensitive substrings in Pipedrive's upstream `error` field
+// that flag a business-logic 403 rather than a permission 403.
 var businessRule403Signals = []string{
-	signalLocked,
-	signalRequired,
-	signalStage,
-	signalPipeline,
-	signalWorkflow,
-	signalMandatory,
-	signalRestrictedBy,
+	"locked",
+	"required",
+	"stage",
+	"pipeline",
+	"workflow",
+	"mandatory",
+	"restricted by",
 }
 
 func isBusinessRule403(msg string) bool {

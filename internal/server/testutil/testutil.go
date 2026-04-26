@@ -20,7 +20,6 @@ import (
 // tests. Close() tears both down; tests should defer it.
 type Harness struct {
 	Client  *mcp.ClientSession
-	Server  *mcp.ServerSession
 	closeFn func()
 }
 
@@ -61,7 +60,6 @@ func Connect(t *testing.T, register func(*mcp.Server)) *Harness {
 
 	return &Harness{
 		Client: cs,
-		Server: ss,
 		closeFn: func() {
 			_ = cs.Close()
 			_ = ss.Close()
