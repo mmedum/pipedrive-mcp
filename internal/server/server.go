@@ -26,18 +26,21 @@ func New(name, version string, client *pipedrive.Client, domain string) *mcp.Ser
 
 	tools.RegisterPipelines(srv, client, domain)
 	tools.RegisterDeals(srv, client, domain)
+	tools.RegisterPersons(srv, client, domain)
+	tools.RegisterOrganizations(srv, client, domain)
 	tools.RegisterSearch(srv, client)
 
 	if client != nil {
-		// Warm the deal-field cache off the critical path so the
-		// first user-visible get_deal/list_deals doesn't pay the
-		// /dealFields round-trip. sync.Once inside the cache means
-		// a real call arriving mid-warm just blocks on the same
-		// fetch — never a duplicate request.
+		// Warm the field caches off the critical path so the first
+		// user-visible get_X call doesn't pay the /XFields round-trip.
+		// sync.Once inside each cache means a real call arriving
+		// mid-warm just blocks on the same fetch — never duplicates.
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			client.WarmDealFields(ctx)
+			client.WarmPersonFields(ctx)
+			client.WarmOrganizationFields(ctx)
 		}()
 	}
 
