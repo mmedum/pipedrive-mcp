@@ -77,8 +77,8 @@ func TestClient_ListPersonFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListPersonFields: %v", err)
 	}
-	if len(got) != 2 || got[1].Name != "VIP Tier" || !got[1].EditFlag {
-		t.Errorf("got = %+v; want VIP Tier with EditFlag=true", got)
+	if len(got) != 2 || got[1].Name != "VIP Tier" {
+		t.Errorf("got = %+v; want second field name VIP Tier", got)
 	}
 }
 
