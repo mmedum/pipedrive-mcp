@@ -219,6 +219,8 @@ func TestListDeals_RejectsBadStatus(t *testing.T) {
 	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "list_deals",
 		Arguments: map[string]any{"status": "ongoing"}, // not in the enum
+		// Note: the v1 synonym `all_not_deleted` is also rejected on
+		// v2 — see commit message; covered by the lint-time enum.
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
