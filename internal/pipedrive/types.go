@@ -77,3 +77,63 @@ type Deal struct {
 type AdditionalData struct {
 	NextCursor string `json:"next_cursor,omitempty"`
 }
+
+// ContactPoint is one row in a Person's emails / phones array.
+// Pipedrive returns these as arrays of {value, primary, label}
+// objects rather than flat strings so a single record can carry
+// multiple addresses.
+type ContactPoint struct {
+	Value   string `json:"value"`
+	Primary bool   `json:"primary"`
+	Label   string `json:"label,omitempty"`
+}
+
+// Person is a Pipedrive person record (subset). Custom fields are
+// nested under custom_fields per the v2 API; the LLM-facing
+// rendering in internal/tools/ resolves the 40-char hash keys into
+// names via the per-Client person field cache.
+type Person struct {
+	ID           int64          `json:"id"`
+	Name         string         `json:"name"`
+	FirstName    string         `json:"first_name,omitempty"`
+	LastName     string         `json:"last_name,omitempty"`
+	Emails       []ContactPoint `json:"emails,omitempty"`
+	Phones       []ContactPoint `json:"phones,omitempty"`
+	OrgID        int64          `json:"org_id"`
+	OwnerID      int64          `json:"owner_id"`
+	AddTime      string         `json:"add_time"`
+	UpdateTime   string         `json:"update_time"`
+	CustomFields map[string]any `json:"custom_fields,omitempty"`
+}
+
+// Address is Pipedrive v2's structured address record. Returned by
+// /organizations/{id} and /persons/{id} for any address-typed field.
+// Value is the formatted human-readable form ("Pärnu mnt 141, 11314
+// Tallinn"); the component fields are Pipedrive's own parse and may
+// be null individually. /api/v2/itemSearch returns a different,
+// flat string-only shape — the search-side code does not decode
+// into this type.
+type Address struct {
+	Value           string `json:"value,omitempty"`
+	Country         string `json:"country,omitempty"`
+	Locality        string `json:"locality,omitempty"`
+	AdminAreaLevel1 string `json:"admin_area_level_1,omitempty"`
+	AdminAreaLevel2 string `json:"admin_area_level_2,omitempty"`
+	Sublocality     string `json:"sublocality,omitempty"`
+	Route           string `json:"route,omitempty"`
+	StreetNumber    string `json:"street_number,omitempty"`
+	PostalCode      string `json:"postal_code,omitempty"`
+}
+
+// Organization is a Pipedrive organization record (subset). Custom
+// fields nest under custom_fields per the v2 API.
+type Organization struct {
+	ID           int64          `json:"id"`
+	Name         string         `json:"name"`
+	Address      *Address       `json:"address,omitempty"`
+	OwnerID      int64          `json:"owner_id"`
+	PeopleCount  int            `json:"people_count,omitempty"`
+	AddTime      string         `json:"add_time"`
+	UpdateTime   string         `json:"update_time"`
+	CustomFields map[string]any `json:"custom_fields,omitempty"`
+}

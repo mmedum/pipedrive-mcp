@@ -41,7 +41,9 @@ type Client struct {
 	maxAttempts int           // retry attempts for 429 and 5xx; default 3
 	baseDelay   time.Duration // base for jittered exponential backoff; default 1s
 
-	dealFields *FieldCache // lazy-loaded; first ListDeals/GetDeal triggers fetch
+	dealFields         *FieldCache // lazy-loaded; first ListDeals/GetDeal triggers fetch
+	personFields       *FieldCache // lazy-loaded; first GetPerson triggers fetch
+	organizationFields *FieldCache // lazy-loaded; first GetOrganization triggers fetch
 }
 
 // Options configures a new Client. BaseURL is the v2 base (e.g.
@@ -82,6 +84,8 @@ func New(opts Options) *Client {
 		baseDelay:   time.Second,
 	}
 	c.dealFields = NewFieldCache(c.ListDealFields)
+	c.personFields = NewFieldCache(c.ListPersonFields)
+	c.organizationFields = NewFieldCache(c.ListOrganizationFields)
 	return c
 }
 

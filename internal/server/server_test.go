@@ -18,11 +18,18 @@ func TestNew_ReturnsServer(t *testing.T) {
 	}
 }
 
-func TestNew_WarmsDealFieldsCache(t *testing.T) {
-	var hits atomic.Int64
+func TestNew_WarmsAllFieldCaches(t *testing.T) {
+	// Track each *Fields endpoint independently — we want to confirm
+	// every per-resource cache gets warmed exactly once.
+	var dealHits, personHits, orgHits atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v2/dealFields" {
-			hits.Add(1)
+		switch r.URL.Path {
+		case "/api/v2/dealFields":
+			dealHits.Add(1)
+		case "/api/v2/personFields":
+			personHits.Add(1)
+		case "/api/v2/organizationFields":
+			orgHits.Add(1)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"success":true,"data":[]}`)
@@ -39,18 +46,22 @@ func TestNew_WarmsDealFieldsCache(t *testing.T) {
 		t.Fatal("New returned nil server")
 	}
 
-	// The warm goroutine fires off /dealFields off the critical path.
-	// Wait briefly for the request to land. The exact timing isn't
-	// load-bearing — we just need to confirm the goroutine fires at
-	// all, so a short poll loop is fine.
+	// The warm goroutine fires off the *Fields requests off the
+	// critical path. Poll briefly until all three land.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if hits.Load() > 0 {
+		if dealHits.Load() > 0 && personHits.Load() > 0 && orgHits.Load() > 0 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if hits.Load() != 1 {
-		t.Errorf("expected /dealFields to be warmed exactly once; saw %d hits", hits.Load())
+	if dealHits.Load() != 1 {
+		t.Errorf("/dealFields warmed %d times; want 1", dealHits.Load())
+	}
+	if personHits.Load() != 1 {
+		t.Errorf("/personFields warmed %d times; want 1", personHits.Load())
+	}
+	if orgHits.Load() != 1 {
+		t.Errorf("/organizationFields warmed %d times; want 1", orgHits.Load())
 	}
 }
