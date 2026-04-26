@@ -28,6 +28,17 @@ func errorResult(err error) *mcp.CallToolResult {
 	}
 }
 
+// validatePositiveID returns nil when v > 0, or a wrapped
+// pipedrive.ErrValidation otherwise. Used by every get_X tool to
+// reject `id=0`-style inputs with a [validation] error before any
+// HTTP call is issued.
+func validatePositiveID(v int64, fieldName string) error {
+	if v > 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: %s must be a positive integer", pipedrive.ErrValidation, fieldName)
+}
+
 // validateEnum returns nil when value is in allowed, or a wrapped
 // pipedrive.ErrValidation otherwise. Centralizes the "is this enum
 // value valid" check + error-formatting that previously lived inline

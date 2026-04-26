@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -85,8 +84,7 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string) {
 		Description: "Fetch a single Pipedrive deal by deal_id. Returns id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, lost_reason, and any custom fields resolved by name. Unknown deal_id returns a [not_found] error.",
 		Annotations: &readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getDealInput) (*mcp.CallToolResult, getDealOutput, error) {
-		if in.DealID <= 0 {
-			err := fmt.Errorf("%w: deal_id must be a positive integer", pipedrive.ErrValidation)
+		if err := validatePositiveID(in.DealID, "deal_id"); err != nil {
 			return errorResult(err), getDealOutput{}, nil
 		}
 		deal, err := c.GetDeal(ctx, in.DealID)

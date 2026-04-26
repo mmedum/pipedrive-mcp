@@ -6,6 +6,7 @@ package server
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -35,12 +36,17 @@ func New(name, version string, client *pipedrive.Client, domain string) *mcp.Ser
 		// user-visible get_X call doesn't pay the /XFields round-trip.
 		// sync.Once inside each cache means a real call arriving
 		// mid-warm just blocks on the same fetch — never duplicates.
+		// Fan out across resources so a slow tail on one fetch
+		// doesn't delay the others (cuts wall-clock to max(t1,t2,t3)).
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			client.WarmDealFields(ctx)
-			client.WarmPersonFields(ctx)
-			client.WarmOrganizationFields(ctx)
+			var wg sync.WaitGroup
+			wg.Add(3)
+			go func() { defer wg.Done(); client.WarmDealFields(ctx) }()
+			go func() { defer wg.Done(); client.WarmPersonFields(ctx) }()
+			go func() { defer wg.Done(); client.WarmOrganizationFields(ctx) }()
+			wg.Wait()
 		}()
 	}
 
