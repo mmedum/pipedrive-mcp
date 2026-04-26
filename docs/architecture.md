@@ -24,7 +24,6 @@ spawn workers, queues, or schedulers.
                                                                        v
                                                               +------------------+
                                                               | api/v2/<resource>|
-                                                              | api/v1/notes (carveout)
                                                               +------------------+
 ```
 
@@ -115,10 +114,8 @@ Refresh strategy:
   allowed.
 
 In v2, custom fields nest under a `custom_fields` object on both request
-and response bodies (root-level on v1). Every typed struct in
-`internal/pipedrive/` reflects this. The future notes carve-out (Phase 2,
-when it lands) will need to handle the v1 root-level layout for that
-single resource.
+and response bodies. Every typed struct in `internal/pipedrive/`
+reflects this.
 
 ## Dry-run mechanism
 
