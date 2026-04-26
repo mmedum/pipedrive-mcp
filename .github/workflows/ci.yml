@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: "1.26.0"
+  GO_VERSION: "1.26.2"
   GOVULNCHECK_VERSION: "v1.1.4"
   GO_LICENSES_VERSION: "v1.6.0"
 
@@ -56,17 +56,21 @@ jobs:
             echo "no coverage output (no Go packages yet?) — skipping threshold check"
             exit 0
           fi
-          tmp=$(mktemp)
-          go tool cover -func=cov.out > "$tmp"
+          # Compute statement-weighted coverage per package directly from
+          # cov.out. Each non-header line is "path:range numStatements count";
+          # statement coverage = sum(numStatements where count > 0) /
+          # sum(numStatements). Matches what `go test` prints.
           fail=0
           for pkg in internal/pipedrive internal/tools internal/credentials; do
-            if grep -q "$pkg" "$tmp"; then
-              cov=$(grep "$pkg" "$tmp" | awk '{ s += $3+0; n++ } END { if (n) printf "%.1f", s/n; else print "0" }')
-              echo "$pkg coverage: ${cov}%"
-              awk -v c="$cov" 'BEGIN { exit !(c+0 < 80) }' && { echo "::error::$pkg coverage ${cov}% < 80%"; fail=1; }
-            else
+            total=$(awk -v p="$pkg" 'NR > 1 && index($1, p) { s += $2 } END { print s+0 }' cov.out)
+            if [ "$total" = "0" ]; then
               echo "$pkg not present yet — skipped"
+              continue
             fi
+            covered=$(awk -v p="$pkg" 'NR > 1 && index($1, p) && $3 > 0 { s += $2 } END { print s+0 }' cov.out)
+            cov=$(awk -v c="$covered" -v t="$total" 'BEGIN { printf "%.1f", c*100/t }')
+            echo "$pkg coverage: ${cov}%"
+            awk -v c="$cov" 'BEGIN { exit !(c+0 < 80) }' && { echo "::error::$pkg coverage ${cov}% < 80%"; fail=1; }
           done
           [ "$fail" = "0" ]
 
@@ -184,7 +188,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Trivy scan
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: pipedrive-mcp:ci
           severity: HIGH,CRITICAL
