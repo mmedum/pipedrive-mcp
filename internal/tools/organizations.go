@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -14,6 +13,12 @@ type organizationsClient interface {
 	ResolveOrganizationCustomFields(ctx context.Context, raw map[string]any) map[string]any
 }
 
+// addressRow is an intentional subset of pipedrive.Address for the
+// LLM-facing surface: street-level components (route, street_number,
+// admin_area_level_1/2, sublocality) are omitted as low-signal for
+// the kinds of questions the LLM answers from a search result. Drop
+// the parallel struct and surface pipedrive.Address directly only if
+// those components start mattering.
 type addressRow struct {
 	Value      string `json:"value,omitempty" jsonschema:"formatted human-readable address"`
 	Country    string `json:"country,omitempty" jsonschema:"country, if Pipedrive parsed one"`
@@ -50,8 +55,7 @@ func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain s
 		Description: "Fetch a single Pipedrive organization by org_id. Returns id, name, formatted address, owner_id, people_count (linked persons), add/update timestamps, and any custom fields resolved by name. Unknown org_id returns a [not_found] error. To find an organization by name, call `search` first to resolve the id.",
 		Annotations: &readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getOrganizationInput) (*mcp.CallToolResult, getOrganizationOutput, error) {
-		if in.OrgID <= 0 {
-			err := fmt.Errorf("%w: org_id must be a positive integer", pipedrive.ErrValidation)
+		if err := validatePositiveID(in.OrgID, "org_id"); err != nil {
 			return errorResult(err), getOrganizationOutput{}, nil
 		}
 		o, err := c.GetOrganization(ctx, in.OrgID)
@@ -74,7 +78,7 @@ func summarizeOrganization(domain string, o *pipedrive.Organization, customField
 		CustomFields: customFields,
 		URL:          pipedrive.WebURL(domain, pipedrive.WebURLOrganization, o.ID),
 	}
-	if o.Address != nil && (o.Address.Value != "" || o.Address.Country != "") {
+	if o.Address != nil {
 		out.Address = &addressRow{
 			Value:      o.Address.Value,
 			Country:    o.Address.Country,
