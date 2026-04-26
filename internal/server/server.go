@@ -5,6 +5,9 @@
 package server
 
 import (
+	"context"
+	"time"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
@@ -22,6 +25,20 @@ func New(name, version string, client *pipedrive.Client, domain string) *mcp.Ser
 	}, nil)
 
 	tools.RegisterPipelines(srv, client, domain)
+	tools.RegisterDeals(srv, client, domain)
+
+	if client != nil {
+		// Warm the deal-field cache off the critical path so the
+		// first user-visible get_deal/list_deals doesn't pay the
+		// /dealFields round-trip. sync.Once inside the cache means
+		// a real call arriving mid-warm just blocks on the same
+		// fetch — never a duplicate request.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			client.WarmDealFields(ctx)
+		}()
+	}
 
 	return srv
 }
