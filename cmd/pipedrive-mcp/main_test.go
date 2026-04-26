@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -188,7 +189,7 @@ func TestResolveDomain(t *testing.T) {
 
 func writeUserConfig(t *testing.T, body string) string {
 	t.Helper()
-	p := t.TempDir() + "/config.json"
+	p := filepath.Join(t.TempDir(), "config.json")
 	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 		t.Fatalf("seed userconfig: %v", err)
 	}
@@ -197,7 +198,7 @@ func writeUserConfig(t *testing.T, body string) string {
 
 func nonexistentUserConfigPath(t *testing.T) string {
 	t.Helper()
-	return t.TempDir() + "/does-not-exist.json"
+	return filepath.Join(t.TempDir(), "does-not-exist.json")
 }
 
 func TestNewPipedriveClient(t *testing.T) {
