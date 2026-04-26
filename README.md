@@ -71,23 +71,27 @@ asking you to paste it into a JSON config. Full reference and
 validation rules: [`docs/configuration.md`](docs/configuration.md).
 
 ```sh
-export PIPEDRIVE_COMPANY_DOMAIN='your-subdomain'
-pipedrive-mcp login
+pipedrive-mcp login --domain your-subdomain
 # Pipedrive API token for "your-subdomain": ········
 # login: token stored in OS keyring (service=pipedrive-mcp, account=your-subdomain)
+# login: default domain recorded in ~/.config/pipedrive-mcp/config.json
 ```
 
-After that, the only thing your MCP client config needs is
-`PIPEDRIVE_COMPANY_DOMAIN` — no secret. Run `pipedrive-mcp logout` to
-remove the stored token.
+After that, your MCP client config needs nothing about the workspace
+domain or the token — both are resolved from the keyring + a small
+non-secret pointer file (`os.UserConfigDir()/pipedrive-mcp/config.json`).
+Run `pipedrive-mcp status` to verify, or `pipedrive-mcp logout` to
+clear them.
 
-For CI, automation, or one-off use of a different token, set
-`PIPEDRIVE_API_TOKEN` instead. Env takes precedence over the keyring,
-matching the `gh` and `aws` CLIs.
+To override the recorded domain in one shell (e.g. point at a
+different workspace temporarily), set `PIPEDRIVE_COMPANY_DOMAIN` —
+env wins over the userconfig pointer. For CI, automation, or one-off
+use of a different token, set `PIPEDRIVE_API_TOKEN`. Env takes
+precedence over the keyring, matching the `gh` and `aws` CLIs.
 
 | Env var | Required | Default | Purpose |
 | --- | --- | --- | --- |
-| `PIPEDRIVE_COMPANY_DOMAIN` | yes | — | Subdomain (e.g. `acme` for `acme.pipedrive.com`). |
+| `PIPEDRIVE_COMPANY_DOMAIN` | only without `login` | — | Subdomain (e.g. `acme` for `acme.pipedrive.com`). After `pipedrive-mcp login`, recorded in user config and no longer required in env. |
 | `PIPEDRIVE_API_TOKEN` | no | — | CI/automation fallback. Prefer `pipedrive-mcp login` for interactive use. |
 | `LOG_LEVEL` | no | `info` | `debug` / `info` / `warn` / `error`. |
 | `LOG_FORMAT` | no | `text` | `text` / `json`. |
@@ -99,21 +103,23 @@ matching the `gh` and `aws` CLIs.
 
 ### Claude Desktop, binary
 
-After `pipedrive-mcp login` has stored the token in your keyring, the
-config carries only the workspace domain — no secret on disk:
+After `pipedrive-mcp login` has stored the token in your keyring AND
+recorded the default domain in user-config, the Claude Desktop config
+needs nothing — no secret, no domain:
 
 ```json
 {
   "mcpServers": {
     "pipedrive": {
-      "command": "/usr/local/bin/pipedrive-mcp",
-      "env": {
-        "PIPEDRIVE_COMPANY_DOMAIN": "acme"
-      }
+      "command": "/usr/local/bin/pipedrive-mcp"
     }
   }
 }
 ```
+
+To pin a specific workspace (e.g., when you have several stored), add
+`PIPEDRIVE_COMPANY_DOMAIN` under `env` to override the recorded
+default for this MCP server only.
 
 ### Claude Desktop, Docker
 
