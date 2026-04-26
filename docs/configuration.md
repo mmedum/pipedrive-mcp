@@ -37,20 +37,29 @@ environment.`
 ### `pipedrive-mcp login`
 
 ```sh
-export PIPEDRIVE_COMPANY_DOMAIN='your-subdomain'
-pipedrive-mcp login                        # prompts for token, no echo
-pipedrive-mcp login --domain other-domain  # stores under a different domain
+pipedrive-mcp login                          # interactive: prompts for domain (echo) and token (no echo)
+pipedrive-mcp login --domain acme            # domain via flag; only token is prompted
+PIPEDRIVE_COMPANY_DOMAIN=acme pipedrive-mcp login  # domain via env; same effect
 ```
 
 The command:
 
-1. Reads the token from the controlling terminal without echoing it
+1. Resolves the workspace subdomain in this order: `--domain` flag,
+   `PIPEDRIVE_COMPANY_DOMAIN` env, interactive prompt (with echo —
+   the domain is not a secret). The interactive path mirrors
+   `aws configure` / `gh auth login`: scriptable inputs win when
+   present, but the bare-hands path is fully interactive instead of
+   failing.
+2. Reads the token from the controlling terminal without echoing it
    (or from stdin if stdin is piped — useful for `vault read ... |
-   pipedrive-mcp login`).
-2. Validates the token against Pipedrive (auth probe). A bad token
+   pipedrive-mcp login --domain acme`).
+3. Validates the token against Pipedrive (auth probe). A bad token
    fails immediately, before anything is stored.
-3. Writes the token to the OS keyring (service `pipedrive-mcp`,
+4. Writes the token to the OS keyring (service `pipedrive-mcp`,
    account = company domain).
+5. Records the domain in the user-config file (see "Domain
+   resolution" below) so subsequent runs don't need
+   `PIPEDRIVE_COMPANY_DOMAIN`.
 
 ### `pipedrive-mcp logout`
 
