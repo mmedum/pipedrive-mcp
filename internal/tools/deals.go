@@ -9,21 +9,14 @@ import (
 	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
 )
 
-// dealsClient is the subset of *pipedrive.Client these tools call.
-// The interface lets handler tests pass a fake without standing up
-// an httptest server. The custom-field resolver is exposed via a
-// method instead of a *FieldCache field so tests don't need to
-// construct a cache.
 type dealsClient interface {
 	GetDeal(ctx context.Context, id int64) (*pipedrive.Deal, error)
 	ListDeals(ctx context.Context, opts pipedrive.ListDealsOptions) ([]pipedrive.Deal, string, error)
 	ResolveDealCustomFields(ctx context.Context, raw map[string]any) map[string]any
 }
 
-// allowedDealStatuses is the closed set of `status` values Pipedrive
-// accepts on /deals. Tools validate against this before calling the
-// API so a typo surfaces as a [validation] error instead of an
-// upstream 400.
+// Validating the status before calling the API lets a typo surface as
+// [validation] instead of an upstream 400.
 var allowedDealStatuses = map[string]bool{
 	"open":            true,
 	"won":             true,
@@ -84,7 +77,6 @@ type getDealOutput struct {
 }
 
 // RegisterDeals wires get_deal and list_deals into the MCP server.
-// companyDomain is needed for URL injection on outputs.
 func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string) {
 	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 
@@ -101,7 +93,8 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string) {
 		if err != nil {
 			return errorResult(err), getDealOutput{}, nil
 		}
-		return nil, getDealOutput{Deal: summarizeDeal(ctx, c, companyDomain, deal)}, nil
+		resolved := c.ResolveDealCustomFields(ctx, deal.CustomFields)
+		return nil, getDealOutput{Deal: summarizeDeal(companyDomain, deal, resolved)}, nil
 	})
 
 	AddTool(s, &mcp.Tool{
@@ -136,15 +129,14 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string) {
 		}
 		out := listDealsOutput{Deals: make([]dealSummary, 0, len(deals)), NextCursor: next}
 		for i := range deals {
-			out.Deals = append(out.Deals, summarizeDeal(ctx, c, companyDomain, &deals[i]))
+			resolved := c.ResolveDealCustomFields(ctx, deals[i].CustomFields)
+			out.Deals = append(out.Deals, summarizeDeal(companyDomain, &deals[i], resolved))
 		}
 		return nil, out, nil
 	})
 }
 
-// summarizeDeal copies pipedrive.Deal into the LLM-facing dealSummary
-// shape, resolving custom_fields hash-keys to names via the cache.
-func summarizeDeal(ctx context.Context, c dealsClient, domain string, d *pipedrive.Deal) dealSummary {
+func summarizeDeal(domain string, d *pipedrive.Deal, customFields map[string]any) dealSummary {
 	return dealSummary{
 		ID:                d.ID,
 		Title:             d.Title,
@@ -163,7 +155,7 @@ func summarizeDeal(ctx context.Context, c dealsClient, domain string, d *pipedri
 		AddTime:           d.AddTime,
 		UpdateTime:        d.UpdateTime,
 		Probability:       d.Probability,
-		CustomFields:      c.ResolveDealCustomFields(ctx, d.CustomFields),
+		CustomFields:      customFields,
 		URL:               pipedrive.WebURL(domain, pipedrive.WebURLDeal, d.ID),
 	}
 }
