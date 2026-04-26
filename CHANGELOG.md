@@ -18,6 +18,12 @@ breaking changes require a MAJOR bump.
   domain (and where it was resolved from), the token source (keyring
   or env var), and the result of an auth probe against Pipedrive.
   Supports `--no-probe` for offline status checks.
+- `pipedrive-mcp login` now prompts for the workspace subdomain
+  interactively when neither `--domain` nor `PIPEDRIVE_COMPANY_DOMAIN`
+  is supplied. Mirrors the `aws configure` / `gh auth login` pattern:
+  scriptable inputs win, but the bare-hands path is fully interactive.
+  Logout still requires an explicit `--domain` or env value (it's
+  managing existing entries, not gathering input).
 - After `pipedrive-mcp login` succeeds, the chosen workspace domain is
   now recorded in `os.UserConfigDir()/pipedrive-mcp/config.json`
   (`~/.config/pipedrive-mcp/config.json` on Linux). Subsequent
