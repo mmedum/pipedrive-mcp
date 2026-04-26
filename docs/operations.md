@@ -15,30 +15,43 @@ security guidance see [`security.md`](security.md).
   other egress.
 - **Filesystem**: reads `go-licenses` data via the binary itself; writes
   nothing at runtime.
-- **Background goroutines**: only what the MCP SDK transport reader
-  spawns. The custom-field cache refresh tick is part of normal request
-  handling, not a long-lived goroutine.
+- **Background goroutines**: the MCP SDK transport reader plus a
+  one-shot field-cache warm-up that fans out across the deal /
+  person / organization metadata endpoints at startup, then exits.
+  No periodic refresh loop today.
 
 ## Log shape
 
 Logs are JSON when `LOG_FORMAT=json`, otherwise human-readable text.
-JSON example:
+The lines emitted today (per-tool-call structured logging is on the
+roadmap; the binary doesn't emit those yet):
+
+| When | Level | `msg` | Useful fields |
+| --- | --- | --- | --- |
+| startup | `INFO` | `credentials resolved` | `source` (`keyring` \| `env`), `workspace`, `domain_source` (`env` \| `userconfig`) |
+| startup | `INFO` | `auth probe ok` | `workspace` |
+| per-request (debug only) | `DEBUG` | `pipedrive response` | `url`, `status`, `duration` |
+| transport failure | `WARN` | `pipedrive request failed` | `url`, `attempt`, `duration`, `error` |
+
+**LLM-facing error class** — emitted as the leading `[<class>]` tag on
+the tool's text response, NOT (yet) as a slog field. The classes are:
+
+- `[auth]` — 401 from upstream.
+- `[permission]` — 403 lacking permission for the resource.
+- `[business_rule]` — 403 due to upstream business logic (locked
+  records, required fields, stage/pipeline rules).
+- `[not_found]` — 404 from upstream, or our own
+  pipeline-not-visible synthetic in `list_stages`.
+- `[rate_limited]` — 429 after retries exhausted.
+- `[server_error]` — 5xx after retries exhausted.
+- `[validation]` — 400 from upstream OR our client-side input checks
+  (e.g. `deal_id` ≤ 0, unknown `status` value).
+
+JSON example of a successful debug-level call:
 
 ```json
-{"time":"2026-04-25T12:34:56Z","level":"INFO","msg":"tool call","tool":"get_deal","request_id":"01HZ...","duration_ms":47,"status":200}
+{"time":"2026-04-26T20:50:55Z","level":"DEBUG","msg":"pipedrive response","url":"https://acme.pipedrive.com/api/v2/deals/11","status":200,"duration":"87ms"}
 ```
-
-Useful filters:
-
-- `request_id` — UUID4 per tool call. Use to correlate with your MCP
-  client's prompt log.
-- `tool` — name of the registered tool.
-- `status` — upstream Pipedrive HTTP status, or `0` if the call did not
-  complete (network error, timeout, retry exhaustion).
-- `dry_run` — set to `true` for rehearsal calls.
-- `error` — error class on failure (`unauthorized`, `forbidden_permission`,
-  `forbidden_business_rule`, `not_found`, `rate_limited`, `server_error`,
-  `validation`).
 
 ## Common conditions
 
@@ -46,18 +59,18 @@ Useful filters:
 
 The auth probe ran and failed. Check stderr for the exact message:
 
-- `auth probe failed: 401 — check PIPEDRIVE_API_TOKEN` → token is wrong,
-  revoked, or for the wrong workspace. Fix and restart.
-- `auth probe failed: dial tcp ...` → network egress problem. Verify
-  outbound reachability to your Pipedrive subdomain.
-- `config: PIPEDRIVE_COMPANY_DOMAIN is required` → set the env var.
+- `auth probe failed: 401 — token rejected. Run pipedrive-mcp login again.` → token is wrong, revoked, or for the wrong workspace. Re-run `pipedrive-mcp login` (or update `PIPEDRIVE_API_TOKEN` in env) and restart.
+- `auth probe failed: dial tcp ...` → network egress problem. Verify outbound reachability to your Pipedrive subdomain.
+- `no domain configured: set PIPEDRIVE_COMPANY_DOMAIN, or run pipedrive-mcp login to record one` → no workspace configured. Run `pipedrive-mcp login` (which records the default for future runs) or set `PIPEDRIVE_COMPANY_DOMAIN` in the env.
 
 ### `429 Too Many Requests` showing up in logs
 
-Pipedrive uses token-based rate limiting. The client retries up to 3
-times with jittered backoff, honoring the `Retry-After` header. If
-you're seeing repeated 429s the user probably has multiple parallel MCP
-sessions or a bursty workflow. Mitigations:
+Pipedrive uses token-based rate limiting (10 req / 2 s on
+`/itemSearch`; ~100 req / 10 s on most other endpoints). The client
+makes up to 3 attempts with jittered backoff, honoring the
+`Retry-After` header. If you're seeing repeated 429s the user
+probably has multiple parallel MCP sessions or a bursty workflow.
+Mitigations:
 
 - Lower `PIPEDRIVE_HTTP_TIMEOUT` so failed calls return faster (does
   not change the upstream rate, but makes the client back off sooner).
@@ -66,15 +79,19 @@ sessions or a bursty workflow. Mitigations:
 
 ### `500/502/503` from Pipedrive
 
-The client retries up to 3 times with backoff (1s, 2s, 4s ±25% jitter).
-If the call still fails, the tool returns `server_error`. Try again
-later. Persistent 5xx is a Pipedrive-side outage, not a client bug.
+The client makes up to 3 attempts (so at most 2 backoff sleeps:
+~1s and ~2s ±25% jitter, doubled per attempt up to 30s). If the call
+still fails, the tool returns `[server_error]`. Try again later.
+Persistent 5xx is a Pipedrive-side outage, not a client bug.
 
 ### Custom field changes not visible to the LLM
 
-The cache refreshes hourly and lazily on miss. If you've just added a
-field in Pipedrive and want the LLM to use it immediately, call the
-`refresh_field_cache` tool (Phase 1+) or restart the server.
+Field metadata is cached for the lifetime of the process and isn't
+auto-refreshed. If you've just added a field in Pipedrive and want
+the LLM to use it immediately, restart the server. (A
+`refresh_field_cache` tool is on the roadmap to avoid the restart.)
+Custom-field VALUES are always live — only the hash↔name mapping is
+cached.
 
 ## Token rotation
 
