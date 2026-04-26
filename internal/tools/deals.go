@@ -16,13 +16,13 @@ type dealsClient interface {
 }
 
 // Validating the status before calling the API lets a typo surface as
-// [validation] instead of an upstream 400.
+// [validation] instead of an upstream 400. v2 only accepts these four
+// values; the v1 `all_not_deleted` synonym was removed.
 var allowedDealStatuses = map[string]bool{
-	"open":            true,
-	"won":             true,
-	"lost":            true,
-	"deleted":         true,
-	"all_not_deleted": true,
+	"open":    true,
+	"won":     true,
+	"lost":    true,
+	"deleted": true,
 }
 
 const (
@@ -53,7 +53,7 @@ type dealSummary struct {
 }
 
 type listDealsInput struct {
-	Status     string `json:"status,omitempty" jsonschema:"open | won | lost | deleted | all_not_deleted. Default: open."`
+	Status     string `json:"status,omitempty" jsonschema:"open | won | lost | deleted. Omit to let Pipedrive return its default (all non-deleted)."`
 	PipelineID int64  `json:"pipeline_id,omitempty" jsonschema:"return only deals in this pipeline; 0 = no filter"`
 	StageID    int64  `json:"stage_id,omitempty" jsonschema:"return only deals in this stage; 0 = no filter"`
 	OwnerID    int64  `json:"owner_id,omitempty" jsonschema:"return only deals owned by this user id; 0 = no filter"`
@@ -99,11 +99,11 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string) {
 
 	AddTool(s, &mcp.Tool{
 		Name:        "list_deals",
-		Description: "Search deals by status, pipeline, stage, owner, person, or organization. Returns matching deals with id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, and any custom fields (resolved by name). Default limit is 25, max 100. For more results, pass the next_cursor from the previous response.",
+		Description: "Search deals by status, pipeline, stage, owner, person, or organization. Returns matching deals with id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, and any custom fields (resolved by name). Default limit is 25, max 100. Omit `status` to include every non-deleted deal. For more results, pass the next_cursor from the previous response.",
 		Annotations: &readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listDealsInput) (*mcp.CallToolResult, listDealsOutput, error) {
 		if in.Status != "" && !allowedDealStatuses[in.Status] {
-			err := fmt.Errorf("%w: status %q is not one of open|won|lost|deleted|all_not_deleted", pipedrive.ErrValidation, in.Status)
+			err := fmt.Errorf("%w: status %q is not one of open|won|lost|deleted", pipedrive.ErrValidation, in.Status)
 			return errorResult(err), listDealsOutput{}, nil
 		}
 		limit := in.Limit
