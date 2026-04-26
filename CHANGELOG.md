@@ -13,6 +13,37 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Added
+- `pipedrive-mcp status` subcommand. Reports the active workspace
+  domain (and where it was resolved from), the token source (keyring
+  or env var), and the result of an auth probe against Pipedrive.
+  Supports `--no-probe` for offline status checks.
+- `pipedrive-mcp login` now prompts for the workspace subdomain
+  interactively when neither `--domain` nor `PIPEDRIVE_COMPANY_DOMAIN`
+  is supplied. Mirrors the `aws configure` / `gh auth login` pattern:
+  scriptable inputs win, but the bare-hands path is fully interactive.
+  Logout still requires an explicit `--domain` or env value (it's
+  managing existing entries, not gathering input).
+- After `pipedrive-mcp login` succeeds, the chosen workspace domain is
+  now recorded in `os.UserConfigDir()/pipedrive-mcp/config.json`
+  (`~/.config/pipedrive-mcp/config.json` on Linux). Subsequent
+  invocations of `pipedrive-mcp` (server) and `pipedrive-mcp status`
+  no longer require `PIPEDRIVE_COMPANY_DOMAIN` to be set in env when a
+  default is recorded. Resolution order: env > userconfig > error.
+- `pipedrive-mcp logout` no longer requires `--domain` or
+  `PIPEDRIVE_COMPANY_DOMAIN`. Plain `pipedrive-mcp logout` resolves
+  the workspace from the recorded default in user config (the same
+  pointer `login` writes), so the common single-workspace case Just
+  Works. Pass `--domain` to remove a non-default workspace when
+  several are stored. Logout also clears the recorded default domain
+  when it matches the workspace being logged out of; other
+  workspaces' tokens and pointers are left untouched.
+- `internal/userconfig/` package wrapping the JSON config file, with
+  atomic write, 0600 file perms, and 0700 dir perms.
+- `config.LoadFor(domain)` so callers (the server entrypoint) can
+  resolve the domain from any source and validate it through the
+  same code path as `config.Load()`.
+
 ### Added (Phase 1)
 - **`list_pipelines`** tool — returns every Pipedrive pipeline the API
   token's user can see (id, name, order, active flag, link to the
