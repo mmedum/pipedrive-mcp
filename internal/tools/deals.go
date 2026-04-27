@@ -46,15 +46,24 @@ type dealSummary struct {
 	URL               string         `json:"url" jsonschema:"link to the deal in the Pipedrive web UI"`
 }
 
+// allowedDealSortFields enumerates Pipedrive v2's allowed sort_by
+// values for /deals. v2 supports id / update_time / add_time only —
+// matches the shared commonV2TimestampSortFields base.
+var allowedDealSortFields = commonV2TimestampSortFields
+
 type listDealsInput struct {
-	Status     string `json:"status,omitempty" jsonschema:"open | won | lost | deleted. Omit to let Pipedrive return its default (all non-deleted)."`
-	PipelineID int64  `json:"pipeline_id,omitempty" jsonschema:"return only deals in this pipeline; 0 = no filter"`
-	StageID    int64  `json:"stage_id,omitempty" jsonschema:"return only deals in this stage; 0 = no filter"`
-	OwnerID    int64  `json:"owner_id,omitempty" jsonschema:"return only deals owned by this user id; 0 = no filter"`
-	PersonID   int64  `json:"person_id,omitempty" jsonschema:"return only deals linked to this person id; 0 = no filter"`
-	OrgID      int64  `json:"org_id,omitempty" jsonschema:"return only deals linked to this organization id; 0 = no filter"`
-	Limit      int    `json:"limit,omitempty" jsonschema:"page size; default 25, max 100"`
-	Cursor     string `json:"cursor,omitempty" jsonschema:"opaque pagination token from a previous list_deals response; omit for the first page"`
+	Status        string `json:"status,omitempty" jsonschema:"open | won | lost | deleted. Omit to let Pipedrive return its default (all non-deleted)."`
+	PipelineID    int64  `json:"pipeline_id,omitempty" jsonschema:"return only deals in this pipeline; 0 = no filter"`
+	StageID       int64  `json:"stage_id,omitempty" jsonschema:"return only deals in this stage; 0 = no filter"`
+	OwnerID       int64  `json:"owner_id,omitempty" jsonschema:"return only deals owned by this user id; 0 = no filter"`
+	PersonID      int64  `json:"person_id,omitempty" jsonschema:"return only deals linked to this person id; 0 = no filter"`
+	OrgID         int64  `json:"org_id,omitempty" jsonschema:"return only deals linked to this organization id; 0 = no filter"`
+	UpdatedSince  string `json:"updated_since,omitempty" jsonschema:"RFC3339 timestamp; return only deals updated at or after this time (e.g. 2026-04-01T00:00:00Z)"`
+	UpdatedUntil  string `json:"updated_until,omitempty" jsonschema:"RFC3339 timestamp; return only deals updated at or before this time"`
+	SortBy        string `json:"sort_by,omitempty" jsonschema:"id | update_time | add_time. Default 'update_time' (most-recently-touched first)."`
+	SortDirection string `json:"sort_direction,omitempty" jsonschema:"asc | desc. Default 'desc' when sort_by is omitted; 'asc' otherwise."`
+	Limit         int    `json:"limit,omitempty" jsonschema:"page size; default 25, max 100"`
+	Cursor        string `json:"cursor,omitempty" jsonschema:"opaque pagination token from a previous list_deals response; omit for the first page"`
 }
 
 type listDealsOutput struct {
@@ -92,21 +101,33 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string) {
 
 	AddTool(s, &mcp.Tool{
 		Name:        "list_deals",
-		Description: "List deals filtered by status, pipeline, stage, owner, person, or organization. Returns matching deals with id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, and any custom fields (resolved by name). Default limit is 25, max 100. Omit `status` to include every non-deleted deal. For more results, pass the next_cursor from the previous response. To find a deal by name (rather than ID), call `search` with type=deal first — search is the natural-language gateway, list_deals is the precision filter when the IDs are already known.",
+		Description: "List deals filtered by status, pipeline, stage, owner, person, organization, or update window. Returns matching deals with id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, and any custom fields (resolved by name). Default sort is update_time desc — most-recently-touched first, ideal for 'which deals have we been working on lately'. Default limit is 25, max 100. Omit `status` to include every non-deleted deal. For more results, pass the next_cursor from the previous response. To find a deal by name (rather than ID), call `search` with type=deal first — search is the natural-language gateway, list_deals is the precision filter when the IDs are already known.",
 		Annotations: &readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listDealsInput) (*mcp.CallToolResult, listDealsOutput, error) {
 		if err := validateEnum(in.Status, "status", allowedDealStatuses); err != nil {
 			return errorResult(err), listDealsOutput{}, nil
 		}
+		if err := validateEnum(in.SortBy, "sort_by", allowedDealSortFields); err != nil {
+			return errorResult(err), listDealsOutput{}, nil
+		}
+		if err := validateEnum(in.SortDirection, "sort_direction", allowedSortDirections); err != nil {
+			return errorResult(err), listDealsOutput{}, nil
+		}
+
+		sortBy, sortDir := effectiveSort(in.SortBy, in.SortDirection)
 		opts := pipedrive.ListDealsOptions{
-			Status:     in.Status,
-			PipelineID: in.PipelineID,
-			StageID:    in.StageID,
-			OwnerID:    in.OwnerID,
-			PersonID:   in.PersonID,
-			OrgID:      in.OrgID,
-			Limit:      clampLimit(in.Limit),
-			Cursor:     in.Cursor,
+			Status:        in.Status,
+			PipelineID:    in.PipelineID,
+			StageID:       in.StageID,
+			OwnerID:       in.OwnerID,
+			PersonID:      in.PersonID,
+			OrgID:         in.OrgID,
+			UpdatedSince:  in.UpdatedSince,
+			UpdatedUntil:  in.UpdatedUntil,
+			SortBy:        sortBy,
+			SortDirection: sortDir,
+			Limit:         clampLimit(in.Limit),
+			Cursor:        in.Cursor,
 		}
 		deals, next, err := c.ListDeals(ctx, opts)
 		if err != nil {
