@@ -137,6 +137,62 @@ func TestFieldCache_CountAfterFetchError(t *testing.T) {
 	}
 }
 
+// TestFieldCache_CountDoesNotPoisonOnce regresses the bug where
+// Count() armed the once with a no-op closure: a Count call racing
+// with a concurrent first Load could seal the once and skip the
+// real fetch, leaving byKey nil and silently breaking Resolve.
+//
+// The fetcher blocks on a channel until released, letting us hold a
+// Load in flight while we call Count many times in parallel. After
+// release the Load must observe the populated byKey, not the
+// poisoned no-op.
+func TestFieldCache_CountDoesNotPoisonOnce(t *testing.T) {
+	release := make(chan struct{})
+	var calls atomic.Int64
+	fc := NewFieldCache(func(_ context.Context) ([]Field, error) {
+		calls.Add(1)
+		<-release
+		return []Field{{Key: "k1", Name: "N1"}, {Key: "k2", Name: "N2"}}, nil
+	})
+
+	// Kick off a Load that will block in the fetcher.
+	loadDone := make(chan error, 1)
+	go func() { loadDone <- fc.Load(context.Background()) }()
+
+	// Race a flurry of Count() calls against the in-flight Load.
+	// Pre-fix these would seal the once and the Load would return
+	// nil with byKey still nil. With the fix, Count returns 0
+	// (loaded flag is false) and the Load proceeds untouched.
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if got := fc.Count(); got != 0 {
+				t.Errorf("Count during in-flight load = %d; want 0", got)
+			}
+		}()
+	}
+	wg.Wait()
+
+	// Release the fetcher; the Load now completes for real.
+	close(release)
+	if err := <-loadDone; err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if got := calls.Load(); got != 1 {
+		t.Errorf("fetcher invocations = %d; want 1", got)
+	}
+	if got := fc.Count(); got != 2 {
+		t.Errorf("Count after Load completed = %d; want 2", got)
+	}
+	resolved := fc.Resolve(context.Background(), map[string]any{"k1": "v1"})
+	if resolved["N1"] != "v1" {
+		t.Errorf("Resolve did not surface populated byKey: %#v", resolved)
+	}
+}
+
 func TestFieldCache_ReloadDuringInFlightLoad(t *testing.T) {
 	// Regression: Reload used to overwrite the FieldCache's sync.Once
 	// while a Load was mid-flight, corrupting the once's internal mutex

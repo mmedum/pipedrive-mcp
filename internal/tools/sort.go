@@ -20,3 +20,14 @@ func effectiveSort(sortBy, sortDir string) (by, dir string) {
 		return sortBy, sortDir
 	}
 }
+
+// commonV2TimestampSortFields enumerates the sort_by values Pipedrive v2
+// accepts on every resource that supports the standard timestamp axis
+// (/persons, /organizations, /deals, /activities, ...). Resources that
+// support extra fields embed this set and add their own (e.g. activities
+// adds `due_date`).
+var commonV2TimestampSortFields = map[string]bool{
+	"id":          true,
+	"update_time": true,
+	"add_time":    true,
+}

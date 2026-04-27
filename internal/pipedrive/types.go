@@ -128,11 +128,15 @@ type Person struct {
 }
 
 // Address is Pipedrive v2's structured address record. Returned by
-// /organizations/{id} and /persons/{id} for any address-typed field.
-// /api/v2/itemSearch returns a different, flat string-only shape —
-// the search-side code does not decode into this type. Street-level
-// components (route, street_number, sublocality, admin areas) are
-// not surfaced today; add them back if a tool starts needing them.
+// /organizations/{id} as the org's primary address (Pipedrive's data
+// model puts the org-level address there; persons inherit nothing
+// at the typed-struct level). Address-typed *custom* fields on any
+// resource decode into raw map entries via custom_fields, not into
+// this type. /api/v2/itemSearch returns a different, flat string-only
+// shape — the search-side code does not decode into this type.
+// Street-level components (route, street_number, sublocality, admin
+// areas) are not surfaced today; add them back if a tool starts
+// needing them.
 type Address struct {
 	Value      string `json:"value,omitempty"`
 	Country    string `json:"country,omitempty"`

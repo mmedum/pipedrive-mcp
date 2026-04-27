@@ -8,8 +8,8 @@ exposes [Pipedrive CRM](https://pipedrive.com) over stdio to LLM-driven
 clients such as Claude Desktop and Claude Code. Single static Go binary,
 distroless Docker image, signed releases, semver-disciplined surface.
 
-> **Status: Phase 1 complete, pre-`v0.1.0` tag.** Fifteen tools are
-> registered by default: eleven v2 reads (`list_pipelines`,
+> **Status: Phase 1 shipped — `v0.1.0` released 2026-04-27.** Fifteen
+> tools are registered by default: eleven v2 reads (`list_pipelines`,
 > `list_stages`, `get_deal`, `list_deals`, `get_person`,
 > `list_persons`, `get_organization`, `list_organizations`,
 > `get_activity`, `list_activities`, `search` — the natural-language
@@ -18,8 +18,8 @@ distroless Docker image, signed releases, semver-disciplined surface.
 > `PIPEDRIVE_DRY_RUN` for rehearsal mode), and one operator tool
 > (`refresh_field_cache`). When the server is started with
 > `PIPEDRIVE_ENABLE_DESTRUCTIVE=true` an additional destructive tool
-> (`delete_note`) is registered. `v0.1.0` tag follows. See
-> `CHANGELOG.md` for what's landed.
+> (`delete_note`) is registered. See `CHANGELOG.md` for what's
+> landed; Phase 2 (write tools) is the next milestone.
 
 ## Highlights
 
@@ -230,7 +230,7 @@ Versioning is strict semver. The MCP tool surface is the public contract.
 
 | Tag | Phase | What ships |
 | --- | --- | --- |
-| `v0.0.1` | Phase 0 | Repo scaffolding, CI, server boot, startup probe |
+| (no tag) | Phase 0 | Repo scaffolding, CI, server boot, startup probe — folded into `v0.1.0` rather than cut as `v0.0.1` |
 | `v0.1.0` | Phase 1 | All read tools |
 | `v0.2.0` | Phase 2 | All write tools |
 | `v0.3.0` | Phase 3 | Workflow tools |
