@@ -19,7 +19,7 @@ unchecked boxes lacking justification.
 - [ ] `govulncheck ./...` clean
 - [ ] `go-licenses check` passes
 - [ ] `scripts/staleness-check.sh` passes
-- [ ] Tool-schema diff shows no breaking change, OR commit has `BREAKING CHANGE:` footer
+- [ ] Tool-schema diff is empty, OR head commit carries `SCHEMA-CHANGE:` (additive / non-breaking) or `BREAKING CHANGE:` (breaking) footer
 - [ ] Docker build + trivy scan clean
 - [ ] `scripts/stdio-smoke.sh` passes for both binary and Docker
 - [ ] gitleaks clean
@@ -41,10 +41,18 @@ unchecked boxes lacking justification.
 
 <!-- Paste the /simplify output summary, or "no findings". -->
 
-## Breaking changes
+## Schema changes
 
 <!--
-If this PR breaks the public tool surface (tool removed/renamed, required
-input removed/renamed, output type changed, etc.), describe the break here
-AND add `BREAKING CHANGE: <description>` as a commit message footer.
+If this PR changes the public tool surface, describe the change here
+AND add a footer to the head commit:
+
+  - SCHEMA-CHANGE: <description>   for additive / non-breaking changes
+    (new optional input field, new tool, expanded enum)
+  - BREAKING CHANGE: <description>  for breaking changes
+    (tool removed/renamed, required input removed/renamed, output type
+    changed, narrowed enum, etc.)
+
+The schema-diff CI gate enforces one of these footers whenever
+--dump-schemas differs from the previous tag.
 -->
