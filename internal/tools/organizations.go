@@ -22,11 +22,6 @@ var allowedOrgSortFields = map[string]bool{
 	"add_time":    true,
 }
 
-var allowedOrgSortDirections = map[string]bool{
-	"asc":  true,
-	"desc": true,
-}
-
 // addressRow is an intentional subset of pipedrive.Address for the
 // LLM-facing surface: street-level components (route, street_number,
 // admin_area_level_1/2, sublocality) are omitted as low-signal for
@@ -104,7 +99,7 @@ func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain s
 		if err := validateEnum(in.SortBy, "sort_by", allowedOrgSortFields); err != nil {
 			return errorResult(err), listOrganizationsOutput{}, nil
 		}
-		if err := validateEnum(in.SortDirection, "sort_direction", allowedOrgSortDirections); err != nil {
+		if err := validateEnum(in.SortDirection, "sort_direction", allowedSortDirections); err != nil {
 			return errorResult(err), listOrganizationsOutput{}, nil
 		}
 
