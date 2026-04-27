@@ -13,13 +13,23 @@ import (
 )
 
 type fakePersonsClient struct {
-	person   *pipedrive.Person
-	err      error
-	resolver func(map[string]any) map[string]any
+	person     *pipedrive.Person
+	err        error
+	persons    []pipedrive.Person
+	personsNxt string
+	personsErr error
+	resolver   func(map[string]any) map[string]any
+
+	lastListOpts pipedrive.ListPersonsOptions
 }
 
 func (f *fakePersonsClient) GetPerson(_ context.Context, _ int64) (*pipedrive.Person, error) {
 	return f.person, f.err
+}
+
+func (f *fakePersonsClient) ListPersons(_ context.Context, opts pipedrive.ListPersonsOptions) ([]pipedrive.Person, string, error) {
+	f.lastListOpts = opts
+	return f.persons, f.personsNxt, f.personsErr
 }
 
 func (f *fakePersonsClient) ResolvePersonCustomFields(_ context.Context, raw map[string]any) map[string]any {
@@ -148,6 +158,92 @@ func TestGetPerson_UpstreamNotFound(t *testing.T) {
 	}
 }
 
+func TestListPersons_HappyPath(t *testing.T) {
+	fake := &fakePersonsClient{
+		persons: []pipedrive.Person{
+			{ID: 1, Name: "Alice", OrgID: 7, OwnerID: 13, CustomFields: map[string]any{"abc": "Gold"}},
+			{ID: 2, Name: "Bob", OrgID: 7, OwnerID: 13},
+		},
+		personsNxt: "cursor-page-2",
+		resolver: func(raw map[string]any) map[string]any {
+			if v, ok := raw["abc"]; ok {
+				return map[string]any{"VIP Tier": v}
+			}
+			return raw
+		},
+	}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterPersons(s, fake, "acme")
+	})
+	defer h.Close()
+
+	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "list_persons",
+		Arguments: map[string]any{"org_id": 7, "limit": 50},
+	})
+	if res.IsError {
+		t.Fatalf("unexpected isError: %+v", res.Content)
+	}
+	var out struct {
+		Persons    []personRow `json:"persons"`
+		NextCursor string      `json:"next_cursor"`
+	}
+	testutil.DecodeStructured(t, res.StructuredContent, &out)
+
+	if len(out.Persons) != 2 {
+		t.Fatalf("got %d persons, want 2", len(out.Persons))
+	}
+	if out.Persons[0].URL != "https://acme.pipedrive.com/person/1" {
+		t.Errorf("URL = %q, want acme/person/1", out.Persons[0].URL)
+	}
+	if out.NextCursor != "cursor-page-2" {
+		t.Errorf("next_cursor = %q, want cursor-page-2", out.NextCursor)
+	}
+	if out.Persons[0].CustomFields["VIP Tier"] != "Gold" {
+		t.Errorf("custom field name resolution lost: %v", out.Persons[0].CustomFields)
+	}
+	if fake.lastListOpts.OrgID != 7 || fake.lastListOpts.Limit != 50 {
+		t.Errorf("client received opts %+v; want org_id=7 limit=50", fake.lastListOpts)
+	}
+	if fake.lastListOpts.SortBy != "update_time" || fake.lastListOpts.SortDirection != "desc" {
+		t.Errorf("default sort = %q %q; want update_time desc", fake.lastListOpts.SortBy, fake.lastListOpts.SortDirection)
+	}
+}
+
+func TestListPersons_RejectsBadSortBy(t *testing.T) {
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterPersons(s, &fakePersonsClient{}, "acme")
+	})
+	defer h.Close()
+
+	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "list_persons",
+		Arguments: map[string]any{"sort_by": "name"},
+	})
+	if !res.IsError {
+		t.Fatal("expected isError on unsupported sort_by")
+	}
+	if !strings.HasPrefix(contentText(res), "[validation]") {
+		t.Errorf("error text = %q; want [validation] prefix", contentText(res))
+	}
+}
+
+func TestListPersons_LimitClampedToMax(t *testing.T) {
+	fake := &fakePersonsClient{}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterPersons(s, fake, "acme")
+	})
+	defer h.Close()
+
+	_, _ = h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "list_persons",
+		Arguments: map[string]any{"limit": 999},
+	})
+	if fake.lastListOpts.Limit != 100 {
+		t.Errorf("limit=%d; want 100 (clamped from 999)", fake.lastListOpts.Limit)
+	}
+}
+
 func TestRegisterPersons_RegistersInDumpRegistry(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
 		tools.RegisterPersons(s, &fakePersonsClient{}, "acme")
@@ -157,7 +253,10 @@ func TestRegisterPersons_RegistersInDumpRegistry(t *testing.T) {
 	if err := tools.DumpJSON(&buf, "test"); err != nil {
 		t.Fatalf("DumpJSON: %v", err)
 	}
-	if !strings.Contains(buf.String(), `"get_person"`) {
-		t.Errorf("dump missing 'get_person'; got: %s", buf.String())
+	out := buf.String()
+	for _, want := range []string{`"get_person"`, `"list_persons"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dump missing %s", want)
+		}
 	}
 }

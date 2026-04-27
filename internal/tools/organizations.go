@@ -10,7 +10,21 @@ import (
 
 type organizationsClient interface {
 	GetOrganization(ctx context.Context, id int64) (*pipedrive.Organization, error)
+	ListOrganizations(ctx context.Context, opts pipedrive.ListOrganizationsOptions) ([]pipedrive.Organization, string, error)
 	ResolveOrganizationCustomFields(ctx context.Context, raw map[string]any) map[string]any
+}
+
+// allowedOrgSortFields enumerates Pipedrive v2's allowed sort_by
+// values for /organizations. v2 supports id / update_time / add_time only.
+var allowedOrgSortFields = map[string]bool{
+	"id":          true,
+	"update_time": true,
+	"add_time":    true,
+}
+
+var allowedOrgSortDirections = map[string]bool{
+	"asc":  true,
+	"desc": true,
 }
 
 // addressRow is an intentional subset of pipedrive.Address for the
@@ -46,7 +60,23 @@ type getOrganizationOutput struct {
 	Organization organizationSummary `json:"organization" jsonschema:"the requested organization"`
 }
 
-// RegisterOrganizations wires get_organization into the MCP server.
+type listOrganizationsInput struct {
+	OwnerID       int64  `json:"owner_id,omitempty" jsonschema:"return only organizations owned by this user id; 0 = no filter"`
+	UpdatedSince  string `json:"updated_since,omitempty" jsonschema:"RFC3339 timestamp; return only organizations updated at or after this time (e.g. 2026-04-01T00:00:00Z)"`
+	UpdatedUntil  string `json:"updated_until,omitempty" jsonschema:"RFC3339 timestamp; return only organizations updated at or before this time"`
+	SortBy        string `json:"sort_by,omitempty" jsonschema:"id | update_time | add_time. Default 'update_time' (most-recently-touched first)."`
+	SortDirection string `json:"sort_direction,omitempty" jsonschema:"asc | desc. Default 'desc' when sort_by is omitted; 'asc' otherwise."`
+	Limit         int    `json:"limit,omitempty" jsonschema:"page size; default 25, max 100"`
+	Cursor        string `json:"cursor,omitempty" jsonschema:"opaque pagination token from a previous list_organizations response; omit for the first page"`
+}
+
+type listOrganizationsOutput struct {
+	Organizations []organizationSummary `json:"organizations" jsonschema:"matching organizations on this page"`
+	NextCursor    string                `json:"next_cursor,omitempty" jsonschema:"pass to the next list_organizations call to get the next page; empty when there are no more pages"`
+}
+
+// RegisterOrganizations wires get_organization and list_organizations
+// into the MCP server.
 func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain string) {
 	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 
@@ -64,6 +94,43 @@ func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain s
 		}
 		resolved := c.ResolveOrganizationCustomFields(ctx, o.CustomFields)
 		return nil, getOrganizationOutput{Organization: summarizeOrganization(companyDomain, o, resolved)}, nil
+	})
+
+	AddTool(s, &mcp.Tool{
+		Name:        "list_organizations",
+		Description: "List Pipedrive organizations filtered by owner or update window. Returns id, name, formatted address (with parsed country/locality/postal_code when present), owner_id, people_count, add/update timestamps, and any custom fields resolved by name. Default sort is update_time desc — most-recently-touched first, ideal for 'which accounts have we been working on lately'. Default limit is 25, max 100. For more results, pass the next_cursor from the previous response. To find an organization by name (rather than ID), call `search` with type=organization — search is the natural-language gateway, list_organizations is the precision filter when the IDs are already known.",
+		Annotations: &readOnly,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listOrganizationsInput) (*mcp.CallToolResult, listOrganizationsOutput, error) {
+		if err := validateEnum(in.SortBy, "sort_by", allowedOrgSortFields); err != nil {
+			return errorResult(err), listOrganizationsOutput{}, nil
+		}
+		if err := validateEnum(in.SortDirection, "sort_direction", allowedOrgSortDirections); err != nil {
+			return errorResult(err), listOrganizationsOutput{}, nil
+		}
+
+		sortBy, sortDir := effectiveSort(in.SortBy, in.SortDirection)
+		opts := pipedrive.ListOrganizationsOptions{
+			OwnerID:       in.OwnerID,
+			UpdatedSince:  in.UpdatedSince,
+			UpdatedUntil:  in.UpdatedUntil,
+			SortBy:        sortBy,
+			SortDirection: sortDir,
+			Limit:         clampLimit(in.Limit),
+			Cursor:        in.Cursor,
+		}
+		orgs, next, err := c.ListOrganizations(ctx, opts)
+		if err != nil {
+			return errorResult(err), listOrganizationsOutput{}, nil
+		}
+		out := listOrganizationsOutput{
+			Organizations: make([]organizationSummary, 0, len(orgs)),
+			NextCursor:    next,
+		}
+		for i := range orgs {
+			resolved := c.ResolveOrganizationCustomFields(ctx, orgs[i].CustomFields)
+			out.Organizations = append(out.Organizations, summarizeOrganization(companyDomain, &orgs[i], resolved))
+		}
+		return nil, out, nil
 	})
 }
 
