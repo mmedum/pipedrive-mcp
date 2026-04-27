@@ -6,7 +6,7 @@ How to cut a tagged release. Two parallel workflows trigger on a
 - `.github/workflows/release.yml` — archives, checksums, cosign-signed
   blobs, CycloneDX SBOM, GitHub Release, SLSA L2 build-provenance.
   Driven by `.goreleaser.yaml` plus a thin orchestration step that
-  extracts the matching `## [vX.Y.Z]` section from `CHANGELOG.md` as
+  extracts the matching `## [X.Y.Z]` section from `CHANGELOG.md` as
   the release notes (so our Keep-a-Changelog format wins, not
   goreleaser's git-log changelog).
 - `.github/workflows/docker-publish.yml` — multi-arch Docker image
@@ -76,30 +76,35 @@ The release workflow runs automatically. Watch it at
 ## After the workflow finishes
 
 - [ ] Open the GitHub Release page. Verify:
-      - Binaries present for `darwin/{amd64,arm64}`,
-        `linux/{amd64,arm64}`, `windows/amd64`.
-      - `SHA256SUMS` plus `.sig`/`.cert` for each binary and for
+      - Archives present for `darwin/{amd64,arm64}`,
+        `linux/{amd64,arm64}`, `windows/amd64` (`.tar.gz` for
+        unix-likes, `.zip` for windows).
+      - `SHA256SUMS` plus `.sig`/`.cert` for each archive and for
         `SHA256SUMS` itself.
-      - `sbom.cdx.json` attached.
-      - SLSA build-provenance attestation visible
-        (cli/cli-style "Provenance" badge on each binary).
+      - `<archive>.cdx.json` (CycloneDX SBOM) per archive, plus the
+        matching `.cdx.json.sig`/`.cdx.json.cert` for each.
+      - SLSA build-provenance attestation visible (cli/cli-style
+        "Provenance" badge on each archive).
 - [ ] Pull the freshly-pushed Docker image and verify the cosign
       signature:
 
       cosign verify ghcr.io/mmedum/pipedrive-mcp:v0.X.Y \
         --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.+' \
         --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
-- [ ] Verify a binary signature locally:
+- [ ] Verify a binary signature locally. Use the archive filename
+      goreleaser actually produces — no `v` prefix, `.tar.gz`
+      extension; the `.sig`/`.cert` sign the archive, not the
+      binary inside:
 
       cosign verify-blob \
-        --certificate pipedrive-mcp-vX.Y.Z-linux-amd64.cert \
-        --signature   pipedrive-mcp-vX.Y.Z-linux-amd64.sig \
+        --certificate pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.cert \
+        --signature   pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.sig \
         --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.+' \
         --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-        pipedrive-mcp-vX.Y.Z-linux-amd64
+        pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz
 - [ ] Verify the build attestation with `gh attestation verify`:
 
-      gh attestation verify pipedrive-mcp-vX.Y.Z-linux-amd64 \
+      gh attestation verify pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz \
         --owner mmedum
 - [ ] Re-run `make smoke` against the just-released binary
       (download → smoke), not the dev binary.
@@ -118,7 +123,7 @@ The release workflow runs automatically. Watch it at
   no consumer has pulled the release yet** — published tags are
   public history; deleting one downstream of an artifact pull breaks
   any verifier that pinned by tag.
-- **Goreleaser fails on the release notes step**: the `## [vX.Y.Z]`
+- **Goreleaser fails on the release notes step**: the `## [X.Y.Z]`
   section in `CHANGELOG.md` is missing or unrenamed from
   `[Unreleased]`. Fix the CHANGELOG on `main`, redo the tag.
 - **Cosign signing failure**: usually a transient Fulcio CA blip;
