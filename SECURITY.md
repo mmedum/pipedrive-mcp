@@ -54,15 +54,19 @@ policy; that one is the **runtime** policy.
 ## Provenance
 
 Every release is signed via [cosign](https://github.com/sigstore/cosign)
-keyless OIDC. Verify with:
+keyless OIDC. Verify with (replace `X.Y.Z` with the release version —
+goreleaser strips the `v` prefix from archive filenames; the
+`.sig`/`.cert` sign the `.tar.gz` archive, not the binary inside):
 
 ```sh
 cosign verify-blob \
-  --certificate pipedrive-mcp-vX.Y.Z-linux-amd64.cert \
-  --signature   pipedrive-mcp-vX.Y.Z-linux-amd64.sig \
+  --certificate pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.cert \
+  --signature   pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.sig \
   --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.*' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  pipedrive-mcp-vX.Y.Z-linux-amd64
+  pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz
 ```
 
-A CycloneDX SBOM (`sbom.cdx.json`) is attached to every release.
+A CycloneDX SBOM is attached per-archive (e.g.
+`pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.cdx.json`); the matching
+`.cdx.json.sig`/`.cdx.json.cert` sign each SBOM.

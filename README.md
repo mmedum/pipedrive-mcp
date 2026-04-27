@@ -46,15 +46,18 @@ Download the latest release binary for your platform from the
 the signature (recommended):
 
 ```sh
+# Replace X.Y.Z with the release version. Note: no `v` prefix in the
+# archive filename — goreleaser strips it. The `.sig` and `.cert`
+# sign the .tar.gz archive itself, not the binary inside.
 cosign verify-blob \
-  --certificate pipedrive-mcp-vX.Y.Z-linux-amd64.cert \
-  --signature   pipedrive-mcp-vX.Y.Z-linux-amd64.sig \
+  --certificate pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.cert \
+  --signature   pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.sig \
   --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.*' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  pipedrive-mcp-vX.Y.Z-linux-amd64
+  pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz
 
-chmod +x pipedrive-mcp-vX.Y.Z-linux-amd64
-sudo mv pipedrive-mcp-vX.Y.Z-linux-amd64 /usr/local/bin/pipedrive-mcp
+tar -xzf pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz
+sudo mv pipedrive-mcp /usr/local/bin/pipedrive-mcp
 ```
 
 ### From the Docker image
