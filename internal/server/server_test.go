@@ -75,11 +75,22 @@ func TestNew_WarmGoroutineCancelsWithParentContext(t *testing.T) {
 	// warm pump should exit within the test timeout (well under the
 	// 30s internal warm-cap).
 	hung := make(chan struct{})
-	defer close(hung)
-	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		<-hung // hold the connection until the test completes
+	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		// Observe the request context so the handler unblocks when
+		// the http.Client cancels (the path under test). The hung
+		// channel is the explicit test-cleanup escape.
+		select {
+		case <-hung:
+		case <-r.Context().Done():
+		}
 	}))
+	// Defer order matters: upstream.Close waits for handler goroutines
+	// to drain. Closing `hung` first lets any handler that hasn't yet
+	// observed its request-context cancellation return, so Close
+	// doesn't hang for 5+ seconds emitting the httptest "blocked in
+	// Close" warning.
 	defer upstream.Close()
+	defer close(hung)
 
 	client := pipedrive.New(pipedrive.Options{
 		BaseURL: upstream.URL + "/api/v2",
