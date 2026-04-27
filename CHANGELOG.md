@@ -13,9 +13,9 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
-This entry will become `[0.1.0]` at tag time — see the
-[Unreleased]→[X.Y.Z] step in `docs/release.md`. Phase 1 closes here:
-the read surface (deals, persons, organizations, activities, notes,
+## [0.1.0] - 2026-04-27
+
+Phase 1 closes here: the read surface (deals, persons, organizations, activities, notes,
 pipelines/stages, search), the notes-only v1 carve-out, the first
 non-destructive write tool (`create_note`), the destructive write
 (`delete_note`, gated by `PIPEDRIVE_ENABLE_DESTRUCTIVE`), and the
