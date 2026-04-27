@@ -13,6 +13,17 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Changed
+- Schema-diff CI gate now distinguishes additive from breaking
+  changes. The previous gate required a `BREAKING CHANGE:` footer
+  on *any* schema diff — including purely additive ones (new
+  optional input field, new tool, expanded enum). The new gate
+  accepts a `SCHEMA-CHANGE:` footer for additive/non-breaking
+  changes and reserves `BREAKING CHANGE:` for actual breaks
+  (tool removed/renamed, required input removed/renamed, output
+  type changed, narrowed enum). Empty diff still passes without
+  any footer. PR template updated with the new convention.
+
 ### Fixed
 - `FieldCache.Count()` no longer triggers `sync.Once` on a fresh
   cache entry. The previous defensive `once.Do(func(){})` could
