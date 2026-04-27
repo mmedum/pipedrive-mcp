@@ -13,16 +13,15 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
-### Changed
-- Schema-diff CI gate now distinguishes additive from breaking
-  changes. The previous gate required a `BREAKING CHANGE:` footer
-  on *any* schema diff — including purely additive ones (new
-  optional input field, new tool, expanded enum). The new gate
-  accepts a `SCHEMA-CHANGE:` footer for additive/non-breaking
-  changes and reserves `BREAKING CHANGE:` for actual breaks
-  (tool removed/renamed, required input removed/renamed, output
-  type changed, narrowed enum). Empty diff still passes without
-  any footer. PR template updated with the new convention.
+### Added
+- `list_deals` now accepts `updated_since`, `updated_until`,
+  `sort_by`, and `sort_direction` — bringing it to parity with
+  `list_persons`, `list_organizations`, and `list_activities`.
+  Default sort is `update_time desc` (most-recently-touched first),
+  matching the convention. Pipedrive v2 `/deals` supports all four
+  upstream; the gap was a holdover from when `list_deals` was the
+  first list_X tool. Additive change — no breakage to existing
+  callers; tagged `SCHEMA-CHANGE:` per the gate's new convention.
 
 ### Fixed
 - `FieldCache.Count()` no longer triggers `sync.Once` on a fresh
@@ -36,6 +35,15 @@ breaking changes require a MAJOR bump.
   `Reload` → `Load` → `Count` sequentially).
 
 ### Changed
+- Schema-diff CI gate now distinguishes additive from breaking
+  changes. The previous gate required a `BREAKING CHANGE:` footer
+  on *any* schema diff — including purely additive ones (new
+  optional input field, new tool, expanded enum). The new gate
+  accepts a `SCHEMA-CHANGE:` footer for additive/non-breaking
+  changes and reserves `BREAKING CHANGE:` for actual breaks
+  (tool removed/renamed, required input removed/renamed, output
+  type changed, narrowed enum). Empty diff still passes without
+  any footer. PR template updated with the new convention.
 - `internal/tools/sort.go` exports a single
   `commonV2TimestampSortFields` set ({id, update_time, add_time});
   `list_persons`, `list_organizations`, and `list_activities`

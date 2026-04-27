@@ -208,6 +208,75 @@ func TestListDeals_HappyPath(t *testing.T) {
 	if fake.lastListOpts.Status != "open" || fake.lastListOpts.PipelineID != 2 || fake.lastListOpts.Limit != 50 {
 		t.Errorf("client received opts %+v; want status=open pipeline_id=2 limit=50", fake.lastListOpts)
 	}
+	if fake.lastListOpts.SortBy != "update_time" || fake.lastListOpts.SortDirection != "desc" {
+		t.Errorf("default sort = %q %q; want update_time desc", fake.lastListOpts.SortBy, fake.lastListOpts.SortDirection)
+	}
+}
+
+func TestListDeals_PassesUpdatedWindowAndSort(t *testing.T) {
+	fake := &fakeDealsClient{}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterDeals(s, fake, "acme")
+	})
+	defer h.Close()
+
+	_, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "list_deals",
+		Arguments: map[string]any{
+			"updated_since":  "2026-04-01T00:00:00Z",
+			"updated_until":  "2026-04-30T23:59:59Z",
+			"sort_by":        "add_time",
+			"sort_direction": "asc",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if fake.lastListOpts.UpdatedSince != "2026-04-01T00:00:00Z" {
+		t.Errorf("updated_since not plumbed: %q", fake.lastListOpts.UpdatedSince)
+	}
+	if fake.lastListOpts.UpdatedUntil != "2026-04-30T23:59:59Z" {
+		t.Errorf("updated_until not plumbed: %q", fake.lastListOpts.UpdatedUntil)
+	}
+	if fake.lastListOpts.SortBy != "add_time" || fake.lastListOpts.SortDirection != "asc" {
+		t.Errorf("sort = %q %q; want add_time asc", fake.lastListOpts.SortBy, fake.lastListOpts.SortDirection)
+	}
+}
+
+func TestListDeals_RejectsBadSortBy(t *testing.T) {
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterDeals(s, &fakeDealsClient{}, "acme")
+	})
+	defer h.Close()
+
+	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "list_deals",
+		Arguments: map[string]any{"sort_by": "title"},
+	})
+	if !res.IsError {
+		t.Fatal("expected isError on unsupported sort_by")
+	}
+	if !strings.HasPrefix(contentText(res), "[validation]") {
+		t.Errorf("error text = %q; want [validation] prefix", contentText(res))
+	}
+}
+
+func TestListDeals_RejectsBadSortDirection(t *testing.T) {
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterDeals(s, &fakeDealsClient{}, "acme")
+	})
+	defer h.Close()
+
+	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "list_deals",
+		Arguments: map[string]any{"sort_direction": "sideways"},
+	})
+	if !res.IsError {
+		t.Fatal("expected isError on unsupported sort_direction")
+	}
+	if !strings.HasPrefix(contentText(res), "[validation]") {
+		t.Errorf("error text = %q; want [validation] prefix", contentText(res))
+	}
 }
 
 func TestListDeals_RejectsBadStatus(t *testing.T) {
