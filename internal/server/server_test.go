@@ -13,7 +13,7 @@ import (
 )
 
 func TestNew_ReturnsServer(t *testing.T) {
-	srv := New(context.Background(), "pipedrive-mcp", "test", nil, "")
+	srv := New(context.Background(), "pipedrive-mcp", "test", nil, "", false, false)
 	if srv == nil {
 		t.Fatal("New returned nil server")
 	}
@@ -42,7 +42,7 @@ func TestNew_WarmsAllFieldCaches(t *testing.T) {
 		Token:   "test",
 	})
 
-	srv := New(context.Background(), "pipedrive-mcp", "test", client, "acme")
+	srv := New(context.Background(), "pipedrive-mcp", "test", client, "acme", false, false)
 	if srv == nil {
 		t.Fatal("New returned nil server")
 	}
@@ -98,7 +98,7 @@ func TestNew_WarmGoroutineCancelsWithParentContext(t *testing.T) {
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	srv := New(ctx, "pipedrive-mcp", "test", client, "acme")
+	srv := New(ctx, "pipedrive-mcp", "test", client, "acme", false, false)
 	if srv == nil {
 		t.Fatal("New returned nil server")
 	}

@@ -1,6 +1,7 @@
 package pipedrive
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -103,19 +104,46 @@ func hostOf(base string) string {
 	return u.String()
 }
 
-// do issues a GET request, decoding the response body into out (which
-// may be nil for endpoints that return no payload) and applying
-// retry/backoff for 429 and 5xx.
-//
-// Phase 0 + Phase 1 are read-only. The first Phase 2 write tool will
-// reintroduce per-call method/body parameters and the encodeBody +
-// content-type plumbing they need.
+// do issues a GET against /api/v2 + path and decodes the response body
+// into out (which may be nil). Most callers in this package use this.
 func (c *Client) do(ctx context.Context, path string, out any) error {
-	requestURL := c.host + "/api/v2" + path
+	return c.exec(ctx, http.MethodGet, "v2", path, nil, out)
+}
+
+// doV1 is the v1-only escape hatch for the notes carve-out
+// (Pipedrive has no /api/v2/notes endpoint). Same retry/error-mapping
+// pipeline as `do`. New callers should not be added without a
+// CHANGELOG ### Changed entry per CLAUDE.md hard rule #1.
+func (c *Client) doV1(ctx context.Context, path string, out any) error {
+	return c.exec(ctx, http.MethodGet, "v1", path, nil, out)
+}
+
+// postV1 is the v1-only POST helper used by the notes carve-out
+// write tools. Body is marshaled to JSON; Content-Type is set
+// automatically. POST is NOT retried on 5xx (only on 429) since
+// the server may have already committed before responding —
+// retrying could create duplicate rows.
+func (c *Client) postV1(ctx context.Context, path string, body, out any) error {
+	return c.exec(ctx, http.MethodPost, "v1", path, body, out)
+}
+
+// deleteV1 is the v1-only DELETE helper used by the notes carve-out
+// destructive tool. Same retry policy as postV1: only 429 is
+// retried, 5xx is not (the resource may already be gone, retrying
+// could surface a 404 that obscures the real failure).
+func (c *Client) deleteV1(ctx context.Context, path string, out any) error {
+	return c.exec(ctx, http.MethodDelete, "v1", path, nil, out)
+}
+
+// exec runs the configured retry loop for a single API call.
+// apiVersion is "v1" or "v2"; path is the resource path AFTER the
+// /api/{version} prefix.
+func (c *Client) exec(ctx context.Context, method, apiVersion, path string, body, out any) error {
+	requestURL := c.host + "/api/" + apiVersion + path
 
 	var lastErr error
 	for attempt := 0; attempt < c.maxAttempts; attempt++ {
-		retry, retryAfter, err := c.attempt(ctx, requestURL, out, attempt)
+		retry, retryAfter, err := c.attempt(ctx, method, requestURL, body, out, attempt)
 		if !retry {
 			return err
 		}
@@ -129,16 +157,16 @@ func (c *Client) do(ctx context.Context, path string, out any) error {
 	return lastErr
 }
 
-// attempt runs a single GET. retry indicates whether the caller should
-// sleep and try again; when false, err is the terminal result (nil on
-// success).
+// attempt runs a single request. retry indicates whether the caller
+// should sleep and try again; when false, err is the terminal result
+// (nil on success).
 func (c *Client) attempt(
 	ctx context.Context,
-	requestURL string,
-	out any,
+	method, requestURL string,
+	body, out any,
 	attempt int,
 ) (retry bool, retryAfter time.Duration, err error) {
-	req, err := newRequest(ctx, requestURL, c.token)
+	req, err := newRequest(ctx, method, requestURL, body, c.token)
 	if err != nil {
 		return false, 0, err
 	}
@@ -149,18 +177,19 @@ func (c *Client) attempt(
 	if err != nil {
 		c.logger.WarnContext(ctx, "pipedrive request failed",
 			slog.String("url", requestURL),
+			slog.String("method", method),
 			slog.Int("attempt", attempt+1),
 			slog.Duration("duration", duration),
 			slog.String("error", err.Error()),
 		)
-		wrapped := fmt.Errorf("pipedrive: GET %s: %w", requestURL, err)
+		wrapped := fmt.Errorf("pipedrive: %s %s: %w", method, requestURL, err)
 		if shouldRetryNetwork(err) && attempt+1 < c.maxAttempts {
 			return true, 0, wrapped
 		}
 		return false, 0, wrapped
 	}
 
-	raw, err := readBody(resp.Body)
+	rawBody, err := readBody(resp.Body)
 	_ = resp.Body.Close()
 	if err != nil {
 		return false, 0, fmt.Errorf("pipedrive: read body: %w", err)
@@ -168,28 +197,54 @@ func (c *Client) attempt(
 
 	c.logger.DebugContext(ctx, "pipedrive response",
 		slog.String("url", requestURL),
+		slog.String("method", method),
 		slog.Int("status", resp.StatusCode),
 		slog.Duration("duration", duration),
 	)
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return false, 0, decodeSuccess(raw, out)
+		return false, 0, decodeSuccess(rawBody, out)
 	}
 
-	apiErr := classifyResponse(resp.StatusCode, requestURL, raw)
-	if isRetryableStatus(resp.StatusCode) && attempt+1 < c.maxAttempts {
+	apiErr := classifyResponse(resp.StatusCode, requestURL, rawBody)
+	if attempt+1 < c.maxAttempts && shouldRetry(method, resp.StatusCode) {
 		return true, parseRetryAfter(resp.Header.Get("Retry-After")), apiErr
 	}
 	return false, 0, apiErr
 }
 
-func newRequest(ctx context.Context, requestURL, token string) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, http.NoBody)
+// shouldRetry encodes the per-method retry policy. GET is idempotent
+// so retrying 5xx is safe. Non-GET (POST/PATCH/DELETE) is retried
+// only on 429: the server explicitly told us to back off without
+// committing, vs 5xx where the request may have partially succeeded.
+func shouldRetry(method string, status int) bool {
+	if status == http.StatusTooManyRequests {
+		return true
+	}
+	if method == http.MethodGet && status >= 500 {
+		return true
+	}
+	return false
+}
+
+func newRequest(ctx context.Context, method, requestURL string, body any, token string) (*http.Request, error) {
+	var bodyReader io.Reader = http.NoBody
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("pipedrive: encode body: %w", err)
+		}
+		bodyReader = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, requestURL, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("pipedrive: build request: %w", err)
 	}
 	req.Header.Set("x-api-token", token)
 	req.Header.Set("Accept", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	return req, nil
 }
 
@@ -211,10 +266,6 @@ func classifyResponse(status int, requestURL string, raw []byte) error {
 		return fmt.Errorf("pipedrive: unexpected status %d", status)
 	}
 	return apiErr
-}
-
-func isRetryableStatus(status int) bool {
-	return status == http.StatusTooManyRequests || status >= 500
 }
 
 // pathOf returns the path portion of a URL for use in classify's endpoint
