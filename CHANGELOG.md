@@ -31,6 +31,16 @@ breaking changes require a MAJOR bump.
   `/api/v1/notes` for now (developer community, May 2025).
 
 ### Added
+- `list_persons` and `list_organizations` tools — cursor-paginated
+  list endpoints over Pipedrive v2's `/persons` and `/organizations`.
+  Filters: owner, update window (`updated_since`/`updated_until`),
+  sort (id / update_time / add_time, asc/desc). `list_persons` also
+  supports `org_id`. Both default to `update_time desc` (most-
+  recently-touched first) for the natural "what's been worked on
+  lately" query. Custom fields resolved by name via the existing
+  per-resource caches. `search` remains the natural-language
+  gateway for finding records by name; these tools are the
+  precision filter when the IDs are already known.
 - `get_note`, `list_notes`, `create_note`, `delete_note` tools —
   Pipedrive notes attached to deals / persons / organizations /
   leads / projects. These are the only v1-API tools in this server

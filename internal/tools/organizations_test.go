@@ -15,11 +15,21 @@ import (
 type fakeOrganizationsClient struct {
 	org      *pipedrive.Organization
 	err      error
+	orgs     []pipedrive.Organization
+	orgsNxt  string
+	orgsErr  error
 	resolver func(map[string]any) map[string]any
+
+	lastListOpts pipedrive.ListOrganizationsOptions
 }
 
 func (f *fakeOrganizationsClient) GetOrganization(_ context.Context, _ int64) (*pipedrive.Organization, error) {
 	return f.org, f.err
+}
+
+func (f *fakeOrganizationsClient) ListOrganizations(_ context.Context, opts pipedrive.ListOrganizationsOptions) ([]pipedrive.Organization, string, error) {
+	f.lastListOpts = opts
+	return f.orgs, f.orgsNxt, f.orgsErr
 }
 
 func (f *fakeOrganizationsClient) ResolveOrganizationCustomFields(_ context.Context, raw map[string]any) map[string]any {
@@ -138,6 +148,92 @@ func TestGetOrganization_UpstreamNotFound(t *testing.T) {
 	}
 }
 
+func TestListOrganizations_HappyPath(t *testing.T) {
+	fake := &fakeOrganizationsClient{
+		orgs: []pipedrive.Organization{
+			{ID: 1, Name: "AcmeCo", OwnerID: 13, CustomFields: map[string]any{"def": "strategic"}},
+			{ID: 2, Name: "BetaCorp", OwnerID: 13},
+		},
+		orgsNxt: "cursor-page-2",
+		resolver: func(raw map[string]any) map[string]any {
+			if v, ok := raw["def"]; ok {
+				return map[string]any{"Tier": v}
+			}
+			return raw
+		},
+	}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterOrganizations(s, fake, "acme")
+	})
+	defer h.Close()
+
+	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "list_organizations",
+		Arguments: map[string]any{"owner_id": 13, "limit": 50},
+	})
+	if res.IsError {
+		t.Fatalf("unexpected isError: %+v", res.Content)
+	}
+	var out struct {
+		Organizations []orgRow `json:"organizations"`
+		NextCursor    string   `json:"next_cursor"`
+	}
+	testutil.DecodeStructured(t, res.StructuredContent, &out)
+
+	if len(out.Organizations) != 2 {
+		t.Fatalf("got %d orgs, want 2", len(out.Organizations))
+	}
+	if out.Organizations[0].URL != "https://acme.pipedrive.com/organization/1" {
+		t.Errorf("URL = %q, want acme/organization/1", out.Organizations[0].URL)
+	}
+	if out.NextCursor != "cursor-page-2" {
+		t.Errorf("next_cursor = %q, want cursor-page-2", out.NextCursor)
+	}
+	if out.Organizations[0].CustomFields["Tier"] != "strategic" {
+		t.Errorf("custom field name resolution lost: %v", out.Organizations[0].CustomFields)
+	}
+	if fake.lastListOpts.OwnerID != 13 || fake.lastListOpts.Limit != 50 {
+		t.Errorf("client received opts %+v; want owner_id=13 limit=50", fake.lastListOpts)
+	}
+	if fake.lastListOpts.SortBy != "update_time" || fake.lastListOpts.SortDirection != "desc" {
+		t.Errorf("default sort = %q %q; want update_time desc", fake.lastListOpts.SortBy, fake.lastListOpts.SortDirection)
+	}
+}
+
+func TestListOrganizations_RejectsBadSortBy(t *testing.T) {
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme")
+	})
+	defer h.Close()
+
+	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "list_organizations",
+		Arguments: map[string]any{"sort_by": "name"},
+	})
+	if !res.IsError {
+		t.Fatal("expected isError on unsupported sort_by")
+	}
+	if !strings.HasPrefix(contentText(res), "[validation]") {
+		t.Errorf("error text = %q; want [validation] prefix", contentText(res))
+	}
+}
+
+func TestListOrganizations_LimitDefaultWhenZero(t *testing.T) {
+	fake := &fakeOrganizationsClient{}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterOrganizations(s, fake, "acme")
+	})
+	defer h.Close()
+
+	_, _ = h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "list_organizations",
+		Arguments: map[string]any{},
+	})
+	if fake.lastListOpts.Limit != 25 {
+		t.Errorf("limit=%d; want 25 (default)", fake.lastListOpts.Limit)
+	}
+}
+
 func TestRegisterOrganizations_RegistersInDumpRegistry(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
 		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme")
@@ -147,7 +243,10 @@ func TestRegisterOrganizations_RegistersInDumpRegistry(t *testing.T) {
 	if err := tools.DumpJSON(&buf, "test"); err != nil {
 		t.Fatalf("DumpJSON: %v", err)
 	}
-	if !strings.Contains(buf.String(), `"get_organization"`) {
-		t.Errorf("dump missing 'get_organization'; got: %s", buf.String())
+	out := buf.String()
+	for _, want := range []string{`"get_organization"`, `"list_organizations"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dump missing %s", want)
+		}
 	}
 }

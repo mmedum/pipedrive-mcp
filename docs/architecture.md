@@ -65,8 +65,8 @@ pipedrive-mcp/
 │       ├── pagination.go      # shared clampLimit + default/max page-size constants
 │       ├── pipelines.go       # list_pipelines + list_stages
 │       ├── deals.go           # get_deal + list_deals
-│       ├── persons.go         # get_person
-│       ├── organizations.go   # get_organization
+│       ├── persons.go         # get_person + list_persons
+│       ├── organizations.go   # get_organization + list_organizations
 │       ├── activities.go      # get_activity + list_activities
 │       ├── notes.go           # get_note + list_notes + create_note (Phase 1's only write)
 │       └── search.go          # search (unified itemSearch wrapper)
