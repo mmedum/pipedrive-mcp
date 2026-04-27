@@ -43,6 +43,7 @@ func New(ctx context.Context, name, version string, client *pipedrive.Client, do
 	tools.RegisterOrganizations(srv, client, domain)
 	tools.RegisterActivities(srv, client, domain)
 	tools.RegisterNotes(srv, client, dryRun, enableDestructive)
+	tools.RegisterCache(srv, client)
 	tools.RegisterSearch(srv, client)
 
 	if client != nil {
