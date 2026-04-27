@@ -53,7 +53,8 @@ pipedrive-mcp/
 │   │   ├── organizations.go   # /organizations + /organizationFields + cache wiring
 │   │   ├── pipelines.go       # /pipelines
 │   │   ├── stages.go          # /stages
-│   │   └── activities.go      # /activities
+│   │   ├── activities.go      # /activities
+│   │   └── notes.go           # /api/v1/notes (carve-out — see CLAUDE.md hard rule #1)
 │   ├── server/                # MCP SDK wiring + cache warm-up fan-out
 │   │   ├── server.go
 │   │   └── testutil/          # in-memory MCP transport for tool-handler tests
@@ -61,11 +62,13 @@ pipedrive-mcp/
 │       ├── registry.go        # parallel registry + DumpJSON for --dump-schemas
 │       ├── addtool.go         # generic AddTool[In, Out] schema-inferring wrapper
 │       ├── errors.go          # errorResult + validateEnum + validatePositiveID
+│       ├── pagination.go      # shared clampLimit + default/max page-size constants
 │       ├── pipelines.go       # list_pipelines + list_stages
 │       ├── deals.go           # get_deal + list_deals
 │       ├── persons.go         # get_person
 │       ├── organizations.go   # get_organization
 │       ├── activities.go      # get_activity + list_activities
+│       ├── notes.go           # get_note + list_notes + create_note (Phase 1's only write)
 │       └── search.go          # search (unified itemSearch wrapper)
 ├── docs/                      # operator docs (this tree)
 └── scripts/                   # CI helper scripts

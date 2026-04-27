@@ -8,12 +8,17 @@ exposes [Pipedrive CRM](https://pipedrive.com) over stdio to LLM-driven
 clients such as Claude Desktop and Claude Code. Single static Go binary,
 distroless Docker image, signed releases, semver-disciplined surface.
 
-> **Status: Phase 1 in progress, pre-`v0.1.0`.** Nine read tools are
-> registered against Pipedrive v2: `list_pipelines`, `list_stages`,
-> `get_deal`, `list_deals`, `get_person`, `get_organization`,
-> `get_activity`, `list_activities`, and `search` (the natural-language
-> gateway tool). Write tools, the `refresh_field_cache` tool, and the
-> v0.1.0 tag follow. See `CHANGELOG.md` for what's landed.
+> **Status: Phase 1 in progress, pre-`v0.1.0`.** Twelve tools are
+> registered by default: nine v2 reads (`list_pipelines`,
+> `list_stages`, `get_deal`, `list_deals`, `get_person`,
+> `get_organization`, `get_activity`, `list_activities`, `search` —
+> the natural-language gateway), two v1 reads on the notes carve-
+> out (`get_note`, `list_notes`), and one v1 write (`create_note`,
+> honours `PIPEDRIVE_DRY_RUN` for rehearsal mode). When the server
+> is started with `PIPEDRIVE_ENABLE_DESTRUCTIVE=true` an additional
+> destructive tool (`delete_note`) is registered. The
+> `refresh_field_cache` tool and the `v0.1.0` tag follow. See
+> `CHANGELOG.md` for what's landed.
 
 ## Highlights
 
@@ -177,6 +182,10 @@ authoritative list of tools the binary registers. As of the current
 | `get_organization` | One organization by id, with structured address and custom fields. |
 | `get_activity` | One activity (call / email / meeting / task) by id, with location, participants, and conference details. |
 | `list_activities` | Activities filtered by status / owner / deal / person / org / lead / update window, cursor-paginated. |
+| `get_note` | One note by id (Pipedrive v1 carve-out — v2 has no /notes endpoint). |
+| `list_notes` | Notes filtered by anchor (deal / person / org / lead), author, date range, or update window. |
+| `create_note` | Attach a new note to a deal / person / org / lead / project. Honours `PIPEDRIVE_DRY_RUN` for rehearsal mode. |
+| `delete_note` | Remove a note by id. Destructive — registered only when `PIPEDRIVE_ENABLE_DESTRUCTIVE=true`. Honours `PIPEDRIVE_DRY_RUN`. |
 
 The remaining categories below are the planned surface; see
 [`CHANGELOG.md`](CHANGELOG.md) for what has actually shipped.

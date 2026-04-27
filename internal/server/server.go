@@ -20,10 +20,18 @@ import (
 // handlers never execute — only their schemas are dumped). domain is
 // used for URL injection in tool outputs.
 //
+// dryRun mirrors PIPEDRIVE_DRY_RUN: write tools (create_note,
+// delete_note) return synthetic previews instead of issuing the
+// upstream mutation. enableDestructive mirrors
+// PIPEDRIVE_ENABLE_DESTRUCTIVE: destructive tools (delete_note) are
+// only registered when this is true. Per CLAUDE.md hard rule #3,
+// destructive registration is server-build-time gating, not
+// annotation-based.
+//
 // The parent ctx governs the cache-warm goroutine's lifetime. When
 // it cancels (e.g. SIGTERM), the warm-up's in-flight HTTP requests
 // cancel cleanly instead of running orphaned to completion.
-func New(ctx context.Context, name, version string, client *pipedrive.Client, domain string) *mcp.Server {
+func New(ctx context.Context, name, version string, client *pipedrive.Client, domain string, dryRun, enableDestructive bool) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{
 		Name:    name,
 		Version: version,
@@ -34,6 +42,7 @@ func New(ctx context.Context, name, version string, client *pipedrive.Client, do
 	tools.RegisterPersons(srv, client, domain)
 	tools.RegisterOrganizations(srv, client, domain)
 	tools.RegisterActivities(srv, client, domain)
+	tools.RegisterNotes(srv, client, dryRun, enableDestructive)
 	tools.RegisterSearch(srv, client)
 
 	if client != nil {

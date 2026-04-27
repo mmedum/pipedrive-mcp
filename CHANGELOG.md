@@ -19,8 +19,35 @@ breaking changes require a MAJOR bump.
   `/personFields` / `/organizationFields` requests cleanly instead
   of letting them run orphaned to completion. No user-visible
   behavior change in the happy path.
+- `internal/pipedrive/Client` now supports per-call API version and
+  HTTP method via two new helpers (`doV1`, `postV1`); the existing
+  `do(ctx, path, out)` continues to be a v2-GET shortcut for the
+  read tools and is unchanged at every existing call site. Retry
+  policy split: GET retries 5xx as before; POST retries only 429
+  (server explicitly told us to back off without committing) so a
+  partially-applied write isn't duplicated. Reason: v1 carve-out
+  for notes — Pipedrive's v2 API does not expose `/notes` and
+  Pipedrive's developer team officially recommends staying on
+  `/api/v1/notes` for now (developer community, May 2025).
 
 ### Added
+- `get_note`, `list_notes`, `create_note`, `delete_note` tools —
+  Pipedrive notes attached to deals / persons / organizations /
+  leads / projects. These are the only v1-API tools in this server
+  (per CLAUDE.md hard rule #1, the notes carve-out). `list_notes`
+  exposes the same opaque-cursor surface as the v2 list tools —
+  internally the cursor wraps v1's `start` + `next_start` offset
+  block so the LLM doesn't see the v1/v2 difference. `create_note`
+  is the first and (in Phase 1) only non-destructive write tool:
+  it requires `content` plus at least one anchor
+  (deal_id / person_id / org_id / lead_id / project_id), caps
+  content at 16 KiB at the MCP boundary, and honours the
+  server-wide `PIPEDRIVE_DRY_RUN=true` env by returning a
+  synthetic preview (id=0, dry_run=true) without issuing the
+  upstream POST. `delete_note` is destructive and registers ONLY
+  when `PIPEDRIVE_ENABLE_DESTRUCTIVE=true` is set on the server
+  (per CLAUDE.md hard rule #3, server-build-time gating, not
+  annotation-based); also honours `PIPEDRIVE_DRY_RUN`.
 - `get_activity` and `list_activities` tools — fetch and filter
   Pipedrive activities (calls / emails / meetings / tasks). Filters
   cover status (`open` / `done` / `all`), owner, deal, person,
