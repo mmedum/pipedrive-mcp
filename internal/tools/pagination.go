@@ -21,3 +21,13 @@ func clampLimit(in int) int {
 	}
 	return in
 }
+
+// allowedSortDirections is the closed enum every list_X tool accepts
+// for `sort_direction`. Pipedrive v2 list endpoints uniformly accept
+// only asc | desc, so the same map is reused across resources rather
+// than declared per-tool. (Per-resource sort_by enums vary — those
+// stay local to each tool file.)
+var allowedSortDirections = map[string]bool{
+	"asc":  true,
+	"desc": true,
+}

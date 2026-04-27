@@ -22,11 +22,6 @@ var allowedPersonSortFields = map[string]bool{
 	"add_time":    true,
 }
 
-var allowedPersonSortDirections = map[string]bool{
-	"asc":  true,
-	"desc": true,
-}
-
 // personSummary surfaces emails/phones as the same pipedrive.ContactPoint
 // shape directly — the byte-identical row type doesn't earn its keep
 // behind a parallel struct.
@@ -97,7 +92,7 @@ func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string) {
 		if err := validateEnum(in.SortBy, "sort_by", allowedPersonSortFields); err != nil {
 			return errorResult(err), listPersonsOutput{}, nil
 		}
-		if err := validateEnum(in.SortDirection, "sort_direction", allowedPersonSortDirections); err != nil {
+		if err := validateEnum(in.SortDirection, "sort_direction", allowedSortDirections); err != nil {
 			return errorResult(err), listPersonsOutput{}, nil
 		}
 
