@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -57,6 +58,66 @@ func TestClient_GetPerson_NotFound(t *testing.T) {
 	}
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("err = %v; want ErrNotFound", err)
+	}
+}
+
+func TestClient_ListPersons_FiltersAndCursor(t *testing.T) {
+	var sawQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/persons" {
+			t.Errorf("path = %q, want /api/v2/persons", r.URL.Path)
+		}
+		sawQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"success":true,"data":[
+			{"id":1,"name":"A"},
+			{"id":2,"name":"B"}
+		],"additional_data":{"next_cursor":"opaque-cursor-2"}}`)
+	}))
+	defer srv.Close()
+
+	persons, next, err := newTestClient(srv).ListPersons(context.Background(), ListPersonsOptions{
+		OwnerID:       7,
+		OrgID:         13,
+		UpdatedSince:  "2026-04-01T00:00:00Z",
+		SortBy:        "update_time",
+		SortDirection: "desc",
+		Limit:         50,
+		Cursor:        "opaque-cursor-1",
+	})
+	if err != nil {
+		t.Fatalf("ListPersons: %v", err)
+	}
+	if len(persons) != 2 || next != "opaque-cursor-2" {
+		t.Fatalf("got %d persons, next=%q; want 2 + opaque-cursor-2", len(persons), next)
+	}
+	for _, want := range []string{
+		"owner_id=7", "org_id=13",
+		"updated_since=2026-04-01T00%3A00%3A00Z",
+		"sort_by=update_time", "sort_direction=desc",
+		"limit=50", "cursor=opaque-cursor-1",
+	} {
+		if !strings.Contains(sawQuery, want) {
+			t.Errorf("query %q missing %q", sawQuery, want)
+		}
+	}
+}
+
+func TestClient_ListPersons_NoFiltersOmitsParams(t *testing.T) {
+	var sawQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"success":true,"data":[],"additional_data":{}}`)
+	}))
+	defer srv.Close()
+
+	_, _, err := newTestClient(srv).ListPersons(context.Background(), ListPersonsOptions{})
+	if err != nil {
+		t.Fatalf("ListPersons: %v", err)
+	}
+	if sawQuery != "" {
+		t.Errorf("expected empty query for zero filters, got %q", sawQuery)
 	}
 }
 
