@@ -13,15 +13,15 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-04-27
-
-This release closes Phase 1: the read surface (deals, persons,
-organizations, activities, notes, pipelines/stages, search), the
-notes-only v1 carve-out, the first non-destructive write tool
-(`create_note`), the destructive write (`delete_note`, gated by
-`PIPEDRIVE_ENABLE_DESTRUCTIVE`), and the operator-facing
-`refresh_field_cache`. Fifteen tools are registered by default; a
-sixteenth (`delete_note`) registers when the destructive flag is on.
+This entry will become `[0.1.0]` at tag time — see the
+[Unreleased]→[X.Y.Z] step in `docs/release.md`. Phase 1 closes here:
+the read surface (deals, persons, organizations, activities, notes,
+pipelines/stages, search), the notes-only v1 carve-out, the first
+non-destructive write tool (`create_note`), the destructive write
+(`delete_note`, gated by `PIPEDRIVE_ENABLE_DESTRUCTIVE`), and the
+operator-facing `refresh_field_cache`. Fifteen tools are registered
+by default; a sixteenth (`delete_note`) registers when the
+destructive flag is on.
 
 ### Changed
 - `list_stages(pipeline_id=N)` now fans the existence-check and the
