@@ -28,14 +28,17 @@ var allowedActivityStatuses = map[string]bool{
 }
 
 // activitySortByValues enumerates Pipedrive v2's allowed sort_by
-// values. Surfacing the enum to the LLM keeps invalid sorts out of
-// the upstream API.
-var activitySortByValues = map[string]bool{
-	"id":          true,
-	"update_time": true,
-	"add_time":    true,
-	"due_date":    true,
-}
+// values. Extends the shared commonV2TimestampSortFields base with
+// `due_date`, which is activity-specific. Surfacing the enum to the
+// LLM keeps invalid sorts out of the upstream API.
+var activitySortByValues = func() map[string]bool {
+	m := make(map[string]bool, len(commonV2TimestampSortFields)+1)
+	for k, v := range commonV2TimestampSortFields {
+		m[k] = v
+	}
+	m["due_date"] = true
+	return m
+}()
 
 // activitySummary is the LLM-facing shape of an activity. Mirrors the
 // upstream Activity field-for-field plus a UI URL — matches the

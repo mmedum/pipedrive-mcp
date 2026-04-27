@@ -13,6 +13,49 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Fixed
+- `FieldCache.Count()` no longer triggers `sync.Once` on a fresh
+  cache entry. The previous defensive `once.Do(func(){})` could
+  race with a concurrent first `Load()` and silently seal the
+  once, causing the real fetch to be skipped and the cache to
+  surface unresolved hash keys to the LLM. `Count` now reads a
+  separate `loaded` atomic flag set inside `Load`'s once.Do
+  *after* `byKey` is written. Internal-only; no behavior change
+  on the `refresh_field_cache` happy path (which always calls
+  `Reload` → `Load` → `Count` sequentially).
+
+### Changed
+- `internal/tools/sort.go` exports a single
+  `commonV2TimestampSortFields` set ({id, update_time, add_time});
+  `list_persons`, `list_organizations`, and `list_activities`
+  reuse it (activities extends with `due_date`). No tool-surface
+  change — the per-tool enum is identical. Drops a duplicated
+  literal map.
+- `dealSummary.Probability` is now a fresh copy of the upstream
+  `*int` rather than aliasing it. Currently safe (no upstream
+  mutators), copy is for parallel-shadow symmetry.
+- `github.com/google/jsonschema-go` `v0.4.2` → `v0.4.3` (patch
+  bump; library has no breaking changes).
+
+### Documentation
+- `README.md` status banner updated: `v0.1.0` is shipped, not
+  pending. Phase plan table footnotes that `v0.0.1` was elided
+  (Phase 0 work rolled into `v0.1.0`).
+- `CHANGELOG.md` `[Unreleased]` link points at
+  `compare/v0.1.0...HEAD` (was `compare/HEAD...HEAD`); added the
+  missing `[0.1.0]: …/releases/tag/v0.1.0` anchor.
+- `pipedrive.Address` GoDoc clarified: typed-struct address is
+  returned by `/organizations/{id}` only — persons inherit none
+  at the typed level, address-typed *custom* fields go through
+  `custom_fields` raw decoding.
+- `pipedrive.ListActivitiesOptions.IncludeAttendees` GoDoc
+  corrected (default is off, set true to opt in — earlier text
+  was inverted).
+- `noteSummary` GoDoc no longer claims the pinned-to-* fields
+  translate v1's 0/1 ints; `pipedrive.Note` already decodes them
+  as JSON booleans (live verification 2026-04 confirmed external
+  docs were wrong).
+
 ## [0.1.0] - 2026-04-27
 
 Phase 1 closes here: the read surface (deals, persons, organizations, activities, notes,
@@ -278,4 +321,5 @@ destructive flag is on.
   External callers can still branch on the error class via `errors.Is`
   and read `Status`/`Message`/`Endpoint`.
 
-[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/HEAD...HEAD
+[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/mmedum/pipedrive-mcp/releases/tag/v0.1.0

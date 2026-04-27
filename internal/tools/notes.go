@@ -36,8 +36,9 @@ var allowedNoteSortFields = map[string]bool{
 
 // noteSummary is the LLM-facing shape of a note. Parallel shadow of
 // pipedrive.Note per CLAUDE.md — jsonschema tags scoped here, not on
-// internal/pipedrive types. Pinned-to-* booleans translate v1's 0/1
-// ints into actual JSON booleans for the LLM.
+// internal/pipedrive types. v1 returns the pinned-to-* fields as JSON
+// booleans (verified live; earlier external docs claimed 0/1 ints —
+// see types.go on Note); they pass through unchanged here.
 type noteSummary struct {
 	ID                   int64  `json:"id" jsonschema:"the note's numeric id"`
 	Content              string `json:"content" jsonschema:"note text; HTML-formatted (Pipedrive's notes editor produces HTML)"`

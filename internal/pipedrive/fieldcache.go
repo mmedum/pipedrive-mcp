@@ -3,6 +3,7 @@ package pipedrive
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 )
 
 // FieldCache lazy-loads Pipedrive field metadata for one resource type
@@ -24,10 +25,16 @@ type FieldCache struct {
 // without corrupting the mutex state of an in-flight Load. byKey and
 // err are written exactly once from inside once.Do; later readers
 // observe stable values via the once's happens-before guarantee.
+//
+// loaded is set to true inside once.Do *after* byKey/err are written.
+// It lets Count() report the cache size without itself triggering
+// once.Do — an earlier no-op once.Do here would silently seal the
+// once and skip the real fetch on a concurrent first Load.
 type cacheEntry struct {
-	once  sync.Once
-	err   error
-	byKey map[string]Field
+	once   sync.Once
+	err    error
+	byKey  map[string]Field
+	loaded atomic.Bool
 }
 
 // NewFieldCache wraps fetch; fetch is invoked at most once per Reload
@@ -51,6 +58,7 @@ func (fc *FieldCache) currentEntry() *cacheEntry {
 
 func (e *cacheEntry) load(ctx context.Context, fetch func(context.Context) ([]Field, error)) {
 	e.once.Do(func() {
+		defer e.loaded.Store(true)
 		fields, err := fetch(ctx)
 		if err != nil {
 			e.err = err
@@ -116,17 +124,17 @@ func (fc *FieldCache) Reload() {
 // refresh_field_cache tool to surface a per-resource sanity check
 // the LLM (and operator) can read after triggering a reload.
 //
-// The no-op once.Do call is defensive: it gives readers a happens-
-// before edge to the byKey write inside the entry's load func. If
-// load has already completed (the typical case — Count is called
-// after Reload+Load in ReloadDealFields/etc.), this is free.
+// Count never triggers once.Do — calling once.Do(no-op) here would
+// race with a concurrent first Load and silently seal the once,
+// causing the real fetch to be skipped. Instead it reads the loaded
+// flag (set inside once.Do *after* byKey is written), which provides
+// the happens-before edge to byKey for free.
 func (fc *FieldCache) Count() int {
 	fc.mu.Lock()
 	e := fc.cur
 	fc.mu.Unlock()
-	if e == nil {
+	if e == nil || !e.loaded.Load() {
 		return 0
 	}
-	e.once.Do(func() {})
 	return len(e.byKey)
 }
