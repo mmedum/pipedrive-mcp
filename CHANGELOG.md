@@ -31,6 +31,18 @@ breaking changes require a MAJOR bump.
   `/api/v1/notes` for now (developer community, May 2025).
 
 ### Added
+- `refresh_field_cache` tool — operator escape hatch for picking up
+  custom-field renames or additions made in the Pipedrive UI without
+  restarting the server. Refreshes the deals / persons / organizations
+  caches in parallel; returns a per-resource row with the live field
+  count after reload, plus an `errors` count if any resource failed.
+  Activities don't have a custom-field cache on Pipedrive v2 and are
+  intentionally absent from the output. Public `FieldCache.Count()`
+  and per-resource `Client.ReloadDealFields` / `ReloadPersonFields` /
+  `ReloadOrganizationFields` are the underlying primitives — each
+  clears the cache, eagerly re-fetches, and returns the field count
+  so a partial failure (e.g. transient 503 on one resource) doesn't
+  leave the cache in an undefined state.
 - `list_persons` and `list_organizations` tools — cursor-paginated
   list endpoints over Pipedrive v2's `/persons` and `/organizations`.
   Filters: owner, update window (`updated_since`/`updated_until`),

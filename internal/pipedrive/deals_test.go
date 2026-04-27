@@ -148,6 +148,59 @@ func TestClient_ListDeals_NoFiltersOmitsParams(t *testing.T) {
 	}
 }
 
+func TestClient_ReloadDealFields(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/dealFields" {
+			t.Errorf("path = %q, want /api/v2/dealFields", r.URL.Path)
+		}
+		hits++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"success":true,"data":[
+			{"field_code":"abc","field_name":"Account Manager","is_custom_field":true},
+			{"field_code":"xyz","field_name":"Renewal Date","is_custom_field":true}
+		]}`)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv)
+	// Prime the cache via Resolve (lazy load).
+	_ = c.ResolveDealCustomFields(context.Background(), map[string]any{"abc": "Alice"})
+	if hits != 1 {
+		t.Fatalf("priming load fired %d times; want 1", hits)
+	}
+	// Reload: must refetch and report the count.
+	count, err := c.ReloadDealFields(context.Background())
+	if err != nil {
+		t.Fatalf("ReloadDealFields: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("count = %d; want 2", count)
+	}
+	if hits != 2 {
+		t.Errorf("upstream hits = %d after Reload; want 2 (priming + reload)", hits)
+	}
+}
+
+func TestClient_ReloadDealFields_PropagatesError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"success":false,"error":"Bad token"}`)
+	}))
+	defer srv.Close()
+
+	count, err := newTestClient(srv).ReloadDealFields(context.Background())
+	if err == nil {
+		t.Fatal("want error on 401, got nil")
+	}
+	if count != 0 {
+		t.Errorf("count = %d on error; want 0", count)
+	}
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("err = %v; want ErrUnauthorized", err)
+	}
+}
+
 func TestClient_DealFieldsCacheLazyLoad(t *testing.T) {
 	hits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
