@@ -63,11 +63,27 @@ type Deal struct {
 	CustomFields      map[string]any `json:"custom_fields,omitempty"`
 }
 
-// AdditionalData is the v2 paging envelope returned alongside `data`
-// on list endpoints. NextCursor is the opaque token for the next
-// page; empty string means "you've seen the last page".
+// AdditionalData is the paging envelope returned alongside `data`
+// on list endpoints.
+//
+// V2 uses NextCursor — opaque token; empty string means "last page".
+// V1 (notes carve-out only) uses V1Pagination, an offset-style
+// {start, limit, next_start} block. The tool layer encodes v1's
+// next_start as an opaque cursor string so the LLM-facing surface
+// stays uniform across resources.
 type AdditionalData struct {
-	NextCursor string `json:"next_cursor,omitempty"`
+	NextCursor   string        `json:"next_cursor,omitempty"`
+	V1Pagination *V1Pagination `json:"pagination,omitempty"`
+}
+
+// V1Pagination is Pipedrive v1's offset-style paging envelope.
+// MoreItemsInCollection signals whether NextStart is meaningful;
+// when false, the caller is on the last page.
+type V1Pagination struct {
+	Start                 int  `json:"start"`
+	Limit                 int  `json:"limit"`
+	MoreItemsInCollection bool `json:"more_items_in_collection"`
+	NextStart             int  `json:"next_start,omitempty"`
 }
 
 // itemEnvelope decodes Pipedrive v2's single-item response shape.
@@ -206,4 +222,37 @@ type Activity struct {
 	Note                    string                `json:"note,omitempty"`
 	AddTime                 string                `json:"add_time"`
 	UpdateTime              string                `json:"update_time"`
+}
+
+// Note is a Pipedrive v1 note record. v2 has no /notes endpoint
+// (Pipedrive officially recommends staying on v1 for notes per
+// developer-community thread, 2025-05). The carve-out is documented
+// in CLAUDE.md hard rule #1.
+//
+// AddTime / UpdateTime use v1's `YYYY-MM-DD HH:MM:SS` format (UTC,
+// space-separated — distinct from v2's RFC3339).
+//
+// Foreign keys are pointer-typed because v1 returns null when the
+// note isn't anchored to that entity. LeadID is a UUID string;
+// the rest are int IDs. The pinned-to-* fields come back as actual
+// JSON booleans on v1 (verified live, 2026-04 — earlier external
+// docs claimed 0/1 ints; the docs were wrong).
+type Note struct {
+	ID                       int64  `json:"id"`
+	Content                  string `json:"content"`
+	UserID                   int64  `json:"user_id"`
+	LastUpdateUserID         *int64 `json:"last_update_user_id,omitempty"`
+	DealID                   *int64 `json:"deal_id,omitempty"`
+	PersonID                 *int64 `json:"person_id,omitempty"`
+	OrgID                    *int64 `json:"org_id,omitempty"`
+	LeadID                   string `json:"lead_id,omitempty"`
+	ProjectID                *int64 `json:"project_id,omitempty"`
+	AddTime                  string `json:"add_time"`
+	UpdateTime               string `json:"update_time"`
+	ActiveFlag               bool   `json:"active_flag"`
+	PinnedToDealFlag         bool   `json:"pinned_to_deal_flag,omitempty"`
+	PinnedToPersonFlag       bool   `json:"pinned_to_person_flag,omitempty"`
+	PinnedToOrganizationFlag bool   `json:"pinned_to_organization_flag,omitempty"`
+	PinnedToLeadFlag         bool   `json:"pinned_to_lead_flag,omitempty"`
+	PinnedToProjectFlag      bool   `json:"pinned_to_project_flag,omitempty"`
 }

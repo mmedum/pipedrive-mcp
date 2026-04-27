@@ -15,11 +15,16 @@ in the user's plan file under
 
 ## Hard rules
 
-1. **Pipedrive v2-only.** Phase 0 takes zero v1 dependencies. The notes
-   carve-out (`/api/v1/notes/*`) is planned for Phase 2 and lands with
-   notes. New v1 dependencies need a CHANGELOG entry under `### Changed`
-   explaining why no v2 endpoint exists, plus an inline code comment
-   at the call site.
+1. **Pipedrive v2-only — except notes.** Phase 0 takes zero v1
+   dependencies. The notes carve-out (`/api/v1/notes/*`) landed in
+   Phase 1.6 because v2 does not expose `/notes` (Pipedrive's
+   developer team officially recommends v1 for notes). The carve-out
+   is implemented via `Client.doV1` / `Client.postV1` in
+   `internal/pipedrive/client.go`; v2-GET remains the default for
+   every other resource. **Any new v1 dependency beyond notes**
+   needs a CHANGELOG entry under `### Changed` explaining why no v2
+   endpoint exists, an inline code comment at the call site, and an
+   explicit user go-ahead.
 2. **Stdout is reserved for MCP JSON-RPC frames**. All logs go to stderr.
    Never `fmt.Println(...)` from anywhere reachable at runtime; use
    `slog` writing to `os.Stderr`.
