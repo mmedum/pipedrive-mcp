@@ -92,7 +92,7 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string) {
 
 	AddTool(s, &mcp.Tool{
 		Name:        "list_deals",
-		Description: "Search deals by status, pipeline, stage, owner, person, or organization. Returns matching deals with id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, and any custom fields (resolved by name). Default limit is 25, max 100. Omit `status` to include every non-deleted deal. For more results, pass the next_cursor from the previous response.",
+		Description: "List deals filtered by status, pipeline, stage, owner, person, or organization. Returns matching deals with id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, and any custom fields (resolved by name). Default limit is 25, max 100. Omit `status` to include every non-deleted deal. For more results, pass the next_cursor from the previous response. To find a deal by name (rather than ID), call `search` with type=deal first — search is the natural-language gateway, list_deals is the precision filter when the IDs are already known.",
 		Annotations: &readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listDealsInput) (*mcp.CallToolResult, listDealsOutput, error) {
 		if err := validateEnum(in.Status, "status", allowedDealStatuses); err != nil {

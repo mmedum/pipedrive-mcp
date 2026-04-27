@@ -37,11 +37,6 @@ var activitySortByValues = map[string]bool{
 	"due_date":    true,
 }
 
-var activitySortDirectionValues = map[string]bool{
-	"asc":  true,
-	"desc": true,
-}
-
 // activitySummary is the LLM-facing shape of an activity. Mirrors the
 // upstream Activity field-for-field plus a UI URL — matches the
 // dealSummary / personSummary / organizationSummary parallel-shadow
@@ -141,7 +136,7 @@ func RegisterActivities(s *mcp.Server, c activitiesClient, companyDomain string)
 		if err := validateEnum(in.SortBy, "sort_by", activitySortByValues); err != nil {
 			return errorResult(err), listActivitiesOutput{}, nil
 		}
-		if err := validateEnum(in.SortDirection, "sort_direction", activitySortDirectionValues); err != nil {
+		if err := validateEnum(in.SortDirection, "sort_direction", allowedSortDirections); err != nil {
 			return errorResult(err), listActivitiesOutput{}, nil
 		}
 

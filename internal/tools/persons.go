@@ -10,7 +10,16 @@ import (
 
 type personsClient interface {
 	GetPerson(ctx context.Context, id int64) (*pipedrive.Person, error)
+	ListPersons(ctx context.Context, opts pipedrive.ListPersonsOptions) ([]pipedrive.Person, string, error)
 	ResolvePersonCustomFields(ctx context.Context, raw map[string]any) map[string]any
+}
+
+// allowedPersonSortFields enumerates Pipedrive v2's allowed sort_by
+// values for /persons. v2 supports id / update_time / add_time only.
+var allowedPersonSortFields = map[string]bool{
+	"id":          true,
+	"update_time": true,
+	"add_time":    true,
 }
 
 // personSummary surfaces emails/phones as the same pipedrive.ContactPoint
@@ -39,7 +48,23 @@ type getPersonOutput struct {
 	Person personSummary `json:"person" jsonschema:"the requested person"`
 }
 
-// RegisterPersons wires get_person into the MCP server.
+type listPersonsInput struct {
+	OwnerID       int64  `json:"owner_id,omitempty" jsonschema:"return only persons owned by this user id; 0 = no filter"`
+	OrgID         int64  `json:"org_id,omitempty" jsonschema:"return only persons linked to this organization id; 0 = no filter"`
+	UpdatedSince  string `json:"updated_since,omitempty" jsonschema:"RFC3339 timestamp; return only persons updated at or after this time (e.g. 2026-04-01T00:00:00Z)"`
+	UpdatedUntil  string `json:"updated_until,omitempty" jsonschema:"RFC3339 timestamp; return only persons updated at or before this time"`
+	SortBy        string `json:"sort_by,omitempty" jsonschema:"id | update_time | add_time. Default 'update_time' (most-recently-touched first)."`
+	SortDirection string `json:"sort_direction,omitempty" jsonschema:"asc | desc. Default 'desc' when sort_by is omitted; 'asc' otherwise."`
+	Limit         int    `json:"limit,omitempty" jsonschema:"page size; default 25, max 100"`
+	Cursor        string `json:"cursor,omitempty" jsonschema:"opaque pagination token from a previous list_persons response; omit for the first page"`
+}
+
+type listPersonsOutput struct {
+	Persons    []personSummary `json:"persons" jsonschema:"matching persons on this page"`
+	NextCursor string          `json:"next_cursor,omitempty" jsonschema:"pass to the next list_persons call to get the next page; empty when there are no more pages"`
+}
+
+// RegisterPersons wires get_person and list_persons into the MCP server.
 func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string) {
 	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 
@@ -57,6 +82,44 @@ func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string) {
 		}
 		resolved := c.ResolvePersonCustomFields(ctx, p.CustomFields)
 		return nil, getPersonOutput{Person: summarizePerson(companyDomain, p, resolved)}, nil
+	})
+
+	AddTool(s, &mcp.Tool{
+		Name:        "list_persons",
+		Description: "List Pipedrive persons filtered by owner, linked organization, or update window. Returns id, name, first_name, last_name, emails, phones, owner_id, linked org_id, add/update timestamps, and any custom fields resolved by name. Default sort is update_time desc — most-recently-touched first, ideal for 'who at company X have we been talking to lately'. Default limit is 25, max 100. For more results, pass the next_cursor from the previous response. To find a person by name (rather than ID), call `search` with type=person — search is the natural-language gateway, list_persons is the precision filter when the IDs are already known.",
+		Annotations: &readOnly,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listPersonsInput) (*mcp.CallToolResult, listPersonsOutput, error) {
+		if err := validateEnum(in.SortBy, "sort_by", allowedPersonSortFields); err != nil {
+			return errorResult(err), listPersonsOutput{}, nil
+		}
+		if err := validateEnum(in.SortDirection, "sort_direction", allowedSortDirections); err != nil {
+			return errorResult(err), listPersonsOutput{}, nil
+		}
+
+		sortBy, sortDir := effectiveSort(in.SortBy, in.SortDirection)
+		opts := pipedrive.ListPersonsOptions{
+			OwnerID:       in.OwnerID,
+			OrgID:         in.OrgID,
+			UpdatedSince:  in.UpdatedSince,
+			UpdatedUntil:  in.UpdatedUntil,
+			SortBy:        sortBy,
+			SortDirection: sortDir,
+			Limit:         clampLimit(in.Limit),
+			Cursor:        in.Cursor,
+		}
+		persons, next, err := c.ListPersons(ctx, opts)
+		if err != nil {
+			return errorResult(err), listPersonsOutput{}, nil
+		}
+		out := listPersonsOutput{
+			Persons:    make([]personSummary, 0, len(persons)),
+			NextCursor: next,
+		}
+		for i := range persons {
+			resolved := c.ResolvePersonCustomFields(ctx, persons[i].CustomFields)
+			out.Persons = append(out.Persons, summarizePerson(companyDomain, &persons[i], resolved))
+		}
+		return nil, out, nil
 	})
 }
 
