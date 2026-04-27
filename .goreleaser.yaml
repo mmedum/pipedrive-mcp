@@ -62,18 +62,24 @@ signs:
   # Sign every artifact (archives + checksums) via cosign keyless OIDC.
   # Produces .sig and .cert next to each artifact.
   #
-  # Both `signature:` and `certificate:` MUST be declared explicitly —
-  # goreleaser's defaults are: `signature: '{{ .Artifact }}.sig'` (this
-  # one happens to match what we want, but be explicit for symmetry),
-  # `certificate: ""` (empty — `${certificate}` env var expands to ""
-  # and cosign sign-blob silently drops the cert output). Without an
-  # explicit certificate path the .cert files don't get written, the
-  # release ships without them, and `cosign verify-blob --certificate
-  # …cert` (from the README) fails with "open: no such file".
+  # The `signature:` and `certificate:` field VALUES are shell-style
+  # templates expanded with `${artifact}`, NOT Go templates. Don't use
+  # `{{ .Artifact }}` here — goreleaser v2 runs the Go template engine
+  # on these fields with a context that has no `.Artifact` key, and the
+  # release fails at "signing artifacts" with:
+  #   sign failed: <archive>: template: failed to apply
+  #   "{{ .Artifact }}.sig": map has no entry for key "Artifact"
+  #
+  # The default for `signature:` is already `${artifact}.sig`, so we
+  # could leave it implicit, but declaring it keeps the pair symmetric
+  # and avoids a surprise when the next reader compares the two lines.
+  # `certificate:` MUST be set — its default is empty, which makes
+  # `${certificate}` expand to "" and cosign sign-blob silently drops
+  # the cert output.
   - id: cosign-keyless
     cmd: cosign
-    signature: "{{ .Artifact }}.sig"
-    certificate: "{{ .Artifact }}.cert"
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.cert"
     args:
       - sign-blob
       - "--yes"
