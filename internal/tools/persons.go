@@ -15,12 +15,9 @@ type personsClient interface {
 }
 
 // allowedPersonSortFields enumerates Pipedrive v2's allowed sort_by
-// values for /persons. v2 supports id / update_time / add_time only.
-var allowedPersonSortFields = map[string]bool{
-	"id":          true,
-	"update_time": true,
-	"add_time":    true,
-}
+// values for /persons. v2 supports id / update_time / add_time only —
+// matches the shared commonV2TimestampSortFields base.
+var allowedPersonSortFields = commonV2TimestampSortFields
 
 // personSummary surfaces emails/phones as the same pipedrive.ContactPoint
 // shape directly — the byte-identical row type doesn't earn its keep

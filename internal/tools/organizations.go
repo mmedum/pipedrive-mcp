@@ -15,12 +15,9 @@ type organizationsClient interface {
 }
 
 // allowedOrgSortFields enumerates Pipedrive v2's allowed sort_by
-// values for /organizations. v2 supports id / update_time / add_time only.
-var allowedOrgSortFields = map[string]bool{
-	"id":          true,
-	"update_time": true,
-	"add_time":    true,
-}
+// values for /organizations. v2 supports id / update_time / add_time
+// only — matches the shared commonV2TimestampSortFields base.
+var allowedOrgSortFields = commonV2TimestampSortFields
 
 // addressRow is an intentional subset of pipedrive.Address for the
 // LLM-facing surface: street-level components (route, street_number,
