@@ -87,11 +87,12 @@ Persistent 5xx is a Pipedrive-side outage, not a client bug.
 ### Custom field changes not visible to the LLM
 
 Field metadata is cached for the lifetime of the process and isn't
-auto-refreshed. If you've just added a field in Pipedrive and want
-the LLM to use it immediately, restart the server. (A
-`refresh_field_cache` tool is on the roadmap to avoid the restart.)
-Custom-field VALUES are always live — only the hash↔name mapping is
-cached.
+auto-refreshed. Call the `refresh_field_cache` tool to re-fetch the
+deal / person / organization metadata in parallel without restarting
+the server; the response carries a per-resource row with the live
+field count after reload, plus an `errors` count if any resource
+failed. Custom-field VALUES are always live — only the hash↔name
+mapping is cached.
 
 ## Token rotation
 

@@ -14,7 +14,7 @@ import (
 // default — there is no opt-in query parameter, and supplying
 // `include_fields=custom_fields` is rejected with a 400.
 type ListDealsOptions struct {
-	Status     string // open | won | lost | deleted | all_not_deleted
+	Status     string // open | won | lost | deleted
 	PipelineID int64
 	StageID    int64
 	OwnerID    int64

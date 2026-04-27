@@ -16,12 +16,22 @@ import (
 )
 
 // BaseURL returns the v2 base URL for a Pipedrive workspace subdomain.
-// All Phase 0 + Phase 1 traffic is v2-only; the notes carve-out (Phase
-// 2) will introduce v1 paths and at that time we'll reintroduce a
-// per-call api-version helper here.
+// The path suffix is stripped by hostOf in New, so the per-call API
+// version (v2 by default; v1 for the notes carve-out) is composed in
+// exec — see the apiVersion type below.
 func BaseURL(domain string) string {
 	return fmt.Sprintf("https://%s.pipedrive.com/api/v2", domain)
 }
+
+// apiVersion is the typed enum for the per-call API path segment.
+// String-typing rather than free-form "v1"/"v2" prevents a typo at a
+// new call site from compiling into a malformed request URL.
+type apiVersion string
+
+const (
+	apiV1 apiVersion = "v1"
+	apiV2 apiVersion = "v2"
+)
 
 // Client is a thin wrapper around net/http for the Pipedrive REST API.
 // Safe for concurrent use across goroutines. There is one instance per
@@ -32,8 +42,7 @@ func BaseURL(domain string) string {
 // because their lifetime matches the process and they reuse the
 // Client's transport. Callers go through the typed accessor methods
 // (ResolveDealCustomFields, WarmDealFields, ReloadDealFields) rather
-// than the unexported field. Persons / organizations / products will
-// add siblings as their PRs land.
+// than the unexported field.
 type Client struct {
 	host        string // https://{domain}.pipedrive.com (no path suffix)
 	token       string
@@ -105,9 +114,9 @@ func hostOf(base string) string {
 }
 
 // do issues a GET against /api/v2 + path and decodes the response body
-// into out (which may be nil). Most callers in this package use this.
+// into out (which may be nil).
 func (c *Client) do(ctx context.Context, path string, out any) error {
-	return c.exec(ctx, http.MethodGet, "v2", path, nil, out)
+	return c.exec(ctx, http.MethodGet, apiV2, path, nil, out)
 }
 
 // doV1 is the v1-only escape hatch for the notes carve-out
@@ -115,7 +124,7 @@ func (c *Client) do(ctx context.Context, path string, out any) error {
 // pipeline as `do`. New callers should not be added without a
 // CHANGELOG ### Changed entry per CLAUDE.md hard rule #1.
 func (c *Client) doV1(ctx context.Context, path string, out any) error {
-	return c.exec(ctx, http.MethodGet, "v1", path, nil, out)
+	return c.exec(ctx, http.MethodGet, apiV1, path, nil, out)
 }
 
 // postV1 is the v1-only POST helper used by the notes carve-out
@@ -124,7 +133,7 @@ func (c *Client) doV1(ctx context.Context, path string, out any) error {
 // the server may have already committed before responding —
 // retrying could create duplicate rows.
 func (c *Client) postV1(ctx context.Context, path string, body, out any) error {
-	return c.exec(ctx, http.MethodPost, "v1", path, body, out)
+	return c.exec(ctx, http.MethodPost, apiV1, path, body, out)
 }
 
 // deleteV1 is the v1-only DELETE helper used by the notes carve-out
@@ -132,14 +141,13 @@ func (c *Client) postV1(ctx context.Context, path string, body, out any) error {
 // retried, 5xx is not (the resource may already be gone, retrying
 // could surface a 404 that obscures the real failure).
 func (c *Client) deleteV1(ctx context.Context, path string, out any) error {
-	return c.exec(ctx, http.MethodDelete, "v1", path, nil, out)
+	return c.exec(ctx, http.MethodDelete, apiV1, path, nil, out)
 }
 
-// exec runs the configured retry loop for a single API call.
-// apiVersion is "v1" or "v2"; path is the resource path AFTER the
-// /api/{version} prefix.
-func (c *Client) exec(ctx context.Context, method, apiVersion, path string, body, out any) error {
-	requestURL := c.host + "/api/" + apiVersion + path
+// exec runs the configured retry loop for a single API call. version
+// selects the path segment between /api and the resource path.
+func (c *Client) exec(ctx context.Context, method string, version apiVersion, path string, body, out any) error {
+	requestURL := c.host + "/api/" + string(version) + path
 
 	var lastErr error
 	for attempt := 0; attempt < c.maxAttempts; attempt++ {

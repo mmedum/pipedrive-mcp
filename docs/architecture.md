@@ -160,8 +160,10 @@ Refresh strategy as implemented today:
   critical path.
 - **Soft failure on cache fetch error** — `Resolve` returns the input
   map untouched, so the LLM sees raw hash keys but no data is lost.
-- **`Reload()` method** on `FieldCache` to clear the cache; reserved
-  for the future operator-facing `refresh_field_cache` tool.
+- **`Reload()` method** on `FieldCache` to clear the cache and let the
+  next access re-fetch. Wired up to the `refresh_field_cache` operator
+  tool in `internal/tools/cache.go`, which fans out across the three
+  resource caches in parallel.
 
 In v2, custom fields nest under a `custom_fields` object on both
 request and response bodies. The cache is responsible for translating
@@ -169,21 +171,23 @@ that nested map's keys (hashes) into human-readable names on output.
 
 ## Dry-run mechanism
 
-Two layers, planned for the first write tools:
+Two layers, in effect on every write tool:
 
-1. Per-call: every write tool accepts an optional `dry_run: bool`
+1. Per-call: each write tool accepts an optional `dry_run: bool`
    (default `false`).
 2. Server-wide: `PIPEDRIVE_DRY_RUN=true` forces every write to dry-run
    regardless of per-call input. The env var always wins.
 
 When dry-run is active, the tool short-circuits before the HTTP call
-and returns a structured "would have done X" response. Validation
-still runs (size limits, custom-field name resolution,
-stage-belongs-to-pipeline checks) so the rehearsal catches the same
-input errors a real call would.
+and returns a structured "would have done X" response (including a
+synthetic `id=0`, `dry_run=true` flag, and the would-have-been body).
+Validation still runs (size limits, custom-field name resolution,
+required-anchor checks) so the rehearsal catches the same input
+errors a real call would.
 
-No write tools have shipped yet; this section describes the contract
-the first one will implement.
+`create_note` and `delete_note` are the v0.1.0 write tools that
+implement this contract; future write tools will follow the same
+pattern.
 
 ## Parallel tool registry
 

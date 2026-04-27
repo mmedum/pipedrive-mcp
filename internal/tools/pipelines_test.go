@@ -148,9 +148,11 @@ func TestListStages_PipelineNotFound(t *testing.T) {
 		pipelines: []pipedrive.Pipeline{
 			{ID: 1, Name: "Sales", Active: true},
 		},
-		// Stages slice is intentionally non-empty: if the validation
-		// short-circuit ever regresses, this test surfaces it (we'd
-		// see stage_count=1 instead of an error).
+		// Stages slice is intentionally non-empty: even though
+		// list_stages now fans the validation and the listing out in
+		// parallel, an unknown pipeline must still surface as
+		// [not_found] with the stage data discarded — this slot would
+		// otherwise leak into the response.
 		stages: []pipedrive.Stage{
 			{ID: 10, Name: "Should Not Be Returned", PipelineID: 1},
 		},
@@ -177,8 +179,8 @@ func TestListStages_PipelineNotFound(t *testing.T) {
 	if !strings.Contains(text, "99999") {
 		t.Errorf("error text = %q; want it to mention the unknown id 99999", text)
 	}
-	if fake.lastPipelineArg != 0 {
-		t.Errorf("ListStages was called with pipelineID=%d; want it to never be called when validation fails", fake.lastPipelineArg)
+	if strings.Contains(text, "Should Not Be Returned") {
+		t.Errorf("error response leaked stage data: %q", text)
 	}
 }
 
