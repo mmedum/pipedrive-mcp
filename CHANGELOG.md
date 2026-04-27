@@ -13,6 +13,16 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Added
+- `list_deals` now accepts `updated_since`, `updated_until`,
+  `sort_by`, and `sort_direction` — bringing it to parity with
+  `list_persons`, `list_organizations`, and `list_activities`.
+  Default sort is `update_time desc` (most-recently-touched first),
+  matching the convention. Pipedrive v2 `/deals` supports all four
+  upstream; the gap was a holdover from when `list_deals` was the
+  first list_X tool. Additive change — no breakage to existing
+  callers; the schema-diff CI gate will register this as MINOR.
+
 ### Fixed
 - `FieldCache.Count()` no longer triggers `sync.Once` on a fresh
   cache entry. The previous defensive `once.Do(func(){})` could
