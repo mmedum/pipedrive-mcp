@@ -73,20 +73,25 @@ signs:
     output: true
 
 sboms:
+  # ${artifact} and ${document} are shell env vars goreleaser sets
+  # before exec'ing syft — the same pattern used by signs: above.
+  # Don't replace these with Go templates ({{ .Path }} etc.) —
+  # goreleaser v2 doesn't expose Path on the sbom args context, and
+  # the build fails at "cataloging artifacts" if you try.
   - id: cyclonedx
     artifacts: archive
     documents:
-      - "{{ .ArtifactName }}.cdx.json"
+      - "${artifact}.cdx.json"
     cmd: syft
     args:
       - scan
-      - "{{ .Path }}"
+      - "${artifact}"
       - --source-name
       - "{{ .ProjectName }}"
       - --source-version
       - "{{ .Version }}"
       - -o
-      - "cyclonedx-json={{ .Document }}"
+      - "cyclonedx-json=${document}"
 
 changelog:
   # We maintain CHANGELOG.md by hand (Keep a Changelog format with rich
