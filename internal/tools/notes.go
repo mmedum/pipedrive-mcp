@@ -34,11 +34,6 @@ var allowedNoteSortFields = map[string]bool{
 	"update_time": true,
 }
 
-var allowedNoteSortDirections = map[string]bool{
-	"asc":  true,
-	"desc": true,
-}
-
 // noteSummary is the LLM-facing shape of a note. Parallel shadow of
 // pipedrive.Note per CLAUDE.md — jsonschema tags scoped here, not on
 // internal/pipedrive types. Pinned-to-* booleans translate v1's 0/1
@@ -153,7 +148,7 @@ func RegisterNotes(s *mcp.Server, c notesClient, dryRun, enableDestructive bool)
 		if err := validateEnum(in.SortBy, "sort_by", allowedNoteSortFields); err != nil {
 			return errorResult(err), listNotesOutput{}, nil
 		}
-		if err := validateEnum(in.SortDirection, "sort_direction", allowedNoteSortDirections); err != nil {
+		if err := validateEnum(in.SortDirection, "sort_direction", allowedSortDirections); err != nil {
 			return errorResult(err), listNotesOutput{}, nil
 		}
 

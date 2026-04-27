@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -92,18 +93,9 @@ func RegisterPipelines(s *mcp.Server, c pipelinesClient, companyDomain string) {
 		// real-but-empty pipeline AND for an unknown/invisible pipeline.
 		// Validate against ListPipelines so the LLM gets a [not_found]
 		// error in the latter case instead of a silently-empty result.
-		if in.PipelineID > 0 {
-			pipelines, err := c.ListPipelines(ctx)
-			if err != nil {
-				return errorResult(err), listStagesOutput{}, nil
-			}
-			matches := func(p pipedrive.Pipeline) bool { return p.ID == in.PipelineID }
-			if !slices.ContainsFunc(pipelines, matches) {
-				err := fmt.Errorf("%w: pipeline %d does not exist or is not visible to the API token's user", pipedrive.ErrNotFound, in.PipelineID)
-				return errorResult(err), listStagesOutput{}, nil
-			}
-		}
-		got, err := c.ListStages(ctx, in.PipelineID)
+		// Fan the two calls out so wall-clock cost is max(t1,t2) rather
+		// than t1+t2 — the endpoints are independent.
+		got, err := stagesAndValidatedPipeline(ctx, c, in.PipelineID)
 		if err != nil {
 			return errorResult(err), listStagesOutput{}, nil
 		}
@@ -120,4 +112,39 @@ func RegisterPipelines(s *mcp.Server, c pipelinesClient, companyDomain string) {
 		}
 		return nil, out, nil
 	})
+}
+
+// stagesAndValidatedPipeline issues ListStages and (when pipelineID > 0)
+// ListPipelines concurrently, then enforces the "pipeline must exist"
+// gate so an unknown id surfaces as [not_found] rather than a silently
+// empty result. Returns the stage list on success.
+func stagesAndValidatedPipeline(ctx context.Context, c pipelinesClient, pipelineID int64) ([]pipedrive.Stage, error) {
+	if pipelineID == 0 {
+		return c.ListStages(ctx, 0)
+	}
+	var (
+		pipelines    []pipedrive.Pipeline
+		pipelinesErr error
+		stages       []pipedrive.Stage
+		stagesErr    error
+		wg           sync.WaitGroup
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		pipelines, pipelinesErr = c.ListPipelines(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		stages, stagesErr = c.ListStages(ctx, pipelineID)
+	}()
+	wg.Wait()
+	if pipelinesErr != nil {
+		return nil, pipelinesErr
+	}
+	matches := func(p pipedrive.Pipeline) bool { return p.ID == pipelineID }
+	if !slices.ContainsFunc(pipelines, matches) {
+		return nil, fmt.Errorf("%w: pipeline %d does not exist or is not visible to the API token's user", pipedrive.ErrNotFound, pipelineID)
+	}
+	return stages, stagesErr
 }

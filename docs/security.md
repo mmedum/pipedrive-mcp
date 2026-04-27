@@ -124,15 +124,19 @@ layer, not behind an error — the LLM cannot discover or invoke these
 tools at all unless the operator has set `PIPEDRIVE_ENABLE_DESTRUCTIVE=true`.
 
 When enabled, each destructive tool carries the MCP `destructiveHint:
-true` annotation and an explicit warning in its description. Currently
-the only destructive tool planned for v1.0 is:
+true` annotation and an explicit warning in its description. The
+v0.1.0 destructive surface is:
 
-- `detach_product_from_deal` — removes a line item from a deal.
-  Reversible by re-attach, but the original line-item identity is lost.
+- `delete_note` — soft-deletes a Pipedrive note. Pipedrive v1
+  implements DELETE as a soft delete, so the record persists with
+  `active_flag=false` and is filtered out of `list_notes` by default
+  but `get_note` still returns it. Honours `PIPEDRIVE_DRY_RUN=true`
+  by suppressing the upstream DELETE and returning `dry_run=true`.
 
-Future destructive tools (`delete_deal`, etc.) are not on the v1.0
-roadmap. Adding any will require an ADR and an explicit user decision
-captured in the release that introduces them.
+Other destructive tools (`detach_product_from_deal`, `delete_deal`,
+etc.) are not on the v1.0 roadmap. Adding any will require an ADR
+and an explicit user decision captured in the release that
+introduces them.
 
 ## Dry-run
 
