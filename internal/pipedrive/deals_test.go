@@ -101,12 +101,16 @@ func TestClient_ListDeals_FiltersAndCursor(t *testing.T) {
 	defer srv.Close()
 
 	deals, next, err := newTestClient(srv).ListDeals(context.Background(), ListDealsOptions{
-		Status:     "open",
-		PipelineID: 2,
-		StageID:    5,
-		OwnerID:    7,
-		Limit:      25,
-		Cursor:     "opaque-cursor-1",
+		Status:        "open",
+		PipelineID:    2,
+		StageID:       5,
+		OwnerID:       7,
+		UpdatedSince:  "2026-04-01T00:00:00Z",
+		UpdatedUntil:  "2026-04-30T23:59:59Z",
+		SortBy:        "update_time",
+		SortDirection: "desc",
+		Limit:         25,
+		Cursor:        "opaque-cursor-1",
 	})
 	if err != nil {
 		t.Fatalf("ListDeals: %v", err)
@@ -119,6 +123,8 @@ func TestClient_ListDeals_FiltersAndCursor(t *testing.T) {
 	}
 	for _, want := range []string{
 		"status=open", "pipeline_id=2", "stage_id=5", "owner_id=7",
+		"updated_since=2026-04-01T00%3A00%3A00Z", "updated_until=2026-04-30T23%3A59%3A59Z",
+		"sort_by=update_time", "sort_direction=desc",
 		"limit=25", "cursor=opaque-cursor-1",
 	} {
 		if !strings.Contains(sawQuery, want) {
