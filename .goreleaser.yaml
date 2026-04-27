@@ -61,8 +61,19 @@ checksum:
 signs:
   # Sign every artifact (archives + checksums) via cosign keyless OIDC.
   # Produces .sig and .cert next to each artifact.
+  #
+  # Both `signature:` and `certificate:` MUST be declared explicitly —
+  # goreleaser's defaults are: `signature: '{{ .Artifact }}.sig'` (this
+  # one happens to match what we want, but be explicit for symmetry),
+  # `certificate: ""` (empty — `${certificate}` env var expands to ""
+  # and cosign sign-blob silently drops the cert output). Without an
+  # explicit certificate path the .cert files don't get written, the
+  # release ships without them, and `cosign verify-blob --certificate
+  # …cert` (from the README) fails with "open: no such file".
   - id: cosign-keyless
     cmd: cosign
+    signature: "{{ .Artifact }}.sig"
+    certificate: "{{ .Artifact }}.cert"
     args:
       - sign-blob
       - "--yes"
