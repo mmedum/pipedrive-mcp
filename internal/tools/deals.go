@@ -121,6 +121,18 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string) {
 	})
 }
 
+// copyIntPtr returns a pointer to a fresh copy of *p so the LLM-facing
+// summary never aliases the upstream pipedrive.Deal struct's pointer.
+// Keeps the parallel-shadow boundary intact even if a future caller
+// mutates the upstream struct.
+func copyIntPtr(p *int) *int {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
 func summarizeDeal(domain string, d *pipedrive.Deal, customFields map[string]any) dealSummary {
 	return dealSummary{
 		ID:                d.ID,
@@ -139,7 +151,7 @@ func summarizeDeal(domain string, d *pipedrive.Deal, customFields map[string]any
 		LostReason:        d.LostReason,
 		AddTime:           d.AddTime,
 		UpdateTime:        d.UpdateTime,
-		Probability:       d.Probability,
+		Probability:       copyIntPtr(d.Probability),
 		CustomFields:      customFields,
 		URL:               pipedrive.WebURL(domain, pipedrive.WebURLDeal, d.ID),
 	}

@@ -20,9 +20,9 @@ import (
 // completed, &false = only open. The tool layer maps a human-friendly
 // `status: open|done|all` enum to this field.
 //
-// IncludeAttendees toggles `include_fields=attendees`; on by default
-// when the consumer wants the attendees array populated. Pipedrive
-// returns it only when explicitly requested.
+// IncludeAttendees toggles `include_fields=attendees`; off by default,
+// set to true to populate the Attendees slice on each activity.
+// Pipedrive returns attendees only when explicitly requested.
 type ListActivitiesOptions struct {
 	OwnerID          int64
 	DealID           int64
