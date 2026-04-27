@@ -169,8 +169,8 @@ After saving the config, restart Claude Desktop and confirm the
 ## Tool catalog
 
 Run `pipedrive-mcp --dump-schemas | jq '[.tools[].name]'` for the
-authoritative list of tools the binary registers. As of the current
-`[Unreleased]` work the seven shipped tools are:
+authoritative list of tools the binary registers. As of v0.1.0 the
+shipped tools are:
 
 | Tool | Surface |
 | --- | --- |
@@ -191,11 +191,11 @@ authoritative list of tools the binary registers. As of the current
 | `delete_note` | Remove a note by id. Destructive — registered only when `PIPEDRIVE_ENABLE_DESTRUCTIVE=true`. Honours `PIPEDRIVE_DRY_RUN`. |
 | `refresh_field_cache` | Re-fetch deal / person / org custom-field metadata. Operator escape hatch when fields change in the Pipedrive UI without a server restart. |
 
-The remaining categories below are the planned surface; see
+The categories below outline the planned post-v0.1.0 surface; see
 [`CHANGELOG.md`](CHANGELOG.md) for what has actually shipped.
 
 - **Writes** — create/update for deals, persons, organizations,
-  activities; add notes; attach/update deal line items.
+  activities; attach/update deal line items.
 - **Workflows** — move deal to stage, mark won/lost, complete activity,
   log activity composite.
 - **Destructive (opt-in)** — detach product from deal.

@@ -13,7 +13,21 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-04-27
+
+This release closes Phase 1: the read surface (deals, persons,
+organizations, activities, notes, pipelines/stages, search), the
+notes-only v1 carve-out, the first non-destructive write tool
+(`create_note`), the destructive write (`delete_note`, gated by
+`PIPEDRIVE_ENABLE_DESTRUCTIVE`), and the operator-facing
+`refresh_field_cache`. Fifteen tools are registered by default; a
+sixteenth (`delete_note`) registers when the destructive flag is on.
+
 ### Changed
+- `list_stages(pipeline_id=N)` now fans the existence-check and the
+  stages fetch out concurrently, cutting the wall-clock cost from
+  `t(pipelines)+t(stages)` to `max(...)`. Same `[not_found]` semantics
+  for unknown/invisible pipelines.
 - Cache-warm goroutine in `server.New` now respects the parent
   context, so SIGTERM mid-warm cancels in-flight `/dealFields` /
   `/personFields` / `/organizationFields` requests cleanly instead
