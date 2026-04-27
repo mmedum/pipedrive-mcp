@@ -163,11 +163,18 @@ jobs:
         run: |
           if [ -f /tmp/base-schemas.json ]; then
             diff -u /tmp/base-schemas.json /tmp/pr-schemas.json || {
-              if git log -1 --format=%B "${{ github.event.pull_request.head.sha }}" | grep -q "^BREAKING CHANGE:"; then
-                echo "Breaking schema change present, footer present — OK"
+              msg=$(git log -1 --format=%B "${{ github.event.pull_request.head.sha }}")
+              if echo "$msg" | grep -q "^BREAKING CHANGE:"; then
+                echo "Schema change with BREAKING CHANGE: footer — OK (treat as MAJOR)"
                 exit 0
               fi
-              echo "::error::tool schema changed without BREAKING CHANGE: footer"
+              if echo "$msg" | grep -q "^SCHEMA-CHANGE:"; then
+                echo "Schema change with SCHEMA-CHANGE: footer — OK (additive / non-breaking, treat as MINOR)"
+                exit 0
+              fi
+              echo "::error::tool schema changed without an acknowledgement footer."
+              echo "::error::Add 'SCHEMA-CHANGE: <description>' for additive/non-breaking changes,"
+              echo "::error::or 'BREAKING CHANGE: <description>' for breaking ones, on the head commit."
               exit 1
             }
           fi

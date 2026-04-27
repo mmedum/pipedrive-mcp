@@ -21,7 +21,7 @@ breaking changes require a MAJOR bump.
   matching the convention. Pipedrive v2 `/deals` supports all four
   upstream; the gap was a holdover from when `list_deals` was the
   first list_X tool. Additive change — no breakage to existing
-  callers; the schema-diff CI gate will register this as MINOR.
+  callers; tagged `SCHEMA-CHANGE:` per the gate's new convention.
 
 ### Fixed
 - `FieldCache.Count()` no longer triggers `sync.Once` on a fresh
@@ -35,6 +35,15 @@ breaking changes require a MAJOR bump.
   `Reload` → `Load` → `Count` sequentially).
 
 ### Changed
+- Schema-diff CI gate now distinguishes additive from breaking
+  changes. The previous gate required a `BREAKING CHANGE:` footer
+  on *any* schema diff — including purely additive ones (new
+  optional input field, new tool, expanded enum). The new gate
+  accepts a `SCHEMA-CHANGE:` footer for additive/non-breaking
+  changes and reserves `BREAKING CHANGE:` for actual breaks
+  (tool removed/renamed, required input removed/renamed, output
+  type changed, narrowed enum). Empty diff still passes without
+  any footer. PR template updated with the new convention.
 - `internal/tools/sort.go` exports a single
   `commonV2TimestampSortFields` set ({id, update_time, add_time});
   `list_persons`, `list_organizations`, and `list_activities`
