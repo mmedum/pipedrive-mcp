@@ -85,3 +85,14 @@ func (c *Client) ResolvePersonCustomFields(ctx context.Context, raw map[string]a
 func (c *Client) WarmPersonFields(ctx context.Context) {
 	_ = c.personFields.Load(ctx)
 }
+
+// ReloadPersonFields clears and re-fetches the person-field cache,
+// returning the count of fields now cached. See ReloadDealFields for
+// the rationale.
+func (c *Client) ReloadPersonFields(ctx context.Context) (int, error) {
+	c.personFields.Reload()
+	if err := c.personFields.Load(ctx); err != nil {
+		return 0, err
+	}
+	return c.personFields.Count(), nil
+}

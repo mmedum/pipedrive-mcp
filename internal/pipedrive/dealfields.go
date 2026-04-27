@@ -28,3 +28,17 @@ func (c *Client) ResolveDealCustomFields(ctx context.Context, raw map[string]any
 func (c *Client) WarmDealFields(ctx context.Context) {
 	_ = c.dealFields.Load(ctx)
 }
+
+// ReloadDealFields clears and re-fetches the deal-field cache,
+// returning the count of fields now cached. Used by the
+// refresh_field_cache tool to pick up custom-field renames or
+// additions without restarting the server. Reload is followed by an
+// eager Load so the next get_deal/list_deals call sees fresh data
+// without paying the round-trip itself.
+func (c *Client) ReloadDealFields(ctx context.Context) (int, error) {
+	c.dealFields.Reload()
+	if err := c.dealFields.Load(ctx); err != nil {
+		return 0, err
+	}
+	return c.dealFields.Count(), nil
+}

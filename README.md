@@ -8,17 +8,17 @@ exposes [Pipedrive CRM](https://pipedrive.com) over stdio to LLM-driven
 clients such as Claude Desktop and Claude Code. Single static Go binary,
 distroless Docker image, signed releases, semver-disciplined surface.
 
-> **Status: Phase 1 in progress, pre-`v0.1.0`.** Fourteen tools are
+> **Status: Phase 1 complete, pre-`v0.1.0` tag.** Fifteen tools are
 > registered by default: eleven v2 reads (`list_pipelines`,
 > `list_stages`, `get_deal`, `list_deals`, `get_person`,
 > `list_persons`, `get_organization`, `list_organizations`,
 > `get_activity`, `list_activities`, `search` — the natural-language
 > gateway), two v1 reads on the notes carve-out (`get_note`,
-> `list_notes`), and one v1 write (`create_note`, honours
-> `PIPEDRIVE_DRY_RUN` for rehearsal mode). When the server is
-> started with `PIPEDRIVE_ENABLE_DESTRUCTIVE=true` an additional
-> destructive tool (`delete_note`) is registered. The
-> `refresh_field_cache` tool and the `v0.1.0` tag follow. See
+> `list_notes`), one v1 write (`create_note`, honours
+> `PIPEDRIVE_DRY_RUN` for rehearsal mode), and one operator tool
+> (`refresh_field_cache`). When the server is started with
+> `PIPEDRIVE_ENABLE_DESTRUCTIVE=true` an additional destructive tool
+> (`delete_note`) is registered. `v0.1.0` tag follows. See
 > `CHANGELOG.md` for what's landed.
 
 ## Highlights
@@ -189,6 +189,7 @@ authoritative list of tools the binary registers. As of the current
 | `list_notes` | Notes filtered by anchor (deal / person / org / lead), author, date range, or update window. |
 | `create_note` | Attach a new note to a deal / person / org / lead / project. Honours `PIPEDRIVE_DRY_RUN` for rehearsal mode. |
 | `delete_note` | Remove a note by id. Destructive — registered only when `PIPEDRIVE_ENABLE_DESTRUCTIVE=true`. Honours `PIPEDRIVE_DRY_RUN`. |
+| `refresh_field_cache` | Re-fetch deal / person / org custom-field metadata. Operator escape hatch when fields change in the Pipedrive UI without a server restart. |
 
 The remaining categories below are the planned surface; see
 [`CHANGELOG.md`](CHANGELOG.md) for what has actually shipped.
@@ -204,9 +205,9 @@ The remaining categories below are the planned surface; see
 - **`401 Unauthorized` at startup, immediate exit.** The API token is
   invalid, revoked, or for the wrong workspace. Fix the token and restart;
   the server does not poll for token changes mid-process.
-- **`custom_field "Region" not found`.** The cache is stale. Restart
-  the server to refetch field metadata. (A `refresh_field_cache` tool
-  is on the roadmap to avoid the restart.)
+- **`custom_field "Region" not found`.** The cache is stale. Call the
+  `refresh_field_cache` tool to re-fetch deal / person / organization
+  field metadata in parallel without restarting the server.
 - **LLM does something surprising.** The MCP transport does not carry the
   user's prompt, so server logs cannot tell you *why* the LLM called a
   tool. Correlate the request ID in stderr with your MCP client's prompt

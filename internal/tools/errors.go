@@ -23,9 +23,17 @@ func errorResult(err error) *mcp.CallToolResult {
 	return &mcp.CallToolResult{
 		IsError: true,
 		Content: []mcp.Content{
-			&mcp.TextContent{Text: fmt.Sprintf("[%s] %s", errorClass(err), llmMessage(err))},
+			&mcp.TextContent{Text: errorText(err)},
 		},
 	}
+}
+
+// errorText is the single source of truth for the `[class] message`
+// LLM-facing error format. errorResult uses it for tool-execution
+// errors; per-row error fields (e.g. refresh_field_cache) reuse it
+// so the format stays uniform across the tool surface.
+func errorText(err error) string {
+	return fmt.Sprintf("[%s] %s", errorClass(err), llmMessage(err))
 }
 
 // llmMessage extracts the action-relevant message from err, stripping

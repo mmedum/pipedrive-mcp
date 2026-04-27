@@ -143,6 +143,34 @@ func TestClient_ListPersonFields(t *testing.T) {
 	}
 }
 
+func TestClient_ReloadPersonFields(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/personFields" {
+			t.Errorf("path = %q, want /api/v2/personFields", r.URL.Path)
+		}
+		hits++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"success":true,"data":[
+			{"field_code":"abc","field_name":"VIP Tier","is_custom_field":true}
+		]}`)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv)
+	_ = c.ResolvePersonCustomFields(context.Background(), map[string]any{"abc": "Gold"})
+	count, err := c.ReloadPersonFields(context.Background())
+	if err != nil {
+		t.Fatalf("ReloadPersonFields: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("count = %d; want 1", count)
+	}
+	if hits != 2 {
+		t.Errorf("hits = %d; want 2 (priming + reload)", hits)
+	}
+}
+
 func TestClient_PersonFieldsCacheLazyLoad(t *testing.T) {
 	hits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -101,6 +101,83 @@ func TestFieldCache_ResolveEmpty(t *testing.T) {
 	}
 }
 
+func TestFieldCache_Count(t *testing.T) {
+	fc := NewFieldCache(func(_ context.Context) ([]Field, error) {
+		return []Field{
+			{Key: "a", Name: "A"},
+			{Key: "b", Name: "B"},
+			{Key: "c", Name: "C"},
+		}, nil
+	})
+
+	// Pre-load: 0.
+	if got := fc.Count(); got != 0 {
+		t.Errorf("Count before load = %d; want 0", got)
+	}
+	if err := fc.Load(context.Background()); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := fc.Count(); got != 3 {
+		t.Errorf("Count after load = %d; want 3", got)
+	}
+	// Post-Reload (before next Load): cache is empty again.
+	fc.Reload()
+	if got := fc.Count(); got != 0 {
+		t.Errorf("Count after Reload (no Load) = %d; want 0", got)
+	}
+}
+
+func TestFieldCache_CountAfterFetchError(t *testing.T) {
+	fc := NewFieldCache(func(_ context.Context) ([]Field, error) {
+		return nil, errors.New("upstream down")
+	})
+	_ = fc.Load(context.Background())
+	if got := fc.Count(); got != 0 {
+		t.Errorf("Count after failed load = %d; want 0", got)
+	}
+}
+
+func TestFieldCache_ReloadDuringInFlightLoad(t *testing.T) {
+	// Regression: Reload used to overwrite the FieldCache's sync.Once
+	// while a Load was mid-flight, corrupting the once's internal mutex
+	// state and panicking with "unlock of unlocked mutex" on the
+	// in-flight goroutine. The fix swaps the active entry instead so
+	// in-flight callers complete safely on their own once.
+	started := make(chan struct{})
+	gate := make(chan struct{})
+	released := make(chan struct{})
+	var startedOnce sync.Once
+	fc := NewFieldCache(func(_ context.Context) ([]Field, error) {
+		// Only the first fetch (the in-flight one) signals + waits
+		// for the gate; the post-reload sanity Load below runs the
+		// fetch a second time and must not block.
+		startedOnce.Do(func() {
+			close(started)
+			<-gate
+		})
+		return []Field{{Key: "abc", Name: "AccountManager"}}, nil
+	})
+
+	go func() {
+		_ = fc.Load(context.Background())
+		close(released)
+	}()
+	// Wait for the load goroutine to enter fetch — no polling, no
+	// timing assumptions. The signal makes the test deterministic
+	// even on heavily-loaded CI boxes.
+	<-started
+	// Reload while the in-flight load is parked in fetch.
+	fc.Reload()
+	// Release the in-flight load — it must finish without panicking.
+	close(gate)
+	<-released
+	// Sanity: a fresh Load after the dance still works (post-Reload
+	// entry loads cleanly).
+	if err := fc.Load(context.Background()); err != nil {
+		t.Errorf("post-reload Load failed: %v", err)
+	}
+}
+
 func TestFieldCache_Reload(t *testing.T) {
 	calls := 0
 	fields := []Field{{Key: "v1", Name: "First"}}
