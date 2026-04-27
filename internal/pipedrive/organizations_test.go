@@ -142,6 +142,34 @@ func TestClient_ListOrganizationFields(t *testing.T) {
 	}
 }
 
+func TestClient_ReloadOrganizationFields(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/organizationFields" {
+			t.Errorf("path = %q, want /api/v2/organizationFields", r.URL.Path)
+		}
+		hits++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"success":true,"data":[
+			{"field_code":"def","field_name":"Tier","is_custom_field":true}
+		]}`)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv)
+	_ = c.ResolveOrganizationCustomFields(context.Background(), map[string]any{"def": "strategic"})
+	count, err := c.ReloadOrganizationFields(context.Background())
+	if err != nil {
+		t.Fatalf("ReloadOrganizationFields: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("count = %d; want 1", count)
+	}
+	if hits != 2 {
+		t.Errorf("hits = %d; want 2 (priming + reload)", hits)
+	}
+}
+
 func TestClient_OrganizationFieldsCacheLazyLoad(t *testing.T) {
 	hits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

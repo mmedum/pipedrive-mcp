@@ -68,7 +68,8 @@ pipedrive-mcp/
 │       ├── persons.go         # get_person + list_persons
 │       ├── organizations.go   # get_organization + list_organizations
 │       ├── activities.go      # get_activity + list_activities
-│       ├── notes.go           # get_note + list_notes + create_note (Phase 1's only write)
+│       ├── notes.go           # get_note + list_notes + create_note + delete_note (gated)
+│       ├── cache.go           # refresh_field_cache (operator escape hatch)
 │       └── search.go          # search (unified itemSearch wrapper)
 ├── docs/                      # operator docs (this tree)
 └── scripts/                   # CI helper scripts

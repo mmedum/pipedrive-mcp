@@ -79,3 +79,14 @@ func (c *Client) ResolveOrganizationCustomFields(ctx context.Context, raw map[st
 func (c *Client) WarmOrganizationFields(ctx context.Context) {
 	_ = c.organizationFields.Load(ctx)
 }
+
+// ReloadOrganizationFields clears and re-fetches the organization-field
+// cache, returning the count of fields now cached. See ReloadDealFields
+// for the rationale.
+func (c *Client) ReloadOrganizationFields(ctx context.Context) (int, error) {
+	c.organizationFields.Reload()
+	if err := c.organizationFields.Load(ctx); err != nil {
+		return 0, err
+	}
+	return c.organizationFields.Count(), nil
+}
