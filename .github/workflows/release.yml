@@ -80,4 +80,11 @@ jobs:
       - name: Generate SLSA L2 build-provenance attestations
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: 'dist/pipedrive-mcp-*.tar.gz dist/pipedrive-mcp-*.zip dist/SHA256SUMS'
+          # subject-path supports either a single path/glob OR multiple
+          # paths separated by NEWLINES. Space-separated values are
+          # treated as one literal path glob and the action fails with
+          # "Could not find subject at path …".
+          subject-path: |
+            dist/pipedrive-mcp-*.tar.gz
+            dist/pipedrive-mcp-*.zip
+            dist/SHA256SUMS
