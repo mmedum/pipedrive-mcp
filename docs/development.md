@@ -144,10 +144,10 @@ EOF
 ```
 
 You should see two JSON-RPC frames — the initialize response and the
-tools/list response with an empty `tools` array (Phase 0 has no tools
-registered yet). The `--skip-probe` flag is for this kind of test only;
-do not use it in production. CI's `scripts/stdio-smoke.sh` does the same
-sequence and is run as a gate on every PR.
+tools/list response listing the registered tools. The `--skip-probe`
+flag is for this kind of test only; do not use it in production. CI's
+`scripts/stdio-smoke.sh` does the same sequence and is run as a gate
+on every PR.
 
 ## Inspecting the tool schemas
 
@@ -157,9 +157,10 @@ The schema-diff CI gate uses `--dump-schemas`. Run it locally:
 go run ./cmd/pipedrive-mcp --dump-schemas | jq .
 ```
 
-In Phase 0 this returns a header (`binary_version`, `sdk_version`,
-`tool_count: 0`) and an empty `tools` array. As tools land in Phase 1
-the array fills out, sorted alphabetically.
+The output is a header (`binary_version`, `sdk_version`,
+`tool_count`) and the tool array sorted alphabetically. The
+schema-diff CI gate compares this output against the prior tag's
+output to enforce semver discipline on the LLM-facing surface.
 
 ## Connecting to Claude Desktop end-to-end
 
@@ -190,9 +191,9 @@ the array fills out, sorted alphabetically.
 3. Restart Claude Desktop. Open a new chat, click the tool icon, and
    confirm `pipedrive` is listed as connected.
 
-4. Ask the LLM "what Pipedrive tools do you have?" — in Phase 0 the
-   answer is "none registered yet"; from Phase 1 onwards you'll see
-   the catalog.
+4. Ask the LLM "what Pipedrive tools do you have?" — you should see
+   the registered tool catalog (run `pipedrive-mcp --dump-schemas |
+   jq '[.tools[].name]'` for the authoritative list).
 
 5. Tail the server logs to confirm it's running. Claude Desktop logs
    MCP server stderr to:

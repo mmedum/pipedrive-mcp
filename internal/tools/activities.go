@@ -161,16 +161,17 @@ func RegisterActivities(s *mcp.Server, c activitiesClient, companyDomain string)
 			return errorResult(err), listActivitiesOutput{}, nil
 		}
 		out := listActivitiesOutput{Activities: make([]activitySummary, 0, len(acts)), NextCursor: next}
+		// Notes can run to multi-KB HTML; strip them by default so
+		// list sweeps don't burn LLM tokens on content the model
+		// can fetch on demand via get_activity. Mutate in place since
+		// acts is a fresh slice returned to us — no external aliases.
+		stripNotes := !in.IncludeNotes
 		for i := range acts {
-			a := acts[i]
-			// Notes can run to multi-KB HTML; strip them by default so
-			// list sweeps don't burn LLM tokens on content the model
-			// can fetch on demand via get_activity.
-			if !in.IncludeNotes {
-				a.Note = ""
-				a.PublicDescription = ""
+			if stripNotes {
+				acts[i].Note = ""
+				acts[i].PublicDescription = ""
 			}
-			out.Activities = append(out.Activities, summarizeActivity(companyDomain, &a))
+			out.Activities = append(out.Activities, summarizeActivity(companyDomain, &acts[i]))
 		}
 		return nil, out, nil
 	})
@@ -220,22 +221,4 @@ func statusToDoneFilter(status string) *bool {
 		return &v
 	}
 	return nil
-}
-
-// effectiveSort encodes the recency-first override of Pipedrive's
-// upstream `id asc` default — rarely what a human asking
-// "what's happened with X lately" wants. The two halves are coupled
-// (a blank sortBy means "user accepted the default", which also
-// flips the direction), so we return them as a pair.
-func effectiveSort(sortBy, sortDir string) (by, dir string) {
-	switch {
-	case sortBy == "" && sortDir == "":
-		return "update_time", "desc"
-	case sortBy == "":
-		return "update_time", sortDir
-	case sortDir == "":
-		return sortBy, "asc"
-	default:
-		return sortBy, sortDir
-	}
 }
