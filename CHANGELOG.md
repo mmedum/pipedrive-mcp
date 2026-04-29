@@ -13,6 +13,20 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Added
+- `create_activity` tool — fourth v2 write tool. Required input:
+  `subject`. Optional: `type` (defaults to `task` upstream when
+  omitted), `due_date` / `due_time` / `duration`, `deal_id` /
+  `person_id` / `org_id` / `lead_id`, `owner_id`, `note` (private
+  HTML), `public_description`, `location` (single-line, server-
+  parsed), `participants`, `done`, `busy`. To log an activity that
+  already happened, pass `done=true` plus the `note`. To schedule
+  one, pass `due_date` (and optionally `due_time` / `duration`).
+  Returns the created activity as Pipedrive echoes it (with parsed
+  structured `Location`). Honours `PIPEDRIVE_DRY_RUN=true`. v2
+  activities don't have custom fields, so no name/hash resolution
+  applies on this surface.
+
 ### Changed
 - `tools.RegisterOptions{DryRun, EnableDestructive}` replaces the
   positional bool args on `RegisterDeals` / `RegisterPersons` /
