@@ -13,14 +13,18 @@ import (
 )
 
 type fakeActivitiesClient struct {
-	activity      *pipedrive.Activity
-	activityErr   error
-	activities    []pipedrive.Activity
-	activityNext  string
-	activitiesErr error
+	activity       *pipedrive.Activity
+	activityErr    error
+	activities     []pipedrive.Activity
+	activityNext   string
+	activitiesErr  error
+	createActivity *pipedrive.Activity
+	createErr      error
 
-	lastListOpts pipedrive.ListActivitiesOptions
-	lastGetOpts  pipedrive.GetActivityOptions
+	lastListOpts   pipedrive.ListActivitiesOptions
+	lastGetOpts    pipedrive.GetActivityOptions
+	lastCreateReq  pipedrive.CreateActivityRequest
+	createCallSeen bool
 }
 
 func (f *fakeActivitiesClient) GetActivity(_ context.Context, _ int64, opts pipedrive.GetActivityOptions) (*pipedrive.Activity, error) {
@@ -31,6 +35,15 @@ func (f *fakeActivitiesClient) GetActivity(_ context.Context, _ int64, opts pipe
 func (f *fakeActivitiesClient) ListActivities(_ context.Context, opts pipedrive.ListActivitiesOptions) ([]pipedrive.Activity, string, error) {
 	f.lastListOpts = opts
 	return f.activities, f.activityNext, f.activitiesErr
+}
+
+func (f *fakeActivitiesClient) CreateActivity(_ context.Context, req pipedrive.CreateActivityRequest) (*pipedrive.Activity, error) {
+	f.lastCreateReq = req
+	f.createCallSeen = true
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	return f.createActivity, nil
 }
 
 // activityRow mirrors the JSON shape RegisterActivities emits. Carrying
@@ -81,7 +94,7 @@ func TestGetActivity_HappyPath(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme")
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -116,7 +129,7 @@ func TestGetActivity_HappyPath(t *testing.T) {
 
 func TestGetActivity_RejectsZeroID(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, &fakeActivitiesClient{}, "acme")
+		tools.RegisterActivities(s, &fakeActivitiesClient{}, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -142,7 +155,7 @@ func TestGetActivity_UpstreamNotFound(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme")
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -167,7 +180,7 @@ func TestListActivities_HappyPath(t *testing.T) {
 		activityNext: "cursor-page-2",
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme")
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -215,7 +228,7 @@ func TestListActivities_StripsNotesByDefault(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme")
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -243,7 +256,7 @@ func TestListActivities_IncludeNotesPreservesText(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme")
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -270,7 +283,7 @@ func TestGetActivity_AlwaysReturnsNotes(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme")
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -291,7 +304,7 @@ func TestGetActivity_AlwaysReturnsNotes(t *testing.T) {
 func TestListActivities_StatusDoneMapsToTrue(t *testing.T) {
 	fake := &fakeActivitiesClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme")
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -307,7 +320,7 @@ func TestListActivities_StatusDoneMapsToTrue(t *testing.T) {
 func TestListActivities_StatusAllOmitsDoneFilter(t *testing.T) {
 	fake := &fakeActivitiesClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme")
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -323,7 +336,7 @@ func TestListActivities_StatusAllOmitsDoneFilter(t *testing.T) {
 func TestListActivities_DefaultsToRecencySort(t *testing.T) {
 	fake := &fakeActivitiesClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme")
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -340,7 +353,7 @@ func TestListActivities_DefaultsToRecencySort(t *testing.T) {
 func TestListActivities_SortDirectionAloneKeepsRecencyDefault(t *testing.T) {
 	fake := &fakeActivitiesClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme")
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -360,7 +373,7 @@ func TestListActivities_ExplicitSortByUpdateTimeStillDefaultsToAsc(t *testing.T)
 	// the user must omit sort_by entirely (or pass both update_time + desc).
 	fake := &fakeActivitiesClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme")
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -377,7 +390,7 @@ func TestListActivities_ExplicitSortByUpdateTimeStillDefaultsToAsc(t *testing.T)
 func TestListActivities_BothExplicitSortPassedThrough(t *testing.T) {
 	fake := &fakeActivitiesClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme")
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -396,7 +409,7 @@ func TestListActivities_StatusUnsetLeavesDoneNil(t *testing.T) {
 	// open and completed.
 	fake := &fakeActivitiesClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme")
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -412,7 +425,7 @@ func TestListActivities_StatusUnsetLeavesDoneNil(t *testing.T) {
 func TestListActivities_ExplicitSortByDefaultsToAsc(t *testing.T) {
 	fake := &fakeActivitiesClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme")
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -428,7 +441,7 @@ func TestListActivities_ExplicitSortByDefaultsToAsc(t *testing.T) {
 
 func TestListActivities_RejectsBadStatus(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, &fakeActivitiesClient{}, "acme")
+		tools.RegisterActivities(s, &fakeActivitiesClient{}, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -446,7 +459,7 @@ func TestListActivities_RejectsBadStatus(t *testing.T) {
 
 func TestListActivities_RejectsBadSortBy(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, &fakeActivitiesClient{}, "acme")
+		tools.RegisterActivities(s, &fakeActivitiesClient{}, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -462,7 +475,7 @@ func TestListActivities_RejectsBadSortBy(t *testing.T) {
 func TestListActivities_LimitClampedToMax(t *testing.T) {
 	fake := &fakeActivitiesClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme")
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -478,7 +491,7 @@ func TestListActivities_LimitClampedToMax(t *testing.T) {
 func TestListActivities_LimitDefaultWhenZero(t *testing.T) {
 	fake := &fakeActivitiesClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme")
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -493,7 +506,7 @@ func TestListActivities_LimitDefaultWhenZero(t *testing.T) {
 
 func TestRegisterActivities_RegistersInDumpRegistry(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, &fakeActivitiesClient{}, "acme")
+		tools.RegisterActivities(s, &fakeActivitiesClient{}, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -502,9 +515,176 @@ func TestRegisterActivities_RegistersInDumpRegistry(t *testing.T) {
 		t.Fatalf("DumpJSON: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{`"get_activity"`, `"list_activities"`} {
+	for _, want := range []string{`"get_activity"`, `"list_activities"`, `"create_activity"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dump missing %s", want)
 		}
+	}
+}
+
+func TestCreateActivity_HappyPath(t *testing.T) {
+	fake := &fakeActivitiesClient{
+		createActivity: &pipedrive.Activity{
+			ID:       150,
+			Subject:  "VisitorPass demo follow-up",
+			Type:     "meeting",
+			OwnerID:  7,
+			OrgID:    59,
+			PersonID: 73,
+			DueDate:  "2026-05-06",
+			DueTime:  "10:00",
+			Duration: "00:45",
+			Location: &pipedrive.ActivityLocation{Value: "Aalborg, Denmark", Country: "Denmark", Locality: "Aalborg"},
+		},
+	}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
+	})
+	defer h.Close()
+
+	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "create_activity",
+		Arguments: map[string]any{
+			"subject":   "VisitorPass demo follow-up",
+			"type":      "meeting",
+			"due_date":  "2026-05-06",
+			"due_time":  "10:00",
+			"duration":  "00:45",
+			"org_id":    59,
+			"person_id": 73,
+			"location":  "Aalborg, Denmark",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected isError: %+v", res.Content)
+	}
+	var out struct {
+		Activity activityRow `json:"activity"`
+		DryRun   bool        `json:"dry_run"`
+	}
+	testutil.DecodeStructured(t, res.StructuredContent, &out)
+
+	if !fake.createCallSeen {
+		t.Fatal("CreateActivity was not called")
+	}
+	if out.DryRun {
+		t.Error("dry_run = true on a non-dry-run handler")
+	}
+	if out.Activity.ID != 150 || out.Activity.Subject != "VisitorPass demo follow-up" || out.Activity.Type != "meeting" {
+		t.Errorf("activity echo lost fields: %+v", out.Activity)
+	}
+	if out.Activity.URL != "https://acme.pipedrive.com/activity/150" {
+		t.Errorf("URL = %q, want acme/activity/150", out.Activity.URL)
+	}
+	if out.Activity.Location == nil || out.Activity.Location.Country != "Denmark" {
+		t.Errorf("server-parsed location lost: %+v", out.Activity.Location)
+	}
+	if fake.lastCreateReq.Subject != "VisitorPass demo follow-up" ||
+		fake.lastCreateReq.Type != "meeting" ||
+		fake.lastCreateReq.DueDate != "2026-05-06" ||
+		fake.lastCreateReq.DueTime != "10:00" ||
+		fake.lastCreateReq.Duration != "00:45" ||
+		fake.lastCreateReq.OrgID != 59 ||
+		fake.lastCreateReq.PersonID != 73 ||
+		fake.lastCreateReq.Location != "Aalborg, Denmark" {
+		t.Errorf("upstream request lost fields: %+v", fake.lastCreateReq)
+	}
+}
+
+func TestCreateActivity_RejectsEmptySubject(t *testing.T) {
+	fake := &fakeActivitiesClient{}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
+	})
+	defer h.Close()
+
+	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "create_activity",
+		Arguments: map[string]any{"subject": ""},
+	})
+	if !res.IsError {
+		t.Fatal("expected isError on empty subject")
+	}
+	if !strings.HasPrefix(contentText(res), "[validation]") {
+		t.Errorf("error text = %q; want [validation] prefix", contentText(res))
+	}
+	if fake.createCallSeen {
+		t.Error("CreateActivity called despite client-side validation failure")
+	}
+}
+
+func TestCreateActivity_DryRunSkipsUpstream(t *testing.T) {
+	fake := &fakeActivitiesClient{}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{DryRun: true})
+	})
+	defer h.Close()
+
+	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "create_activity",
+		Arguments: map[string]any{
+			"subject":  "Dry run probe",
+			"type":     "call",
+			"done":     true,
+			"note":     "<p>just had a call</p>",
+			"location": "On the moon",
+		},
+	})
+	if res.IsError {
+		t.Fatalf("unexpected isError: %+v", res.Content)
+	}
+	if fake.createCallSeen {
+		t.Error("CreateActivity called on dry-run path; upstream POST should be skipped")
+	}
+	var out struct {
+		Activity activityRow `json:"activity"`
+		DryRun   bool        `json:"dry_run"`
+	}
+	testutil.DecodeStructured(t, res.StructuredContent, &out)
+	if !out.DryRun {
+		t.Error("dry_run = false on synthetic preview")
+	}
+	if out.Activity.ID != 0 {
+		t.Errorf("synthetic id = %d; want 0", out.Activity.ID)
+	}
+	if out.Activity.Subject != "Dry run probe" || out.Activity.Type != "call" || !out.Activity.Done {
+		t.Errorf("synthetic activity lost input fields: %+v", out.Activity)
+	}
+	// Synthetic preview wraps the input string as Location.Value; no
+	// server-side parsing happens on the dry-run path.
+	if out.Activity.Location == nil || out.Activity.Location.Value != "On the moon" {
+		t.Errorf("synthetic location Value = %+v; want \"On the moon\"", out.Activity.Location)
+	}
+}
+
+func TestCreateActivity_PropagatesUpstreamError(t *testing.T) {
+	fake := &fakeActivitiesClient{
+		createErr: &pipedrive.APIError{
+			Class:    pipedrive.ErrValidation,
+			Status:   400,
+			Message:  "type 'meetingg' is not a valid activity type",
+			Endpoint: "/api/v2/activities",
+		},
+	}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
+	})
+	defer h.Close()
+
+	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "create_activity",
+		Arguments: map[string]any{
+			"subject": "Bad type",
+			"type":    "meetingg",
+		},
+	})
+	if !res.IsError {
+		t.Fatal("expected isError on upstream 400")
+	}
+	if !strings.HasPrefix(contentText(res), "[validation]") {
+		t.Errorf("error text = %q; want [validation] prefix", contentText(res))
 	}
 }

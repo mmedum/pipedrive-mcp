@@ -2,6 +2,7 @@ package pipedrive
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strconv"
 )
@@ -47,6 +48,46 @@ type GetActivityOptions struct {
 	IncludeAttendees bool
 }
 
+// DefaultActivityType is what Pipedrive's POST /activities falls back
+// to when the body omits `type`. Tracked as a constant so the GoDoc
+// and the LLM-facing tool description don't drift if upstream ever
+// changes the default.
+const DefaultActivityType = "task"
+
+// CreateActivityRequest is the JSON body for POST /api/v2/activities.
+// v2 requires `subject`. Type defaults to DefaultActivityType
+// upstream when omitted; the tool layer encourages the LLM to set
+// it explicitly. Validating Type against the workspace's
+// activityTypes enum is intentionally deferred: it would need a
+// cache + probe, and Pipedrive's 400 on invalid type already
+// surfaces cleanly as [validation] via the standard error mapping.
+//
+// Location is a single-line string on input — Pipedrive parses it
+// server-side into the structured ActivityLocation response (same
+// pattern as POST /organizations).
+//
+// Done and Busy use Go's zero-value-is-false default; sending false
+// is equivalent to omitting (json:omitempty). For the rare "create
+// already-marked-done" path the LLM sets Done=true.
+type CreateActivityRequest struct {
+	Subject           string                `json:"subject"`
+	Type              string                `json:"type,omitempty"`
+	DueDate           string                `json:"due_date,omitempty"` // YYYY-MM-DD
+	DueTime           string                `json:"due_time,omitempty"` // HH:MM
+	Duration          string                `json:"duration,omitempty"` // HH:MM
+	DealID            int64                 `json:"deal_id,omitempty"`
+	PersonID          int64                 `json:"person_id,omitempty"`
+	OrgID             int64                 `json:"org_id,omitempty"`
+	LeadID            string                `json:"lead_id,omitempty"` // UUID
+	OwnerID           int64                 `json:"owner_id,omitempty"`
+	Note              string                `json:"note,omitempty"`               // private; HTML allowed
+	PublicDescription string                `json:"public_description,omitempty"` // shared with attendees
+	Location          string                `json:"location,omitempty"`           // single-line; server-parsed
+	Participants      []ActivityParticipant `json:"participants,omitempty"`
+	Done              bool                  `json:"done,omitempty"`
+	Busy              bool                  `json:"busy,omitempty"`
+}
+
 // GetActivity fetches a single activity by ID.
 func (c *Client) GetActivity(ctx context.Context, id int64, opts GetActivityOptions) (*Activity, error) {
 	q := url.Values{}
@@ -55,6 +96,21 @@ func (c *Client) GetActivity(ctx context.Context, id int64, opts GetActivityOpti
 	}
 	var resp itemEnvelope[Activity]
 	if err := c.do(ctx, buildPath("/activities/"+strconv.FormatInt(id, 10), q), &resp); err != nil {
+		return nil, err
+	}
+	a := resp.Data
+	return &a, nil
+}
+
+// CreateActivity posts a new activity via /api/v2/activities. Returns
+// the created activity as Pipedrive echoes it (full record with id,
+// structured Location parsed server-side, and resolved type).
+func (c *Client) CreateActivity(ctx context.Context, req CreateActivityRequest) (*Activity, error) {
+	if req.Subject == "" {
+		return nil, fmt.Errorf("%w: subject must not be empty", ErrValidation)
+	}
+	var resp itemEnvelope[Activity]
+	if err := c.postV2(ctx, "/activities", req, &resp); err != nil {
 		return nil, err
 	}
 	a := resp.Data
