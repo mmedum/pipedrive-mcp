@@ -193,3 +193,89 @@ func TestClient_OrganizationFieldsCacheLazyLoad(t *testing.T) {
 		t.Errorf("organizationFields HTTP hits = %d; want 1", hits)
 	}
 }
+
+func TestClient_CreateOrganization(t *testing.T) {
+	var (
+		sawMethod string
+		sawPath   string
+		sawBody   string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawMethod = r.Method
+		sawPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		sawBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"success":true,"data":{
+			"id":59,
+			"name":"Nordjyllands Trafikselskab",
+			"address":{"value":"John F. Kennedys Plads 1T, Aalborg, Denmark","country":"Denmark","locality":"Aalborg","postal_code":"9000"},
+			"owner_id":13
+		}}`)
+	}))
+	defer srv.Close()
+
+	got, err := newTestClient(srv).CreateOrganization(context.Background(), CreateOrganizationRequest{
+		Name:    "Nordjyllands Trafikselskab",
+		Address: "John F. Kennedys Plads 1T, Aalborg, Denmark",
+		OwnerID: 13,
+	})
+	if err != nil {
+		t.Fatalf("CreateOrganization: %v", err)
+	}
+	if sawMethod != http.MethodPost {
+		t.Errorf("method = %q; want POST", sawMethod)
+	}
+	if sawPath != "/api/v2/organizations" {
+		t.Errorf("path = %q; want /api/v2/organizations", sawPath)
+	}
+	for _, want := range []string{
+		`"name":"Nordjyllands Trafikselskab"`,
+		`"address":"John F. Kennedys Plads 1T, Aalborg, Denmark"`,
+		`"owner_id":13`,
+	} {
+		if !strings.Contains(sawBody, want) {
+			t.Errorf("body %q missing %q", sawBody, want)
+		}
+	}
+	if got.ID != 59 || got.Name != "Nordjyllands Trafikselskab" {
+		t.Errorf("decoded org = %+v; want id=59 name=\"Nordjyllands Trafikselskab\"", got)
+	}
+	if got.Address == nil || got.Address.Country != "Denmark" || got.Address.Locality != "Aalborg" {
+		t.Errorf("server-parsed address lost: %+v", got.Address)
+	}
+}
+
+func TestClient_CreateOrganization_RejectsEmptyName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("create_organization should not have hit the network for empty name")
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(srv).CreateOrganization(context.Background(), CreateOrganizationRequest{})
+	if err == nil {
+		t.Fatal("expected error on empty name")
+	}
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("err = %v; want ErrValidation", err)
+	}
+}
+
+func TestClient_CreateOrganization_PropagatesUpstreamError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"success":false,"error":"owner_id must be a valid user"}`)
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(srv).CreateOrganization(context.Background(), CreateOrganizationRequest{
+		Name:    "Bad owner",
+		OwnerID: 999999,
+	})
+	if err == nil {
+		t.Fatal("want error on upstream 400, got nil")
+	}
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("err = %v; want ErrValidation", err)
+	}
+}

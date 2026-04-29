@@ -188,6 +188,7 @@ shipped tools are:
 | `create_person` | Create a new person (contact). `name` required; optional first/last name, emails, phones, org_id, owner_id. Honours `PIPEDRIVE_DRY_RUN`. |
 | `get_organization` | One organization by id, with structured address and custom fields. |
 | `list_organizations` | Organizations filtered by owner / update window, cursor-paginated. |
+| `create_organization` | Create a new organization (account / company). `name` required; optional address (single-line, server-parsed) and owner_id. Honours `PIPEDRIVE_DRY_RUN`. |
 | `get_activity` | One activity (call / email / meeting / task) by id, with location, participants, and conference details. |
 | `list_activities` | Activities filtered by status / owner / deal / person / org / lead / update window, cursor-paginated. |
 | `get_note` | One note by id (Pipedrive v1 carve-out — v2 has no /notes endpoint). |

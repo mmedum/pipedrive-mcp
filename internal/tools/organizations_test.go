@@ -13,14 +13,18 @@ import (
 )
 
 type fakeOrganizationsClient struct {
-	org      *pipedrive.Organization
-	err      error
-	orgs     []pipedrive.Organization
-	orgsNxt  string
-	orgsErr  error
-	resolver func(map[string]any) map[string]any
+	org       *pipedrive.Organization
+	err       error
+	orgs      []pipedrive.Organization
+	orgsNxt   string
+	orgsErr   error
+	createOrg *pipedrive.Organization
+	createErr error
+	resolver  func(map[string]any) map[string]any
 
-	lastListOpts pipedrive.ListOrganizationsOptions
+	lastListOpts   pipedrive.ListOrganizationsOptions
+	lastCreateReq  pipedrive.CreateOrganizationRequest
+	createCallSeen bool
 }
 
 func (f *fakeOrganizationsClient) GetOrganization(_ context.Context, _ int64) (*pipedrive.Organization, error) {
@@ -30,6 +34,15 @@ func (f *fakeOrganizationsClient) GetOrganization(_ context.Context, _ int64) (*
 func (f *fakeOrganizationsClient) ListOrganizations(_ context.Context, opts pipedrive.ListOrganizationsOptions) ([]pipedrive.Organization, string, error) {
 	f.lastListOpts = opts
 	return f.orgs, f.orgsNxt, f.orgsErr
+}
+
+func (f *fakeOrganizationsClient) CreateOrganization(_ context.Context, req pipedrive.CreateOrganizationRequest) (*pipedrive.Organization, error) {
+	f.lastCreateReq = req
+	f.createCallSeen = true
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	return f.createOrg, nil
 }
 
 func (f *fakeOrganizationsClient) ResolveOrganizationCustomFields(_ context.Context, raw map[string]any) map[string]any {
@@ -71,7 +84,7 @@ func TestGetOrganization_HappyPath(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, fake, "acme")
+		tools.RegisterOrganizations(s, fake, "acme", false)
 	})
 	defer h.Close()
 
@@ -106,7 +119,7 @@ func TestGetOrganization_HappyPath(t *testing.T) {
 
 func TestGetOrganization_RejectsZeroID(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme")
+		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme", false)
 	})
 	defer h.Close()
 
@@ -132,7 +145,7 @@ func TestGetOrganization_UpstreamNotFound(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, fake, "acme")
+		tools.RegisterOrganizations(s, fake, "acme", false)
 	})
 	defer h.Close()
 
@@ -163,7 +176,7 @@ func TestListOrganizations_HappyPath(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, fake, "acme")
+		tools.RegisterOrganizations(s, fake, "acme", false)
 	})
 	defer h.Close()
 
@@ -202,7 +215,7 @@ func TestListOrganizations_HappyPath(t *testing.T) {
 
 func TestListOrganizations_RejectsBadSortBy(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme")
+		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme", false)
 	})
 	defer h.Close()
 
@@ -221,7 +234,7 @@ func TestListOrganizations_RejectsBadSortBy(t *testing.T) {
 func TestListOrganizations_LimitDefaultWhenZero(t *testing.T) {
 	fake := &fakeOrganizationsClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, fake, "acme")
+		tools.RegisterOrganizations(s, fake, "acme", false)
 	})
 	defer h.Close()
 
@@ -236,7 +249,7 @@ func TestListOrganizations_LimitDefaultWhenZero(t *testing.T) {
 
 func TestRegisterOrganizations_RegistersInDumpRegistry(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme")
+		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme", false)
 	})
 	defer h.Close()
 	var buf strings.Builder
@@ -244,9 +257,157 @@ func TestRegisterOrganizations_RegistersInDumpRegistry(t *testing.T) {
 		t.Fatalf("DumpJSON: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{`"get_organization"`, `"list_organizations"`} {
+	for _, want := range []string{`"get_organization"`, `"list_organizations"`, `"create_organization"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dump missing %s", want)
 		}
+	}
+}
+
+func TestCreateOrganization_HappyPath(t *testing.T) {
+	fake := &fakeOrganizationsClient{
+		createOrg: &pipedrive.Organization{
+			ID:      59,
+			Name:    "Nordjyllands Trafikselskab",
+			Address: &pipedrive.Address{Value: "John F. Kennedys Plads 1T, Aalborg, Denmark", Country: "Denmark", Locality: "Aalborg", PostalCode: "9000"},
+			OwnerID: 13,
+		},
+	}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterOrganizations(s, fake, "acme", false)
+	})
+	defer h.Close()
+
+	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "create_organization",
+		Arguments: map[string]any{
+			"name":     "Nordjyllands Trafikselskab",
+			"address":  "John F. Kennedys Plads 1T, Aalborg, Denmark",
+			"owner_id": 13,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected isError: %+v", res.Content)
+	}
+	var out struct {
+		Organization orgRow `json:"organization"`
+		DryRun       bool   `json:"dry_run"`
+	}
+	testutil.DecodeStructured(t, res.StructuredContent, &out)
+
+	if !fake.createCallSeen {
+		t.Fatal("CreateOrganization was not called")
+	}
+	if out.DryRun {
+		t.Error("dry_run = true on a non-dry-run handler")
+	}
+	if out.Organization.ID != 59 || out.Organization.Name != "Nordjyllands Trafikselskab" {
+		t.Errorf("org echo lost fields: %+v", out.Organization)
+	}
+	if out.Organization.URL != "https://acme.pipedrive.com/organization/59" {
+		t.Errorf("URL = %q, want acme/organization/59", out.Organization.URL)
+	}
+	if out.Organization.Address == nil || out.Organization.Address.Country != "Denmark" {
+		t.Errorf("server-parsed address lost: %+v", out.Organization.Address)
+	}
+	if fake.lastCreateReq.Name != "Nordjyllands Trafikselskab" ||
+		fake.lastCreateReq.Address != "John F. Kennedys Plads 1T, Aalborg, Denmark" ||
+		fake.lastCreateReq.OwnerID != 13 {
+		t.Errorf("upstream request lost fields: %+v", fake.lastCreateReq)
+	}
+}
+
+func TestCreateOrganization_RejectsEmptyName(t *testing.T) {
+	fake := &fakeOrganizationsClient{}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterOrganizations(s, fake, "acme", false)
+	})
+	defer h.Close()
+
+	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "create_organization",
+		Arguments: map[string]any{"name": ""},
+	})
+	if !res.IsError {
+		t.Fatal("expected isError on empty name")
+	}
+	if !strings.HasPrefix(contentText(res), "[validation]") {
+		t.Errorf("error text = %q; want [validation] prefix", contentText(res))
+	}
+	if fake.createCallSeen {
+		t.Error("CreateOrganization called despite client-side validation failure")
+	}
+}
+
+func TestCreateOrganization_DryRunSkipsUpstream(t *testing.T) {
+	fake := &fakeOrganizationsClient{}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterOrganizations(s, fake, "acme", true) // dryRun = true
+	})
+	defer h.Close()
+
+	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "create_organization",
+		Arguments: map[string]any{
+			"name":    "Dry run probe",
+			"address": "Somewhere on the moon",
+		},
+	})
+	if res.IsError {
+		t.Fatalf("unexpected isError: %+v", res.Content)
+	}
+	if fake.createCallSeen {
+		t.Error("CreateOrganization called on dry-run path; upstream POST should be skipped")
+	}
+	var out struct {
+		Organization orgRow `json:"organization"`
+		DryRun       bool   `json:"dry_run"`
+	}
+	testutil.DecodeStructured(t, res.StructuredContent, &out)
+	if !out.DryRun {
+		t.Error("dry_run = false on synthetic preview")
+	}
+	if out.Organization.ID != 0 {
+		t.Errorf("synthetic id = %d; want 0", out.Organization.ID)
+	}
+	if out.Organization.Name != "Dry run probe" {
+		t.Errorf("synthetic org lost name: %+v", out.Organization)
+	}
+	// Synthetic preview wraps the input string as Address.Value; no
+	// server-side parsing happens on the dry-run path.
+	if out.Organization.Address == nil || out.Organization.Address.Value != "Somewhere on the moon" {
+		t.Errorf("synthetic address Value = %+v; want \"Somewhere on the moon\"", out.Organization.Address)
+	}
+}
+
+func TestCreateOrganization_PropagatesUpstreamError(t *testing.T) {
+	fake := &fakeOrganizationsClient{
+		createErr: &pipedrive.APIError{
+			Class:    pipedrive.ErrValidation,
+			Status:   400,
+			Message:  "owner_id must be a valid user",
+			Endpoint: "/api/v2/organizations",
+		},
+	}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterOrganizations(s, fake, "acme", false)
+	})
+	defer h.Close()
+
+	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "create_organization",
+		Arguments: map[string]any{
+			"name":     "Bad owner",
+			"owner_id": 999999,
+		},
+	})
+	if !res.IsError {
+		t.Fatal("expected isError on upstream 400")
+	}
+	if !strings.HasPrefix(contentText(res), "[validation]") {
+		t.Errorf("error text = %q; want [validation] prefix", contentText(res))
 	}
 }

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -11,6 +12,7 @@ import (
 type organizationsClient interface {
 	GetOrganization(ctx context.Context, id int64) (*pipedrive.Organization, error)
 	ListOrganizations(ctx context.Context, opts pipedrive.ListOrganizationsOptions) ([]pipedrive.Organization, string, error)
+	CreateOrganization(ctx context.Context, req pipedrive.CreateOrganizationRequest) (*pipedrive.Organization, error)
 	ResolveOrganizationCustomFields(ctx context.Context, raw map[string]any) map[string]any
 }
 
@@ -67,9 +69,22 @@ type listOrganizationsOutput struct {
 	NextCursor    string                `json:"next_cursor,omitempty" jsonschema:"pass to the next list_organizations call to get the next page; empty when there are no more pages"`
 }
 
-// RegisterOrganizations wires get_organization and list_organizations
-// into the MCP server.
-func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain string) {
+type createOrganizationInput struct {
+	Name    string `json:"name" jsonschema:"the organization's display name; required, non-empty. If the user did not give you a name, ask — do NOT invent one."`
+	Address string `json:"address,omitempty" jsonschema:"single-line address as the user dictated it (e.g. '123 Main St, San Francisco, CA 94103'). Pipedrive parses it server-side into structured country/locality/postal_code on the response. Do NOT pre-parse into JSON or split into components."`
+	OwnerID int64  `json:"owner_id,omitempty" jsonschema:"id of the user to own the record; omit to default to the API-token user"`
+}
+
+type createOrganizationOutput struct {
+	Organization organizationSummary `json:"organization" jsonschema:"the newly-created organization as Pipedrive echoes it. When dry_run is true, this is a synthetic record with id=0 reflecting what would have been created."`
+	DryRun       bool                `json:"dry_run,omitempty" jsonschema:"true when PIPEDRIVE_DRY_RUN was set on the server: no upstream POST was issued"`
+}
+
+// RegisterOrganizations wires get_organization, list_organizations,
+// and create_organization into the MCP server. dryRun mirrors the
+// server-wide PIPEDRIVE_DRY_RUN env: when true, create_organization
+// returns a synthetic preview without firing the upstream POST.
+func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain string, dryRun bool) {
 	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 
 	AddTool(s, &mcp.Tool{
@@ -124,6 +139,53 @@ func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain s
 		}
 		return nil, out, nil
 	})
+
+	AddTool(s, &mcp.Tool{
+		Name:        "create_organization",
+		Description: "Create a new Pipedrive organization. Required: `name`. If the user did not give you a name, ask — do NOT invent one. Honours PIPEDRIVE_DRY_RUN=true on the server by returning a synthetic preview (dry_run=true, id=0) without issuing the POST. Custom fields are not writable through this tool yet.",
+	}, createOrganizationHandler(c, companyDomain, dryRun))
+}
+
+func createOrganizationHandler(c organizationsClient, companyDomain string, dryRun bool) mcp.ToolHandlerFor[createOrganizationInput, createOrganizationOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in createOrganizationInput) (*mcp.CallToolResult, createOrganizationOutput, error) {
+		if in.Name == "" {
+			return errorResult(fmt.Errorf("%w: name must not be empty", pipedrive.ErrValidation)), createOrganizationOutput{}, nil
+		}
+		req := pipedrive.CreateOrganizationRequest{
+			Name:    in.Name,
+			Address: in.Address,
+			OwnerID: in.OwnerID,
+		}
+		if dryRun {
+			return nil, createOrganizationOutput{
+				Organization: summarizeOrganization(companyDomain, syntheticOrgFromRequest(req), nil),
+				DryRun:       true,
+			}, nil
+		}
+		o, err := c.CreateOrganization(ctx, req)
+		if err != nil {
+			return errorResult(err), createOrganizationOutput{}, nil
+		}
+		resolved := c.ResolveOrganizationCustomFields(ctx, o.CustomFields)
+		return nil, createOrganizationOutput{Organization: summarizeOrganization(companyDomain, o, resolved)}, nil
+	}
+}
+
+// syntheticOrgFromRequest builds a placeholder Organization mirroring
+// the CreateOrganizationRequest, used only on the dry-run path so
+// create_organization's output schema stays consistent. ID=0 +
+// dry_run=true tells the LLM nothing was actually persisted. Address
+// is wrapped as Address.Value; server-side parsing of country/
+// locality/postal_code only happens on the real upstream call.
+func syntheticOrgFromRequest(req pipedrive.CreateOrganizationRequest) *pipedrive.Organization {
+	o := &pipedrive.Organization{
+		Name:    req.Name,
+		OwnerID: req.OwnerID,
+	}
+	if req.Address != "" {
+		o.Address = &pipedrive.Address{Value: req.Address}
+	}
+	return o
 }
 
 func summarizeOrganization(domain string, o *pipedrive.Organization, customFields map[string]any) organizationSummary {

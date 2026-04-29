@@ -14,6 +14,17 @@ breaking changes require a MAJOR bump.
 ## [Unreleased]
 
 ### Added
+- `create_organization` tool — third v2 write tool. Required input:
+  `name`. Optional: `address` (single-line string; Pipedrive parses
+  it server-side into structured country/locality/postal_code on
+  the response) and `owner_id`. Pipedrive defaults apply for any
+  field omitted. Returns the created organization as Pipedrive
+  echoes it (with the parsed structured address). Honours the
+  server-wide `PIPEDRIVE_DRY_RUN=true` env by returning a synthetic
+  preview (`dry_run=true`, `id=0`); on the dry-run path the address
+  is wrapped as `{value: <input>}` since no server-side parsing
+  happens. Custom-field *writing* is not yet supported (the same
+  deferred slice as `create_deal` / `create_person`).
 - `create_person` tool — second v2 write tool. Required input:
   `name`. Optional: `first_name`, `last_name`, `emails`, `phones`
   (each `{value, primary, label}`), `org_id`, `owner_id`. Pipedrive
