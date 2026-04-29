@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -11,17 +12,23 @@ import (
 type dealsClient interface {
 	GetDeal(ctx context.Context, id int64) (*pipedrive.Deal, error)
 	ListDeals(ctx context.Context, opts pipedrive.ListDealsOptions) ([]pipedrive.Deal, string, error)
+	CreateDeal(ctx context.Context, req pipedrive.CreateDealRequest) (*pipedrive.Deal, error)
 	ResolveDealCustomFields(ctx context.Context, raw map[string]any) map[string]any
 }
+
+// dealStatusOpen is Pipedrive's default status for a freshly-created
+// deal. Tracked as a constant so the synthetic-deal preview in the
+// dry-run path stays in sync with the enum below.
+const dealStatusOpen = "open"
 
 // Validating the status before calling the API lets a typo surface as
 // [validation] instead of an upstream 400. v2 only accepts these four
 // values; the v1 `all_not_deleted` synonym was removed.
 var allowedDealStatuses = map[string]bool{
-	"open":    true,
-	"won":     true,
-	"lost":    true,
-	"deleted": true,
+	dealStatusOpen: true,
+	"won":          true,
+	"lost":         true,
+	"deleted":      true,
 }
 
 type dealSummary struct {
@@ -79,8 +86,29 @@ type getDealOutput struct {
 	Deal dealSummary `json:"deal" jsonschema:"the requested deal"`
 }
 
-// RegisterDeals wires get_deal and list_deals into the MCP server.
-func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string) {
+type createDealInput struct {
+	Title             string  `json:"title" jsonschema:"the deal's title; required, non-empty. Surface a recognizable name (e.g. 'Acme — VisitorPass renewal'); the LLM should not invent a title from thin air."`
+	Value             float64 `json:"value,omitempty" jsonschema:"monetary value in the deal's currency; omit for 0"`
+	Currency          string  `json:"currency,omitempty" jsonschema:"ISO 4217 currency code (e.g. USD, EUR, DKK). Omit to use the workspace's default currency."`
+	PipelineID        int64   `json:"pipeline_id,omitempty" jsonschema:"id of the pipeline to place the deal in. Omit to use the default pipeline. Use list_pipelines to discover ids."`
+	StageID           int64   `json:"stage_id,omitempty" jsonschema:"id of the stage to place the deal in. Omit to use the first stage of the chosen pipeline. Use list_stages(pipeline_id=...) to discover ids."`
+	OwnerID           int64   `json:"owner_id,omitempty" jsonschema:"id of the user to own the deal; omit to default to the API-token user"`
+	PersonID          int64   `json:"person_id,omitempty" jsonschema:"id of the linked contact person; 0 = no link"`
+	OrgID             int64   `json:"org_id,omitempty" jsonschema:"id of the linked organization; 0 = no link"`
+	ExpectedCloseDate string  `json:"expected_close_date,omitempty" jsonschema:"YYYY-MM-DD when the deal is expected to close; omit if unknown"`
+	Probability       *int    `json:"probability,omitempty" jsonschema:"deal probability override (0-100); omit to use the stage default"`
+}
+
+type createDealOutput struct {
+	Deal   dealSummary `json:"deal" jsonschema:"the newly-created deal as Pipedrive echoes it. When dry_run is true, this is a synthetic record with id=0 reflecting what would have been created."`
+	DryRun bool        `json:"dry_run,omitempty" jsonschema:"true when PIPEDRIVE_DRY_RUN was set on the server: no upstream POST was issued"`
+}
+
+// RegisterDeals wires get_deal, list_deals, and create_deal into the
+// MCP server. dryRun mirrors the server-wide PIPEDRIVE_DRY_RUN env:
+// when true, create_deal returns a synthetic preview without firing
+// the upstream POST.
+func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string, dryRun bool) {
 	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 
 	AddTool(s, &mcp.Tool{
@@ -140,6 +168,64 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string) {
 		}
 		return nil, out, nil
 	})
+
+	AddTool(s, &mcp.Tool{
+		Name:        "create_deal",
+		Description: "Create a new Pipedrive deal. Required: `title`. If the user did not give you a deal title, ask — do NOT invent one. Every other field is optional and falls back to Pipedrive's workspace default (currency, owner, status=open, first stage of the chosen pipeline). Honours PIPEDRIVE_DRY_RUN=true on the server by returning a synthetic preview (dry_run=true, id=0) without issuing the POST. Custom fields are not writable through this tool yet.",
+	}, createDealHandler(c, companyDomain, dryRun))
+}
+
+func createDealHandler(c dealsClient, companyDomain string, dryRun bool) mcp.ToolHandlerFor[createDealInput, createDealOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in createDealInput) (*mcp.CallToolResult, createDealOutput, error) {
+		if in.Title == "" {
+			return errorResult(fmt.Errorf("%w: title must not be empty", pipedrive.ErrValidation)), createDealOutput{}, nil
+		}
+		req := pipedrive.CreateDealRequest{
+			Title:             in.Title,
+			Value:             in.Value,
+			Currency:          in.Currency,
+			PipelineID:        in.PipelineID,
+			StageID:           in.StageID,
+			OwnerID:           in.OwnerID,
+			PersonID:          in.PersonID,
+			OrgID:             in.OrgID,
+			ExpectedCloseDate: in.ExpectedCloseDate,
+			Probability:       in.Probability,
+		}
+		if dryRun {
+			return nil, createDealOutput{
+				Deal:   summarizeDeal(companyDomain, syntheticDealFromRequest(req), nil),
+				DryRun: true,
+			}, nil
+		}
+		deal, err := c.CreateDeal(ctx, req)
+		if err != nil {
+			return errorResult(err), createDealOutput{}, nil
+		}
+		resolved := c.ResolveDealCustomFields(ctx, deal.CustomFields)
+		return nil, createDealOutput{Deal: summarizeDeal(companyDomain, deal, resolved)}, nil
+	}
+}
+
+// syntheticDealFromRequest builds a placeholder Deal that mirrors the
+// CreateDealRequest, used only on the dry-run path so create_deal's
+// output schema stays consistent. ID=0 + dry_run=true tells the LLM
+// nothing was actually persisted. Probability is copied so the
+// synthetic deal doesn't alias the request's pointer.
+func syntheticDealFromRequest(req pipedrive.CreateDealRequest) *pipedrive.Deal {
+	return &pipedrive.Deal{
+		Title:             req.Title,
+		Value:             req.Value,
+		Currency:          req.Currency,
+		Status:            dealStatusOpen,
+		StageID:           req.StageID,
+		PipelineID:        req.PipelineID,
+		OwnerID:           req.OwnerID,
+		PersonID:          req.PersonID,
+		OrgID:             req.OrgID,
+		ExpectedCloseDate: req.ExpectedCloseDate,
+		Probability:       copyIntPtr(req.Probability),
+	}
 }
 
 // copyIntPtr returns a pointer to a fresh copy of *p so the LLM-facing

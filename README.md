@@ -181,7 +181,8 @@ shipped tools are:
 | `list_pipelines` | Every pipeline the API token's user can see. |
 | `list_stages` | Stages, optionally filtered to one pipeline. |
 | `get_deal` | One deal by id, custom fields resolved by name. |
-| `list_deals` | Deals filtered by status / pipeline / stage / owner / person / org, cursor-paginated. |
+| `list_deals` | Deals filtered by status / pipeline / stage / owner / person / org / update window, sorted, cursor-paginated. |
+| `create_deal` | Create a new deal. `title` required; everything else has Pipedrive defaults. Honours `PIPEDRIVE_DRY_RUN` for rehearsal mode. Custom fields not writable yet — edit in Pipedrive UI for now. |
 | `get_person` | One person by id, with emails / phones / org link / custom fields. |
 | `list_persons` | Persons filtered by owner / linked organization / update window, cursor-paginated. |
 | `get_organization` | One organization by id, with structured address and custom fields. |

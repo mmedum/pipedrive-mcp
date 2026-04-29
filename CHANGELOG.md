@@ -14,6 +14,24 @@ breaking changes require a MAJOR bump.
 ## [Unreleased]
 
 ### Added
+- `create_deal` tool — first v2 write tool in the server.
+  Required input: `title`. Optional: `value`, `currency`,
+  `pipeline_id`, `stage_id`, `owner_id`, `person_id`, `org_id`,
+  `expected_close_date`, `probability`. Pipedrive's defaults
+  apply for any field omitted (workspace currency, owner =
+  API-token user, status = open, first stage of the chosen /
+  default pipeline, etc.). Returns the created deal as Pipedrive
+  echoes it. Honours the server-wide `PIPEDRIVE_DRY_RUN=true` env
+  by returning a synthetic preview (`dry_run=true`, `id=0`)
+  without issuing the upstream POST. Custom-field *writing* is
+  not yet supported (output continues to resolve hash keys to
+  names as before); edit the deal in the Pipedrive UI for now.
+  This is the first PR opening Phase 2 (foundation write tools).
+- `internal/pipedrive/Client` gains a `postV2` helper paired with
+  the existing `postV1`; same retry policy (only 429 is retried,
+  never 5xx, since Pipedrive may have committed before
+  responding). The new helper is internal but documented so future
+  `create_*` write tools can wire through it.
 - `list_deals` now accepts `updated_since`, `updated_until`,
   `sort_by`, and `sort_direction` — bringing it to parity with
   `list_persons`, `list_organizations`, and `list_activities`.

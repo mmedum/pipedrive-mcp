@@ -136,6 +136,13 @@ func (c *Client) postV1(ctx context.Context, path string, body, out any) error {
 	return c.exec(ctx, http.MethodPost, apiV1, path, body, out)
 }
 
+// postV2 is the v2 POST helper. Body is marshaled to JSON;
+// Content-Type is set automatically. Same retry policy as postV1:
+// 429 only, never 5xx — POST may have committed before responding.
+func (c *Client) postV2(ctx context.Context, path string, body, out any) error {
+	return c.exec(ctx, http.MethodPost, apiV2, path, body, out)
+}
+
 // deleteV1 is the v1-only DELETE helper used by the notes carve-out
 // destructive tool. Same retry policy as postV1: only 429 is
 // retried, 5xx is not (the resource may already be gone, retrying
