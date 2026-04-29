@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -11,6 +12,7 @@ import (
 type personsClient interface {
 	GetPerson(ctx context.Context, id int64) (*pipedrive.Person, error)
 	ListPersons(ctx context.Context, opts pipedrive.ListPersonsOptions) ([]pipedrive.Person, string, error)
+	CreatePerson(ctx context.Context, req pipedrive.CreatePersonRequest) (*pipedrive.Person, error)
 	ResolvePersonCustomFields(ctx context.Context, raw map[string]any) map[string]any
 }
 
@@ -61,8 +63,26 @@ type listPersonsOutput struct {
 	NextCursor string          `json:"next_cursor,omitempty" jsonschema:"pass to the next list_persons call to get the next page; empty when there are no more pages"`
 }
 
-// RegisterPersons wires get_person and list_persons into the MCP server.
-func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string) {
+type createPersonInput struct {
+	Name      string                   `json:"name" jsonschema:"the person's full name; required, non-empty. If the user did not give you a name, ask — do NOT invent one."`
+	FirstName string                   `json:"first_name,omitempty" jsonschema:"first / given name; optional. Pipedrive will combine first_name + last_name into name if name is set; passing both is fine."`
+	LastName  string                   `json:"last_name,omitempty" jsonschema:"last / family name; optional"`
+	Emails    []pipedrive.ContactPoint `json:"emails,omitempty" jsonschema:"email addresses. Each entry: {value, primary, label}. Set primary=true on at most one; label is free-text (e.g. 'work', 'home')."`
+	Phones    []pipedrive.ContactPoint `json:"phones,omitempty" jsonschema:"phone numbers. Same shape as emails."`
+	OrgID     int64                    `json:"org_id,omitempty" jsonschema:"id of the organization to link the person to; 0 = no link. Use search(type=organization) to resolve a name."`
+	OwnerID   int64                    `json:"owner_id,omitempty" jsonschema:"id of the user to own the record; omit to default to the API-token user"`
+}
+
+type createPersonOutput struct {
+	Person personSummary `json:"person" jsonschema:"the newly-created person as Pipedrive echoes it. When dry_run is true, this is a synthetic record with id=0 reflecting what would have been created."`
+	DryRun bool          `json:"dry_run,omitempty" jsonschema:"true when PIPEDRIVE_DRY_RUN was set on the server: no upstream POST was issued"`
+}
+
+// RegisterPersons wires get_person, list_persons, and create_person
+// into the MCP server. dryRun mirrors the server-wide
+// PIPEDRIVE_DRY_RUN env: when true, create_person returns a synthetic
+// preview without firing the upstream POST.
+func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string, dryRun bool) {
 	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 
 	AddTool(s, &mcp.Tool{
@@ -118,6 +138,56 @@ func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string) {
 		}
 		return nil, out, nil
 	})
+
+	AddTool(s, &mcp.Tool{
+		Name:        "create_person",
+		Description: "Create a new Pipedrive person (contact). Required: `name`. If the user did not give you a name, ask — do NOT invent one. Honours PIPEDRIVE_DRY_RUN=true on the server by returning a synthetic preview (dry_run=true, id=0) without issuing the POST. Custom fields are not writable through this tool yet.",
+	}, createPersonHandler(c, companyDomain, dryRun))
+}
+
+func createPersonHandler(c personsClient, companyDomain string, dryRun bool) mcp.ToolHandlerFor[createPersonInput, createPersonOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in createPersonInput) (*mcp.CallToolResult, createPersonOutput, error) {
+		if in.Name == "" {
+			return errorResult(fmt.Errorf("%w: name must not be empty", pipedrive.ErrValidation)), createPersonOutput{}, nil
+		}
+		req := pipedrive.CreatePersonRequest{
+			Name:      in.Name,
+			FirstName: in.FirstName,
+			LastName:  in.LastName,
+			Emails:    in.Emails,
+			Phones:    in.Phones,
+			OrgID:     in.OrgID,
+			OwnerID:   in.OwnerID,
+		}
+		if dryRun {
+			return nil, createPersonOutput{
+				Person: summarizePerson(companyDomain, syntheticPersonFromRequest(req), nil),
+				DryRun: true,
+			}, nil
+		}
+		p, err := c.CreatePerson(ctx, req)
+		if err != nil {
+			return errorResult(err), createPersonOutput{}, nil
+		}
+		resolved := c.ResolvePersonCustomFields(ctx, p.CustomFields)
+		return nil, createPersonOutput{Person: summarizePerson(companyDomain, p, resolved)}, nil
+	}
+}
+
+// syntheticPersonFromRequest builds a placeholder Person that mirrors
+// the CreatePersonRequest, used only on the dry-run path so
+// create_person's output schema stays consistent. ID=0 + dry_run=true
+// tells the LLM nothing was actually persisted.
+func syntheticPersonFromRequest(req pipedrive.CreatePersonRequest) *pipedrive.Person {
+	return &pipedrive.Person{
+		Name:      req.Name,
+		FirstName: req.FirstName,
+		LastName:  req.LastName,
+		Emails:    req.Emails,
+		Phones:    req.Phones,
+		OrgID:     req.OrgID,
+		OwnerID:   req.OwnerID,
+	}
 }
 
 func summarizePerson(domain string, p *pipedrive.Person, customFields map[string]any) personSummary {
