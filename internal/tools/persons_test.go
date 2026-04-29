@@ -13,14 +13,18 @@ import (
 )
 
 type fakePersonsClient struct {
-	person     *pipedrive.Person
-	err        error
-	persons    []pipedrive.Person
-	personsNxt string
-	personsErr error
-	resolver   func(map[string]any) map[string]any
+	person       *pipedrive.Person
+	err          error
+	persons      []pipedrive.Person
+	personsNxt   string
+	personsErr   error
+	createPerson *pipedrive.Person
+	createErr    error
+	resolver     func(map[string]any) map[string]any
 
-	lastListOpts pipedrive.ListPersonsOptions
+	lastListOpts   pipedrive.ListPersonsOptions
+	lastCreateReq  pipedrive.CreatePersonRequest
+	createCallSeen bool
 }
 
 func (f *fakePersonsClient) GetPerson(_ context.Context, _ int64) (*pipedrive.Person, error) {
@@ -30,6 +34,15 @@ func (f *fakePersonsClient) GetPerson(_ context.Context, _ int64) (*pipedrive.Pe
 func (f *fakePersonsClient) ListPersons(_ context.Context, opts pipedrive.ListPersonsOptions) ([]pipedrive.Person, string, error) {
 	f.lastListOpts = opts
 	return f.persons, f.personsNxt, f.personsErr
+}
+
+func (f *fakePersonsClient) CreatePerson(_ context.Context, req pipedrive.CreatePersonRequest) (*pipedrive.Person, error) {
+	f.lastCreateReq = req
+	f.createCallSeen = true
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	return f.createPerson, nil
 }
 
 func (f *fakePersonsClient) ResolvePersonCustomFields(_ context.Context, raw map[string]any) map[string]any {
@@ -81,7 +94,7 @@ func TestGetPerson_HappyPath(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, fake, "acme")
+		tools.RegisterPersons(s, fake, "acme", false)
 	})
 	defer h.Close()
 
@@ -116,7 +129,7 @@ func TestGetPerson_HappyPath(t *testing.T) {
 
 func TestGetPerson_RejectsZeroID(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, &fakePersonsClient{}, "acme")
+		tools.RegisterPersons(s, &fakePersonsClient{}, "acme", false)
 	})
 	defer h.Close()
 
@@ -142,7 +155,7 @@ func TestGetPerson_UpstreamNotFound(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, fake, "acme")
+		tools.RegisterPersons(s, fake, "acme", false)
 	})
 	defer h.Close()
 
@@ -173,7 +186,7 @@ func TestListPersons_HappyPath(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, fake, "acme")
+		tools.RegisterPersons(s, fake, "acme", false)
 	})
 	defer h.Close()
 
@@ -212,7 +225,7 @@ func TestListPersons_HappyPath(t *testing.T) {
 
 func TestListPersons_RejectsBadSortBy(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, &fakePersonsClient{}, "acme")
+		tools.RegisterPersons(s, &fakePersonsClient{}, "acme", false)
 	})
 	defer h.Close()
 
@@ -231,7 +244,7 @@ func TestListPersons_RejectsBadSortBy(t *testing.T) {
 func TestListPersons_LimitClampedToMax(t *testing.T) {
 	fake := &fakePersonsClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, fake, "acme")
+		tools.RegisterPersons(s, fake, "acme", false)
 	})
 	defer h.Close()
 
@@ -246,7 +259,7 @@ func TestListPersons_LimitClampedToMax(t *testing.T) {
 
 func TestRegisterPersons_RegistersInDumpRegistry(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, &fakePersonsClient{}, "acme")
+		tools.RegisterPersons(s, &fakePersonsClient{}, "acme", false)
 	})
 	defer h.Close()
 	var buf strings.Builder
@@ -254,9 +267,157 @@ func TestRegisterPersons_RegistersInDumpRegistry(t *testing.T) {
 		t.Fatalf("DumpJSON: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{`"get_person"`, `"list_persons"`} {
+	for _, want := range []string{`"get_person"`, `"list_persons"`, `"create_person"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dump missing %s", want)
 		}
+	}
+}
+
+func TestCreatePerson_HappyPath(t *testing.T) {
+	fake := &fakePersonsClient{
+		createPerson: &pipedrive.Person{
+			ID:        77,
+			Name:      "Helle Steffenauer",
+			FirstName: "Helle",
+			LastName:  "Steffenauer",
+			Emails:    []pipedrive.ContactPoint{{Value: "hs@ntmail.dk", Primary: true, Label: "work"}},
+			Phones:    []pipedrive.ContactPoint{{Value: "+45 99 34 11 48", Primary: true, Label: "work"}},
+			OrgID:     59,
+			OwnerID:   13,
+		},
+	}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterPersons(s, fake, "acme", false)
+	})
+	defer h.Close()
+
+	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "create_person",
+		Arguments: map[string]any{
+			"name":       "Helle Steffenauer",
+			"first_name": "Helle",
+			"last_name":  "Steffenauer",
+			"emails":     []map[string]any{{"value": "hs@ntmail.dk", "primary": true, "label": "work"}},
+			"phones":     []map[string]any{{"value": "+45 99 34 11 48", "primary": true, "label": "work"}},
+			"org_id":     59,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected isError: %+v", res.Content)
+	}
+	var out struct {
+		Person personRow `json:"person"`
+		DryRun bool      `json:"dry_run"`
+	}
+	testutil.DecodeStructured(t, res.StructuredContent, &out)
+
+	if !fake.createCallSeen {
+		t.Fatal("CreatePerson was not called")
+	}
+	if out.DryRun {
+		t.Error("dry_run = true on a non-dry-run handler")
+	}
+	if out.Person.ID != 77 || out.Person.Name != "Helle Steffenauer" {
+		t.Errorf("person echo lost fields: %+v", out.Person)
+	}
+	if out.Person.URL != "https://acme.pipedrive.com/person/77" {
+		t.Errorf("URL = %q, want acme/person/77", out.Person.URL)
+	}
+	if fake.lastCreateReq.Name != "Helle Steffenauer" ||
+		fake.lastCreateReq.OrgID != 59 ||
+		len(fake.lastCreateReq.Emails) != 1 ||
+		fake.lastCreateReq.Emails[0].Value != "hs@ntmail.dk" {
+		t.Errorf("upstream request lost fields: %+v", fake.lastCreateReq)
+	}
+}
+
+func TestCreatePerson_RejectsEmptyName(t *testing.T) {
+	fake := &fakePersonsClient{}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterPersons(s, fake, "acme", false)
+	})
+	defer h.Close()
+
+	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "create_person",
+		Arguments: map[string]any{"name": ""},
+	})
+	if !res.IsError {
+		t.Fatal("expected isError on empty name")
+	}
+	if !strings.HasPrefix(contentText(res), "[validation]") {
+		t.Errorf("error text = %q; want [validation] prefix", contentText(res))
+	}
+	if fake.createCallSeen {
+		t.Error("CreatePerson called despite client-side validation failure")
+	}
+}
+
+func TestCreatePerson_DryRunSkipsUpstream(t *testing.T) {
+	fake := &fakePersonsClient{}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterPersons(s, fake, "acme", true) // dryRun = true
+	})
+	defer h.Close()
+
+	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "create_person",
+		Arguments: map[string]any{
+			"name":   "Dry run probe",
+			"org_id": 59,
+		},
+	})
+	if res.IsError {
+		t.Fatalf("unexpected isError: %+v", res.Content)
+	}
+	if fake.createCallSeen {
+		t.Error("CreatePerson called on dry-run path; upstream POST should be skipped")
+	}
+	var out struct {
+		Person personRow `json:"person"`
+		DryRun bool      `json:"dry_run"`
+	}
+	testutil.DecodeStructured(t, res.StructuredContent, &out)
+	if !out.DryRun {
+		t.Error("dry_run = false on synthetic preview")
+	}
+	if out.Person.ID != 0 {
+		t.Errorf("synthetic id = %d; want 0", out.Person.ID)
+	}
+	if out.Person.Name != "Dry run probe" || out.Person.OrgID != 59 {
+		t.Errorf("synthetic person lost input fields: %+v", out.Person)
+	}
+}
+
+func TestCreatePerson_PropagatesUpstreamError(t *testing.T) {
+	fake := &fakePersonsClient{
+		createErr: &pipedrive.APIError{
+			Class:    pipedrive.ErrValidation,
+			Status:   400,
+			Message:  "owner_id must be a valid user",
+			Endpoint: "/api/v2/persons",
+		},
+	}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterPersons(s, fake, "acme", false)
+	})
+	defer h.Close()
+
+	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "create_person",
+		Arguments: map[string]any{
+			"name":     "Bad owner",
+			"owner_id": 999999,
+		},
+	})
+	if !res.IsError {
+		t.Fatal("expected isError on upstream 400")
+	}
+	if !strings.HasPrefix(contentText(res), "[validation]") {
+		t.Errorf("error text = %q; want [validation] prefix", contentText(res))
 	}
 }

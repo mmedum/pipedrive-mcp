@@ -194,3 +194,99 @@ func TestClient_PersonFieldsCacheLazyLoad(t *testing.T) {
 		t.Errorf("personFields HTTP hits = %d; want 1", hits)
 	}
 }
+
+func TestClient_CreatePerson(t *testing.T) {
+	var (
+		sawMethod string
+		sawPath   string
+		sawBody   string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawMethod = r.Method
+		sawPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		sawBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"success":true,"data":{
+			"id":77,
+			"name":"Helle Steffenauer",
+			"first_name":"Helle",
+			"last_name":"Steffenauer",
+			"emails":[{"value":"hs@ntmail.dk","primary":true,"label":"work"}],
+			"org_id":59,
+			"owner_id":13
+		}}`)
+	}))
+	defer srv.Close()
+
+	got, err := newTestClient(srv).CreatePerson(context.Background(), CreatePersonRequest{
+		Name:      "Helle Steffenauer",
+		FirstName: "Helle",
+		LastName:  "Steffenauer",
+		Emails:    []ContactPoint{{Value: "hs@ntmail.dk", Primary: true, Label: "work"}},
+		OrgID:     59,
+	})
+	if err != nil {
+		t.Fatalf("CreatePerson: %v", err)
+	}
+	if sawMethod != http.MethodPost {
+		t.Errorf("method = %q; want POST", sawMethod)
+	}
+	if sawPath != "/api/v2/persons" {
+		t.Errorf("path = %q; want /api/v2/persons", sawPath)
+	}
+	for _, want := range []string{
+		`"name":"Helle Steffenauer"`,
+		`"first_name":"Helle"`,
+		`"last_name":"Steffenauer"`,
+		`"value":"hs@ntmail.dk"`,
+		`"primary":true`,
+		`"label":"work"`,
+		`"org_id":59`,
+	} {
+		if !strings.Contains(sawBody, want) {
+			t.Errorf("body %q missing %q", sawBody, want)
+		}
+	}
+	if got.ID != 77 || got.Name != "Helle Steffenauer" {
+		t.Errorf("decoded person = %+v; want id=77 name=\"Helle Steffenauer\"", got)
+	}
+	if len(got.Emails) != 1 || got.Emails[0].Value != "hs@ntmail.dk" {
+		t.Errorf("decoded emails lost: %+v", got.Emails)
+	}
+}
+
+func TestClient_CreatePerson_RejectsEmptyName(t *testing.T) {
+	// Hits the client-side guard, never makes an HTTP call.
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("create_person should not have hit the network for empty name")
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(srv).CreatePerson(context.Background(), CreatePersonRequest{})
+	if err == nil {
+		t.Fatal("expected error on empty name")
+	}
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("err = %v; want ErrValidation", err)
+	}
+}
+
+func TestClient_CreatePerson_PropagatesUpstreamError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"success":false,"error":"owner_id must be a valid user"}`)
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(srv).CreatePerson(context.Background(), CreatePersonRequest{
+		Name:    "Bad owner",
+		OwnerID: 999999,
+	})
+	if err == nil {
+		t.Fatal("want error on upstream 400, got nil")
+	}
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("err = %v; want ErrValidation", err)
+	}
+}

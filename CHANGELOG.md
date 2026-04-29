@@ -14,6 +14,15 @@ breaking changes require a MAJOR bump.
 ## [Unreleased]
 
 ### Added
+- `create_person` tool — second v2 write tool. Required input:
+  `name`. Optional: `first_name`, `last_name`, `emails`, `phones`
+  (each `{value, primary, label}`), `org_id`, `owner_id`. Pipedrive
+  defaults apply for any field omitted. Returns the created person
+  as Pipedrive echoes it. Honours the server-wide
+  `PIPEDRIVE_DRY_RUN=true` env by returning a synthetic preview
+  (`dry_run=true`, `id=0`) without issuing the upstream POST.
+  Custom-field *writing* is not yet supported (the same deferred
+  slice as `create_deal`).
 - `create_deal` tool — first v2 write tool in the server.
   Required input: `title`. Optional: `value`, `currency`,
   `pipeline_id`, `stage_id`, `owner_id`, `person_id`, `org_id`,
