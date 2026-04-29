@@ -207,6 +207,101 @@ func TestClient_ReloadDealFields_PropagatesError(t *testing.T) {
 	}
 }
 
+func TestClient_CreateDeal(t *testing.T) {
+	var (
+		sawMethod string
+		sawPath   string
+		sawBody   string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawMethod = r.Method
+		sawPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		sawBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"success":true,"data":{
+			"id":101,
+			"title":"Acme — VisitorPass renewal",
+			"value":75000,
+			"currency":"DKK",
+			"status":"open",
+			"stage_id":3,
+			"pipeline_id":2,
+			"owner_id":7,
+			"org_id":59
+		}}`)
+	}))
+	defer srv.Close()
+
+	got, err := newTestClient(srv).CreateDeal(context.Background(), CreateDealRequest{
+		Title:      "Acme — VisitorPass renewal",
+		Value:      75000,
+		Currency:   "DKK",
+		PipelineID: 2,
+		StageID:    3,
+		OrgID:      59,
+	})
+	if err != nil {
+		t.Fatalf("CreateDeal: %v", err)
+	}
+	if sawMethod != http.MethodPost {
+		t.Errorf("method = %q; want POST", sawMethod)
+	}
+	if sawPath != "/api/v2/deals" {
+		t.Errorf("path = %q; want /api/v2/deals (v2 endpoint, not v1)", sawPath)
+	}
+	for _, want := range []string{
+		`"title":"Acme — VisitorPass renewal"`,
+		`"value":75000`,
+		`"currency":"DKK"`,
+		`"pipeline_id":2`,
+		`"stage_id":3`,
+		`"org_id":59`,
+	} {
+		if !strings.Contains(sawBody, want) {
+			t.Errorf("body %q missing %q", sawBody, want)
+		}
+	}
+	if got.ID != 101 || got.Title != "Acme — VisitorPass renewal" {
+		t.Errorf("decoded deal = %+v; want id=101 title=Acme — VisitorPass renewal", got)
+	}
+}
+
+func TestClient_CreateDeal_RejectsEmptyTitle(t *testing.T) {
+	// Hits the client-side guard, never makes an HTTP call.
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("create_deal should not have hit the network for empty title")
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(srv).CreateDeal(context.Background(), CreateDealRequest{})
+	if err == nil {
+		t.Fatal("expected error on empty title")
+	}
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("err = %v; want ErrValidation", err)
+	}
+}
+
+func TestClient_CreateDeal_PropagatesUpstreamError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"success":false,"error":"stage_id is required for this pipeline"}`)
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(srv).CreateDeal(context.Background(), CreateDealRequest{
+		Title:      "Bad pipeline",
+		PipelineID: 999,
+	})
+	if err == nil {
+		t.Fatal("want error on upstream 400, got nil")
+	}
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("err = %v; want ErrValidation", err)
+	}
+}
+
 func TestClient_DealFieldsCacheLazyLoad(t *testing.T) {
 	hits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

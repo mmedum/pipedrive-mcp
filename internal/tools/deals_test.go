@@ -14,14 +14,18 @@ import (
 
 // fakeDealsClient lets handler tests skip the real HTTP client.
 type fakeDealsClient struct {
-	deal      *pipedrive.Deal
-	dealErr   error
-	deals     []pipedrive.Deal
-	dealsNext string
-	dealsErr  error
-	resolver  func(map[string]any) map[string]any
+	deal       *pipedrive.Deal
+	dealErr    error
+	deals      []pipedrive.Deal
+	dealsNext  string
+	dealsErr   error
+	createDeal *pipedrive.Deal
+	createErr  error
+	resolver   func(map[string]any) map[string]any
 
-	lastListOpts pipedrive.ListDealsOptions
+	lastListOpts   pipedrive.ListDealsOptions
+	lastCreateReq  pipedrive.CreateDealRequest
+	createCallSeen bool
 }
 
 func (f *fakeDealsClient) GetDeal(_ context.Context, _ int64) (*pipedrive.Deal, error) {
@@ -31,6 +35,15 @@ func (f *fakeDealsClient) GetDeal(_ context.Context, _ int64) (*pipedrive.Deal, 
 func (f *fakeDealsClient) ListDeals(_ context.Context, opts pipedrive.ListDealsOptions) ([]pipedrive.Deal, string, error) {
 	f.lastListOpts = opts
 	return f.deals, f.dealsNext, f.dealsErr
+}
+
+func (f *fakeDealsClient) CreateDeal(_ context.Context, req pipedrive.CreateDealRequest) (*pipedrive.Deal, error) {
+	f.lastCreateReq = req
+	f.createCallSeen = true
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	return f.createDeal, nil
 }
 
 func (f *fakeDealsClient) ResolveDealCustomFields(_ context.Context, raw map[string]any) map[string]any {
@@ -82,7 +95,7 @@ func TestGetDeal_HappyPath(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, fake, "acme")
+		tools.RegisterDeals(s, fake, "acme", false)
 	})
 	defer h.Close()
 
@@ -113,7 +126,7 @@ func TestGetDeal_HappyPath(t *testing.T) {
 
 func TestGetDeal_RejectsZeroID(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, &fakeDealsClient{}, "acme")
+		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", false)
 	})
 	defer h.Close()
 
@@ -143,7 +156,7 @@ func TestGetDeal_UpstreamNotFound(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, fake, "acme")
+		tools.RegisterDeals(s, fake, "acme", false)
 	})
 	defer h.Close()
 
@@ -172,7 +185,7 @@ func TestListDeals_HappyPath(t *testing.T) {
 		dealsNext: "cursor-page-2",
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, fake, "acme")
+		tools.RegisterDeals(s, fake, "acme", false)
 	})
 	defer h.Close()
 
@@ -216,7 +229,7 @@ func TestListDeals_HappyPath(t *testing.T) {
 func TestListDeals_PassesUpdatedWindowAndSort(t *testing.T) {
 	fake := &fakeDealsClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, fake, "acme")
+		tools.RegisterDeals(s, fake, "acme", false)
 	})
 	defer h.Close()
 
@@ -245,7 +258,7 @@ func TestListDeals_PassesUpdatedWindowAndSort(t *testing.T) {
 
 func TestListDeals_RejectsBadSortBy(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, &fakeDealsClient{}, "acme")
+		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", false)
 	})
 	defer h.Close()
 
@@ -263,7 +276,7 @@ func TestListDeals_RejectsBadSortBy(t *testing.T) {
 
 func TestListDeals_RejectsBadSortDirection(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, &fakeDealsClient{}, "acme")
+		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", false)
 	})
 	defer h.Close()
 
@@ -281,7 +294,7 @@ func TestListDeals_RejectsBadSortDirection(t *testing.T) {
 
 func TestListDeals_RejectsBadStatus(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, &fakeDealsClient{}, "acme")
+		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", false)
 	})
 	defer h.Close()
 
@@ -309,7 +322,7 @@ func TestListDeals_RejectsBadStatus(t *testing.T) {
 func TestListDeals_LimitClampedToMax(t *testing.T) {
 	fake := &fakeDealsClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, fake, "acme")
+		tools.RegisterDeals(s, fake, "acme", false)
 	})
 	defer h.Close()
 
@@ -328,7 +341,7 @@ func TestListDeals_LimitClampedToMax(t *testing.T) {
 func TestListDeals_LimitDefaultWhenZero(t *testing.T) {
 	fake := &fakeDealsClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, fake, "acme")
+		tools.RegisterDeals(s, fake, "acme", false)
 	})
 	defer h.Close()
 
@@ -346,7 +359,7 @@ func TestListDeals_LimitDefaultWhenZero(t *testing.T) {
 
 func TestRegisterDeals_RegistersInDumpRegistry(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, &fakeDealsClient{}, "acme")
+		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", false)
 	})
 	defer h.Close()
 
@@ -355,9 +368,178 @@ func TestRegisterDeals_RegistersInDumpRegistry(t *testing.T) {
 		t.Fatalf("DumpJSON: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{`"get_deal"`, `"list_deals"`} {
+	for _, want := range []string{`"get_deal"`, `"list_deals"`, `"create_deal"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dump missing %s; got: %s", want, out)
 		}
+	}
+}
+
+func TestCreateDeal_HappyPath(t *testing.T) {
+	fake := &fakeDealsClient{
+		createDeal: &pipedrive.Deal{
+			ID:         101,
+			Title:      "Acme — VisitorPass renewal",
+			Value:      75000,
+			Currency:   "DKK",
+			Status:     "open",
+			StageID:    3,
+			PipelineID: 2,
+			OwnerID:    7,
+			OrgID:      59,
+		},
+	}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterDeals(s, fake, "acme", false)
+	})
+	defer h.Close()
+
+	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "create_deal",
+		Arguments: map[string]any{
+			"title":       "Acme — VisitorPass renewal",
+			"value":       75000,
+			"currency":    "DKK",
+			"pipeline_id": 2,
+			"stage_id":    3,
+			"org_id":      59,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected isError: %+v", res.Content)
+	}
+	var out struct {
+		Deal   dealRow `json:"deal"`
+		DryRun bool    `json:"dry_run"`
+	}
+	testutil.DecodeStructured(t, res.StructuredContent, &out)
+
+	if !fake.createCallSeen {
+		t.Fatal("CreateDeal was not called on the upstream client")
+	}
+	if out.DryRun {
+		t.Error("dry_run = true on a non-dry-run handler")
+	}
+	if out.Deal.ID != 101 || out.Deal.Title != "Acme — VisitorPass renewal" {
+		t.Errorf("deal echo lost fields: %+v", out.Deal)
+	}
+	if out.Deal.URL != "https://acme.pipedrive.com/deal/101" {
+		t.Errorf("URL = %q, want acme/deal/101", out.Deal.URL)
+	}
+	if fake.lastCreateReq.Title != "Acme — VisitorPass renewal" ||
+		fake.lastCreateReq.Value != 75000 ||
+		fake.lastCreateReq.Currency != "DKK" ||
+		fake.lastCreateReq.PipelineID != 2 ||
+		fake.lastCreateReq.StageID != 3 ||
+		fake.lastCreateReq.OrgID != 59 {
+		t.Errorf("upstream request lost fields: %+v", fake.lastCreateReq)
+	}
+}
+
+func TestCreateDeal_RejectsEmptyTitle(t *testing.T) {
+	fake := &fakeDealsClient{}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterDeals(s, fake, "acme", false)
+	})
+	defer h.Close()
+
+	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "create_deal",
+		Arguments: map[string]any{"title": ""},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected isError on empty title, got: %+v", res.Content)
+	}
+	if !strings.HasPrefix(contentText(res), "[validation]") {
+		t.Errorf("error text = %q; want [validation] prefix", contentText(res))
+	}
+	if fake.createCallSeen {
+		t.Error("CreateDeal called despite client-side validation failure")
+	}
+}
+
+func TestCreateDeal_DryRunSkipsUpstream(t *testing.T) {
+	fake := &fakeDealsClient{}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterDeals(s, fake, "acme", true) // dryRun = true
+	})
+	defer h.Close()
+
+	prob := 65
+	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "create_deal",
+		Arguments: map[string]any{
+			"title":       "Dry run probe",
+			"value":       1234,
+			"currency":    "USD",
+			"probability": prob,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected isError: %+v", res.Content)
+	}
+	if fake.createCallSeen {
+		t.Error("CreateDeal called on dry-run path; upstream POST should be skipped")
+	}
+	var out struct {
+		Deal   dealRow `json:"deal"`
+		DryRun bool    `json:"dry_run"`
+	}
+	testutil.DecodeStructured(t, res.StructuredContent, &out)
+	if !out.DryRun {
+		t.Error("dry_run = false on synthetic preview")
+	}
+	if out.Deal.ID != 0 {
+		t.Errorf("synthetic deal id = %d; want 0", out.Deal.ID)
+	}
+	if out.Deal.Title != "Dry run probe" || out.Deal.Value != 1234 || out.Deal.Currency != "USD" {
+		t.Errorf("synthetic deal lost input fields: %+v", out.Deal)
+	}
+	if out.Deal.Status != "open" {
+		t.Errorf("synthetic deal status = %q; want 'open' (Pipedrive default)", out.Deal.Status)
+	}
+	if out.Deal.Probability == nil || *out.Deal.Probability != 65 {
+		t.Errorf("synthetic deal probability = %v; want 65", out.Deal.Probability)
+	}
+}
+
+func TestCreateDeal_PropagatesUpstreamError(t *testing.T) {
+	fake := &fakeDealsClient{
+		createErr: &pipedrive.APIError{
+			Class:    pipedrive.ErrValidation,
+			Status:   400,
+			Message:  "stage_id is required for this pipeline",
+			Endpoint: "/api/v2/deals",
+		},
+	}
+	h := testutil.Connect(t, func(s *mcp.Server) {
+		tools.RegisterDeals(s, fake, "acme", false)
+	})
+	defer h.Close()
+
+	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "create_deal",
+		Arguments: map[string]any{
+			"title":       "Bad pipeline test",
+			"pipeline_id": 999,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected isError on upstream 400, got: %+v", res.Content)
+	}
+	if !strings.HasPrefix(contentText(res), "[validation]") {
+		t.Errorf("error text = %q; want [validation] prefix", contentText(res))
 	}
 }
