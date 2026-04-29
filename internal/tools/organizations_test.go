@@ -84,7 +84,7 @@ func TestGetOrganization_HappyPath(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, fake, "acme", false)
+		tools.RegisterOrganizations(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -119,7 +119,7 @@ func TestGetOrganization_HappyPath(t *testing.T) {
 
 func TestGetOrganization_RejectsZeroID(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme", false)
+		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -145,7 +145,7 @@ func TestGetOrganization_UpstreamNotFound(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, fake, "acme", false)
+		tools.RegisterOrganizations(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -176,7 +176,7 @@ func TestListOrganizations_HappyPath(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, fake, "acme", false)
+		tools.RegisterOrganizations(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -215,7 +215,7 @@ func TestListOrganizations_HappyPath(t *testing.T) {
 
 func TestListOrganizations_RejectsBadSortBy(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme", false)
+		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -234,7 +234,7 @@ func TestListOrganizations_RejectsBadSortBy(t *testing.T) {
 func TestListOrganizations_LimitDefaultWhenZero(t *testing.T) {
 	fake := &fakeOrganizationsClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, fake, "acme", false)
+		tools.RegisterOrganizations(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -249,7 +249,7 @@ func TestListOrganizations_LimitDefaultWhenZero(t *testing.T) {
 
 func TestRegisterOrganizations_RegistersInDumpRegistry(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme", false)
+		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 	var buf strings.Builder
@@ -274,7 +274,7 @@ func TestCreateOrganization_HappyPath(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, fake, "acme", false)
+		tools.RegisterOrganizations(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -323,7 +323,7 @@ func TestCreateOrganization_HappyPath(t *testing.T) {
 func TestCreateOrganization_RejectsEmptyName(t *testing.T) {
 	fake := &fakeOrganizationsClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, fake, "acme", false)
+		tools.RegisterOrganizations(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -345,7 +345,7 @@ func TestCreateOrganization_RejectsEmptyName(t *testing.T) {
 func TestCreateOrganization_DryRunSkipsUpstream(t *testing.T) {
 	fake := &fakeOrganizationsClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, fake, "acme", true) // dryRun = true
+		tools.RegisterOrganizations(s, fake, "acme", tools.RegisterOptions{DryRun: true}) // dryRun = true
 	})
 	defer h.Close()
 
@@ -393,7 +393,7 @@ func TestCreateOrganization_PropagatesUpstreamError(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, fake, "acme", false)
+		tools.RegisterOrganizations(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 

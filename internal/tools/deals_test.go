@@ -95,7 +95,7 @@ func TestGetDeal_HappyPath(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, fake, "acme", false)
+		tools.RegisterDeals(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -126,7 +126,7 @@ func TestGetDeal_HappyPath(t *testing.T) {
 
 func TestGetDeal_RejectsZeroID(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", false)
+		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -156,7 +156,7 @@ func TestGetDeal_UpstreamNotFound(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, fake, "acme", false)
+		tools.RegisterDeals(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -185,7 +185,7 @@ func TestListDeals_HappyPath(t *testing.T) {
 		dealsNext: "cursor-page-2",
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, fake, "acme", false)
+		tools.RegisterDeals(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -229,7 +229,7 @@ func TestListDeals_HappyPath(t *testing.T) {
 func TestListDeals_PassesUpdatedWindowAndSort(t *testing.T) {
 	fake := &fakeDealsClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, fake, "acme", false)
+		tools.RegisterDeals(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -258,7 +258,7 @@ func TestListDeals_PassesUpdatedWindowAndSort(t *testing.T) {
 
 func TestListDeals_RejectsBadSortBy(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", false)
+		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -276,7 +276,7 @@ func TestListDeals_RejectsBadSortBy(t *testing.T) {
 
 func TestListDeals_RejectsBadSortDirection(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", false)
+		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -294,7 +294,7 @@ func TestListDeals_RejectsBadSortDirection(t *testing.T) {
 
 func TestListDeals_RejectsBadStatus(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", false)
+		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -322,7 +322,7 @@ func TestListDeals_RejectsBadStatus(t *testing.T) {
 func TestListDeals_LimitClampedToMax(t *testing.T) {
 	fake := &fakeDealsClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, fake, "acme", false)
+		tools.RegisterDeals(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -341,7 +341,7 @@ func TestListDeals_LimitClampedToMax(t *testing.T) {
 func TestListDeals_LimitDefaultWhenZero(t *testing.T) {
 	fake := &fakeDealsClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, fake, "acme", false)
+		tools.RegisterDeals(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -359,7 +359,7 @@ func TestListDeals_LimitDefaultWhenZero(t *testing.T) {
 
 func TestRegisterDeals_RegistersInDumpRegistry(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", false)
+		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -390,7 +390,7 @@ func TestCreateDeal_HappyPath(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, fake, "acme", false)
+		tools.RegisterDeals(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -442,7 +442,7 @@ func TestCreateDeal_HappyPath(t *testing.T) {
 func TestCreateDeal_RejectsEmptyTitle(t *testing.T) {
 	fake := &fakeDealsClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, fake, "acme", false)
+		tools.RegisterDeals(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -467,7 +467,7 @@ func TestCreateDeal_RejectsEmptyTitle(t *testing.T) {
 func TestCreateDeal_DryRunSkipsUpstream(t *testing.T) {
 	fake := &fakeDealsClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, fake, "acme", true) // dryRun = true
+		tools.RegisterDeals(s, fake, "acme", tools.RegisterOptions{DryRun: true}) // dryRun = true
 	})
 	defer h.Close()
 
@@ -522,7 +522,7 @@ func TestCreateDeal_PropagatesUpstreamError(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, fake, "acme", false)
+		tools.RegisterDeals(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 

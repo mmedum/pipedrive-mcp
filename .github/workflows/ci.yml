@@ -150,14 +150,15 @@ jobs:
       - name: Build base binary and dump schemas
         run: |
           set -euo pipefail
-          base=$(git describe --tags --abbrev=0 2>/dev/null || true)
-          if [ -z "$base" ]; then
-            echo "no prior release tag yet — skipping schema diff"
-            exit 0
-          fi
+          # Compare against the PR's base branch, not the latest tag —
+          # see CHANGELOG entry for why.
+          base="${{ github.event.pull_request.base.sha }}"
           git worktree add /tmp/base-tree "$base"
           cd /tmp/base-tree
-          go build -o /tmp/base-bin ./cmd/pipedrive-mcp || { echo "base build failed — skipping"; exit 0; }
+          # base = the target branch (typically main); a base-build
+          # failure means main is broken and the gate should fail
+          # loudly rather than silently passing schema diffs through.
+          go build -o /tmp/base-bin ./cmd/pipedrive-mcp
           /tmp/base-bin --dump-schemas > /tmp/base-schemas.json
       - name: Diff
         run: |
