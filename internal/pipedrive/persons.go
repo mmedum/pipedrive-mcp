@@ -2,6 +2,7 @@ package pipedrive
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strconv"
 )
@@ -21,12 +22,45 @@ type ListPersonsOptions struct {
 	Cursor        string
 }
 
+// CreatePersonRequest is the JSON body for POST /api/v2/persons.
+// v2 requires `name`; first_name+last_name are an alternative the
+// API can derive `name` from but this struct surfaces both for
+// callers that already have the parts.
+//
+// Emails and phones are each a list of {value, primary, label}.
+// Multiple `primary: true` entries are silently coerced by
+// Pipedrive — last one wins.
+type CreatePersonRequest struct {
+	Name      string         `json:"name"`
+	FirstName string         `json:"first_name,omitempty"`
+	LastName  string         `json:"last_name,omitempty"`
+	Emails    []ContactPoint `json:"emails,omitempty"`
+	Phones    []ContactPoint `json:"phones,omitempty"`
+	OrgID     int64          `json:"org_id,omitempty"`
+	OwnerID   int64          `json:"owner_id,omitempty"`
+}
+
 // GetPerson fetches a single person by ID. custom_fields are nested
 // under the person's `custom_fields` object per Pipedrive v2 — caller
 // resolves hash keys to names via the per-Client FieldCache.
 func (c *Client) GetPerson(ctx context.Context, id int64) (*Person, error) {
 	var resp itemEnvelope[Person]
 	if err := c.do(ctx, "/persons/"+strconv.FormatInt(id, 10), &resp); err != nil {
+		return nil, err
+	}
+	p := resp.Data
+	return &p, nil
+}
+
+// CreatePerson posts a new person via /api/v2/persons. Returns the
+// created person as Pipedrive echoes it (full record with id and
+// custom_fields nested as usual).
+func (c *Client) CreatePerson(ctx context.Context, req CreatePersonRequest) (*Person, error) {
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: name must not be empty", ErrValidation)
+	}
+	var resp itemEnvelope[Person]
+	if err := c.postV2(ctx, "/persons", req, &resp); err != nil {
 		return nil, err
 	}
 	p := resp.Data

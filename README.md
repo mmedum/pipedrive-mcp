@@ -185,6 +185,7 @@ shipped tools are:
 | `create_deal` | Create a new deal. `title` required; everything else has Pipedrive defaults. Honours `PIPEDRIVE_DRY_RUN` for rehearsal mode. Custom fields not writable yet — edit in Pipedrive UI for now. |
 | `get_person` | One person by id, with emails / phones / org link / custom fields. |
 | `list_persons` | Persons filtered by owner / linked organization / update window, cursor-paginated. |
+| `create_person` | Create a new person (contact). `name` required; optional first/last name, emails, phones, org_id, owner_id. Honours `PIPEDRIVE_DRY_RUN`. |
 | `get_organization` | One organization by id, with structured address and custom fields. |
 | `list_organizations` | Organizations filtered by owner / update window, cursor-paginated. |
 | `get_activity` | One activity (call / email / meeting / task) by id, with location, participants, and conference details. |
