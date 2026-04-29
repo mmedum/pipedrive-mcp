@@ -2,6 +2,7 @@ package pipedrive
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strconv"
 )
@@ -28,12 +29,51 @@ type ListDealsOptions struct {
 	Cursor        string // opaque pagination token from a previous response
 }
 
+// CreateDealRequest is the JSON body for POST /api/v2/deals. v2
+// requires `title` only; everything else has Pipedrive-side defaults
+// (currency = workspace default, value = 0, owner_id = the API
+// token's user, status = open, stage_id = first stage of the default
+// pipeline, ...). The tool layer enforces title non-empty client-side
+// so a typo surfaces as [validation] instead of an upstream 400.
+//
+// Custom fields are intentionally omitted from this v0 — writing
+// them needs the inverse name→hash resolver on FieldCache, which is
+// a separate slice. Callers wanting to set custom fields today can
+// edit the deal in the Pipedrive UI after creation.
+type CreateDealRequest struct {
+	Title             string  `json:"title"`
+	Value             float64 `json:"value,omitempty"`
+	Currency          string  `json:"currency,omitempty"`
+	PipelineID        int64   `json:"pipeline_id,omitempty"`
+	StageID           int64   `json:"stage_id,omitempty"`
+	OwnerID           int64   `json:"owner_id,omitempty"`
+	PersonID          int64   `json:"person_id,omitempty"`
+	OrgID             int64   `json:"org_id,omitempty"`
+	ExpectedCloseDate string  `json:"expected_close_date,omitempty"` // YYYY-MM-DD
+	Probability       *int    `json:"probability,omitempty"`         // 0-100; nil = use stage default
+}
+
 // GetDeal fetches a single deal by ID. custom_fields are nested under
 // the deal's `custom_fields` object per Pipedrive v2 — caller resolves
 // hash keys to names via the per-Client FieldCache.
 func (c *Client) GetDeal(ctx context.Context, id int64) (*Deal, error) {
 	var resp itemEnvelope[Deal]
 	if err := c.do(ctx, "/deals/"+strconv.FormatInt(id, 10), &resp); err != nil {
+		return nil, err
+	}
+	d := resp.Data
+	return &d, nil
+}
+
+// CreateDeal posts a new deal via /api/v2/deals. Returns the created
+// deal as Pipedrive echoes it (full record with id, defaults
+// resolved, and custom_fields nested as usual).
+func (c *Client) CreateDeal(ctx context.Context, req CreateDealRequest) (*Deal, error) {
+	if req.Title == "" {
+		return nil, fmt.Errorf("%w: title must not be empty", ErrValidation)
+	}
+	var resp itemEnvelope[Deal]
+	if err := c.postV2(ctx, "/deals", req, &resp); err != nil {
 		return nil, err
 	}
 	d := resp.Data
