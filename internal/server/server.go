@@ -20,29 +20,25 @@ import (
 // handlers never execute — only their schemas are dumped). domain is
 // used for URL injection in tool outputs.
 //
-// dryRun mirrors PIPEDRIVE_DRY_RUN: write tools (create_note,
-// delete_note) return synthetic previews instead of issuing the
-// upstream mutation. enableDestructive mirrors
-// PIPEDRIVE_ENABLE_DESTRUCTIVE: destructive tools (delete_note) are
-// only registered when this is true. Per CLAUDE.md hard rule #3,
-// destructive registration is server-build-time gating, not
-// annotation-based.
+// opts.DryRun mirrors PIPEDRIVE_DRY_RUN; opts.EnableDestructive
+// mirrors PIPEDRIVE_ENABLE_DESTRUCTIVE — see the RegisterOptions
+// godoc for details.
 //
 // The parent ctx governs the cache-warm goroutine's lifetime. When
 // it cancels (e.g. SIGTERM), the warm-up's in-flight HTTP requests
 // cancel cleanly instead of running orphaned to completion.
-func New(ctx context.Context, name, version string, client *pipedrive.Client, domain string, dryRun, enableDestructive bool) *mcp.Server {
+func New(ctx context.Context, name, version string, client *pipedrive.Client, domain string, opts tools.RegisterOptions) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{
 		Name:    name,
 		Version: version,
 	}, nil)
 
 	tools.RegisterPipelines(srv, client, domain)
-	tools.RegisterDeals(srv, client, domain, dryRun)
-	tools.RegisterPersons(srv, client, domain, dryRun)
-	tools.RegisterOrganizations(srv, client, domain, dryRun)
+	tools.RegisterDeals(srv, client, domain, opts)
+	tools.RegisterPersons(srv, client, domain, opts)
+	tools.RegisterOrganizations(srv, client, domain, opts)
 	tools.RegisterActivities(srv, client, domain)
-	tools.RegisterNotes(srv, client, dryRun, enableDestructive)
+	tools.RegisterNotes(srv, client, opts)
 	tools.RegisterCache(srv, client)
 	tools.RegisterSearch(srv, client)
 

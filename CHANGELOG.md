@@ -13,6 +13,13 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Changed
+- `tools.RegisterOptions{DryRun, EnableDestructive}` replaces the
+  positional bool args on `RegisterDeals` / `RegisterPersons` /
+  `RegisterOrganizations` / `RegisterNotes` and on `server.New`.
+  Stops a future caller from swapping the two flags positionally
+  (both type-check). Internal refactor — no surface change.
+
 ### Added
 - `create_organization` tool — third v2 write tool. Required input:
   `name`. Optional: `address` (single-line string; Pipedrive parses

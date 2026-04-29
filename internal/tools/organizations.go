@@ -81,10 +81,10 @@ type createOrganizationOutput struct {
 }
 
 // RegisterOrganizations wires get_organization, list_organizations,
-// and create_organization into the MCP server. dryRun mirrors the
-// server-wide PIPEDRIVE_DRY_RUN env: when true, create_organization
-// returns a synthetic preview without firing the upstream POST.
-func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain string, dryRun bool) {
+// and create_organization into the MCP server. opts.DryRun, when
+// true, makes create_organization return a synthetic preview without
+// firing the upstream POST.
+func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain string, opts RegisterOptions) {
 	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 
 	AddTool(s, &mcp.Tool{
@@ -143,7 +143,7 @@ func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain s
 	AddTool(s, &mcp.Tool{
 		Name:        "create_organization",
 		Description: "Create a new Pipedrive organization. Required: `name`. If the user did not give you a name, ask — do NOT invent one. Honours PIPEDRIVE_DRY_RUN=true on the server by returning a synthetic preview (dry_run=true, id=0) without issuing the POST. Custom fields are not writable through this tool yet.",
-	}, createOrganizationHandler(c, companyDomain, dryRun))
+	}, createOrganizationHandler(c, companyDomain, opts.DryRun))
 }
 
 func createOrganizationHandler(c organizationsClient, companyDomain string, dryRun bool) mcp.ToolHandlerFor[createOrganizationInput, createOrganizationOutput] {

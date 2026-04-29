@@ -105,10 +105,9 @@ type createDealOutput struct {
 }
 
 // RegisterDeals wires get_deal, list_deals, and create_deal into the
-// MCP server. dryRun mirrors the server-wide PIPEDRIVE_DRY_RUN env:
-// when true, create_deal returns a synthetic preview without firing
-// the upstream POST.
-func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string, dryRun bool) {
+// MCP server. opts.DryRun, when true, makes create_deal return a
+// synthetic preview without firing the upstream POST.
+func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string, opts RegisterOptions) {
 	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 
 	AddTool(s, &mcp.Tool{
@@ -172,7 +171,7 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string, dryRun bo
 	AddTool(s, &mcp.Tool{
 		Name:        "create_deal",
 		Description: "Create a new Pipedrive deal. Required: `title`. If the user did not give you a deal title, ask — do NOT invent one. Every other field is optional and falls back to Pipedrive's workspace default (currency, owner, status=open, first stage of the chosen pipeline). Honours PIPEDRIVE_DRY_RUN=true on the server by returning a synthetic preview (dry_run=true, id=0) without issuing the POST. Custom fields are not writable through this tool yet.",
-	}, createDealHandler(c, companyDomain, dryRun))
+	}, createDealHandler(c, companyDomain, opts.DryRun))
 }
 
 func createDealHandler(c dealsClient, companyDomain string, dryRun bool) mcp.ToolHandlerFor[createDealInput, createDealOutput] {

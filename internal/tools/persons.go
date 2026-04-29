@@ -79,10 +79,9 @@ type createPersonOutput struct {
 }
 
 // RegisterPersons wires get_person, list_persons, and create_person
-// into the MCP server. dryRun mirrors the server-wide
-// PIPEDRIVE_DRY_RUN env: when true, create_person returns a synthetic
-// preview without firing the upstream POST.
-func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string, dryRun bool) {
+// into the MCP server. opts.DryRun, when true, makes create_person
+// return a synthetic preview without firing the upstream POST.
+func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string, opts RegisterOptions) {
 	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 
 	AddTool(s, &mcp.Tool{
@@ -142,7 +141,7 @@ func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string, dryRu
 	AddTool(s, &mcp.Tool{
 		Name:        "create_person",
 		Description: "Create a new Pipedrive person (contact). Required: `name`. If the user did not give you a name, ask — do NOT invent one. Honours PIPEDRIVE_DRY_RUN=true on the server by returning a synthetic preview (dry_run=true, id=0) without issuing the POST. Custom fields are not writable through this tool yet.",
-	}, createPersonHandler(c, companyDomain, dryRun))
+	}, createPersonHandler(c, companyDomain, opts.DryRun))
 }
 
 func createPersonHandler(c personsClient, companyDomain string, dryRun bool) mcp.ToolHandlerFor[createPersonInput, createPersonOutput] {

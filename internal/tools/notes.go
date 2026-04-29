@@ -114,14 +114,12 @@ type deleteNoteOutput struct {
 //
 // Reads (get_note, list_notes) and the create write tool always
 // register. delete_note is destructive and registers ONLY when
-// enableDestructive=true (mirrors PIPEDRIVE_ENABLE_DESTRUCTIVE per
-// CLAUDE.md hard rule #3 — server-build-time gating, not annotation-
-// based).
+// opts.EnableDestructive is true (per CLAUDE.md hard rule #3 —
+// server-build-time gating, not annotation-based).
 //
-// dryRun mirrors the server-wide PIPEDRIVE_DRY_RUN env: when true,
-// create_note and delete_note return synthetic previews without
-// firing the upstream POST/DELETE.
-func RegisterNotes(s *mcp.Server, c notesClient, dryRun, enableDestructive bool) {
+// opts.DryRun, when true, makes create_note and delete_note return
+// synthetic previews without firing the upstream POST/DELETE.
+func RegisterNotes(s *mcp.Server, c notesClient, opts RegisterOptions) {
 	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 	destructiveTrue := true
 	destructiveAnnotations := mcp.ToolAnnotations{DestructiveHint: &destructiveTrue, IdempotentHint: true}
@@ -189,9 +187,9 @@ func RegisterNotes(s *mcp.Server, c notesClient, dryRun, enableDestructive bool)
 	AddTool(s, &mcp.Tool{
 		Name:        "create_note",
 		Description: "Create a Pipedrive note attached to a deal, person, organization, lead, or project. `content` is required and free-text (HTML is preserved by Pipedrive's editor); at least one of deal_id / person_id / org_id / lead_id / project_id must be set so the note has somewhere to live. Returns the created note as Pipedrive echoes it. When the server is started with PIPEDRIVE_DRY_RUN=true, this tool returns a synthetic preview (dry_run=true, id=0) instead of issuing the upstream POST — useful for testing without writing real data. Notes are stored on Pipedrive v1; v2 has no equivalent endpoint.",
-	}, createNoteHandler(c, dryRun))
+	}, createNoteHandler(c, opts.DryRun))
 
-	if !enableDestructive {
+	if !opts.EnableDestructive {
 		return
 	}
 
@@ -203,7 +201,7 @@ func RegisterNotes(s *mcp.Server, c notesClient, dryRun, enableDestructive bool)
 		if err := validatePositiveID(in.NoteID, "note_id"); err != nil {
 			return errorResult(err), deleteNoteOutput{}, nil
 		}
-		if dryRun {
+		if opts.DryRun {
 			return nil, deleteNoteOutput{NoteID: in.NoteID, DryRun: true}, nil
 		}
 		if err := c.DeleteNote(ctx, in.NoteID); err != nil {
