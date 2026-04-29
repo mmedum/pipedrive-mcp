@@ -2,6 +2,7 @@ package pipedrive
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strconv"
 )
@@ -20,12 +21,37 @@ type ListOrganizationsOptions struct {
 	Cursor        string
 }
 
+// CreateOrganizationRequest is the JSON body for POST
+// /api/v2/organizations. v2 requires `name`. Address is a single-line
+// string on input — Pipedrive parses it into the structured response
+// shape (Address.Country / Locality / PostalCode) server-side.
+type CreateOrganizationRequest struct {
+	Name    string `json:"name"`
+	OwnerID int64  `json:"owner_id,omitempty"`
+	Address string `json:"address,omitempty"` // single-line; server-parsed
+}
+
 // GetOrganization fetches a single organization by ID. custom_fields
 // are nested under the org's `custom_fields` object per Pipedrive v2 —
 // caller resolves hash keys to names via the per-Client FieldCache.
 func (c *Client) GetOrganization(ctx context.Context, id int64) (*Organization, error) {
 	var resp itemEnvelope[Organization]
 	if err := c.do(ctx, "/organizations/"+strconv.FormatInt(id, 10), &resp); err != nil {
+		return nil, err
+	}
+	o := resp.Data
+	return &o, nil
+}
+
+// CreateOrganization posts a new organization via /api/v2/organizations.
+// Returns the created org as Pipedrive echoes it (full record with
+// id, structured Address parsed server-side, and custom_fields).
+func (c *Client) CreateOrganization(ctx context.Context, req CreateOrganizationRequest) (*Organization, error) {
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: name must not be empty", ErrValidation)
+	}
+	var resp itemEnvelope[Organization]
+	if err := c.postV2(ctx, "/organizations", req, &resp); err != nil {
 		return nil, err
 	}
 	o := resp.Data
