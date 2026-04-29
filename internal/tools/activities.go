@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -11,6 +12,7 @@ import (
 type activitiesClient interface {
 	GetActivity(ctx context.Context, id int64, opts pipedrive.GetActivityOptions) (*pipedrive.Activity, error)
 	ListActivities(ctx context.Context, opts pipedrive.ListActivitiesOptions) ([]pipedrive.Activity, string, error)
+	CreateActivity(ctx context.Context, req pipedrive.CreateActivityRequest) (*pipedrive.Activity, error)
 }
 
 const (
@@ -107,8 +109,35 @@ type listActivitiesOutput struct {
 	NextCursor string            `json:"next_cursor,omitempty" jsonschema:"pass to the next list_activities call to get the next page; empty when there are no more pages"`
 }
 
-// RegisterActivities wires get_activity and list_activities into the MCP server.
-func RegisterActivities(s *mcp.Server, c activitiesClient, companyDomain string) {
+type createActivityInput struct {
+	Subject           string                          `json:"subject" jsonschema:"the activity's title; required, non-empty. If the user did not give you a subject, ask — do NOT invent one."`
+	Type              string                          `json:"type,omitempty" jsonschema:"activity-type key (e.g. 'call', 'email', 'meeting', 'task'). Use the exact key from existing activities in the workspace; defaults to 'task' when omitted. The valid set varies per workspace."`
+	DueDate           string                          `json:"due_date,omitempty" jsonschema:"YYYY-MM-DD; the day the activity is scheduled for"`
+	DueTime           string                          `json:"due_time,omitempty" jsonschema:"HH:MM (24h); the start time. Omit for an all-day activity."`
+	Duration          string                          `json:"duration,omitempty" jsonschema:"HH:MM duration"`
+	DealID            int64                           `json:"deal_id,omitempty" jsonschema:"id of the linked deal; 0 = no link"`
+	PersonID          int64                           `json:"person_id,omitempty" jsonschema:"id of the linked person (becomes the primary participant); 0 = no link"`
+	OrgID             int64                           `json:"org_id,omitempty" jsonschema:"id of the linked organization; 0 = no link"`
+	LeadID            string                          `json:"lead_id,omitempty" jsonschema:"id of the linked lead (UUID string); empty = no link"`
+	OwnerID           int64                           `json:"owner_id,omitempty" jsonschema:"id of the user to own the record; omit to default to the API-token user"`
+	Note              string                          `json:"note,omitempty" jsonschema:"private note attached to the activity. HTML allowed. If the user did not dictate notes, leave blank — do NOT invent meeting minutes."`
+	PublicDescription string                          `json:"public_description,omitempty" jsonschema:"description shared with attendees in the calendar invite. If the user did not provide one, leave blank."`
+	Location          string                          `json:"location,omitempty" jsonschema:"single-line location as the user dictated it (e.g. '123 Main St' or 'Zoom — link in invite'). Pipedrive parses physical addresses server-side. Do NOT pre-parse into JSON."`
+	Participants      []pipedrive.ActivityParticipant `json:"participants,omitempty" jsonschema:"linked persons; mark exactly one as primary. PersonID overrides this if both are set."`
+	Done              bool                            `json:"done,omitempty" jsonschema:"true to create the activity already marked done (e.g. logging a call that just happened); false (default) for a future / planned activity"`
+	Busy              bool                            `json:"busy,omitempty" jsonschema:"true marks the owner as busy on the calendar"`
+}
+
+type createActivityOutput struct {
+	Activity activitySummary `json:"activity" jsonschema:"the newly-created activity as Pipedrive echoes it. When dry_run is true, this is a synthetic record with id=0 reflecting what would have been created."`
+	DryRun   bool            `json:"dry_run,omitempty" jsonschema:"true when PIPEDRIVE_DRY_RUN was set on the server: no upstream POST was issued"`
+}
+
+// RegisterActivities wires get_activity, list_activities, and
+// create_activity into the MCP server. opts.DryRun, when true, makes
+// create_activity return a synthetic preview without firing the
+// upstream POST.
+func RegisterActivities(s *mcp.Server, c activitiesClient, companyDomain string, opts RegisterOptions) {
 	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 
 	AddTool(s, &mcp.Tool{
@@ -178,6 +207,78 @@ func RegisterActivities(s *mcp.Server, c activitiesClient, companyDomain string)
 		}
 		return nil, out, nil
 	})
+
+	AddTool(s, &mcp.Tool{
+		Name:        "create_activity",
+		Description: "Create a new Pipedrive activity (call, email, meeting, task, ...). Required: `subject`. To log an activity that already happened, pass `done=true` plus the `note`. To schedule a future activity, pass `due_date` (and optionally `due_time` + `duration`). Honours PIPEDRIVE_DRY_RUN=true on the server by returning a synthetic preview (dry_run=true, id=0) without issuing the POST.",
+	}, createActivityHandler(c, companyDomain, opts.DryRun))
+}
+
+func createActivityHandler(c activitiesClient, companyDomain string, dryRun bool) mcp.ToolHandlerFor[createActivityInput, createActivityOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in createActivityInput) (*mcp.CallToolResult, createActivityOutput, error) {
+		if in.Subject == "" {
+			return errorResult(fmt.Errorf("%w: subject must not be empty", pipedrive.ErrValidation)), createActivityOutput{}, nil
+		}
+		req := pipedrive.CreateActivityRequest{
+			Subject:           in.Subject,
+			Type:              in.Type,
+			DueDate:           in.DueDate,
+			DueTime:           in.DueTime,
+			Duration:          in.Duration,
+			DealID:            in.DealID,
+			PersonID:          in.PersonID,
+			OrgID:             in.OrgID,
+			LeadID:            in.LeadID,
+			OwnerID:           in.OwnerID,
+			Note:              in.Note,
+			PublicDescription: in.PublicDescription,
+			Location:          in.Location,
+			Participants:      in.Participants,
+			Done:              in.Done,
+			Busy:              in.Busy,
+		}
+		if dryRun {
+			return nil, createActivityOutput{
+				Activity: summarizeActivity(companyDomain, syntheticActivityFromRequest(req)),
+				DryRun:   true,
+			}, nil
+		}
+		a, err := c.CreateActivity(ctx, req)
+		if err != nil {
+			return errorResult(err), createActivityOutput{}, nil
+		}
+		return nil, createActivityOutput{Activity: summarizeActivity(companyDomain, a)}, nil
+	}
+}
+
+// syntheticActivityFromRequest builds a placeholder Activity mirroring
+// the CreateActivityRequest, used only on the dry-run path so
+// create_activity's output schema stays consistent. ID=0 +
+// dry_run=true tells the LLM nothing was actually persisted. Location
+// is wrapped as ActivityLocation.Value; server-side parsing only
+// happens on the real upstream call.
+func syntheticActivityFromRequest(req pipedrive.CreateActivityRequest) *pipedrive.Activity {
+	a := &pipedrive.Activity{
+		Subject:           req.Subject,
+		Type:              req.Type,
+		OwnerID:           req.OwnerID,
+		DealID:            req.DealID,
+		PersonID:          req.PersonID,
+		OrgID:             req.OrgID,
+		LeadID:            req.LeadID,
+		DueDate:           req.DueDate,
+		DueTime:           req.DueTime,
+		Duration:          req.Duration,
+		Done:              req.Done,
+		Busy:              req.Busy,
+		Note:              req.Note,
+		PublicDescription: req.PublicDescription,
+		Participants:      req.Participants,
+	}
+	if req.Location != "" {
+		a.Location = &pipedrive.ActivityLocation{Value: req.Location}
+	}
+	return a
 }
 
 func summarizeActivity(domain string, a *pipedrive.Activity) activitySummary {

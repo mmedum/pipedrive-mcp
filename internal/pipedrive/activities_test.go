@@ -178,3 +178,107 @@ func TestClient_ListActivities_DonePointerEncodesTrue(t *testing.T) {
 		t.Errorf("query %q missing done=true", sawQuery)
 	}
 }
+
+func TestClient_CreateActivity(t *testing.T) {
+	var (
+		sawMethod string
+		sawPath   string
+		sawBody   string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawMethod = r.Method
+		sawPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		sawBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"success":true,"data":{
+			"id":150,
+			"subject":"VisitorPass demo follow-up",
+			"type":"meeting",
+			"owner_id":7,
+			"org_id":59,
+			"person_id":73,
+			"due_date":"2026-05-06",
+			"due_time":"10:00",
+			"duration":"00:45",
+			"done":false,
+			"busy":false,
+			"location":{"value":"Aalborg, Denmark","country":"Denmark","locality":"Aalborg","postal_code":"9000"}
+		}}`)
+	}))
+	defer srv.Close()
+
+	got, err := newTestClient(srv).CreateActivity(context.Background(), CreateActivityRequest{
+		Subject:  "VisitorPass demo follow-up",
+		Type:     "meeting",
+		DueDate:  "2026-05-06",
+		DueTime:  "10:00",
+		Duration: "00:45",
+		OrgID:    59,
+		PersonID: 73,
+		Location: "Aalborg, Denmark",
+	})
+	if err != nil {
+		t.Fatalf("CreateActivity: %v", err)
+	}
+	if sawMethod != http.MethodPost {
+		t.Errorf("method = %q; want POST", sawMethod)
+	}
+	if sawPath != "/api/v2/activities" {
+		t.Errorf("path = %q; want /api/v2/activities", sawPath)
+	}
+	for _, want := range []string{
+		`"subject":"VisitorPass demo follow-up"`,
+		`"type":"meeting"`,
+		`"due_date":"2026-05-06"`,
+		`"due_time":"10:00"`,
+		`"duration":"00:45"`,
+		`"org_id":59`,
+		`"person_id":73`,
+		`"location":"Aalborg, Denmark"`,
+	} {
+		if !strings.Contains(sawBody, want) {
+			t.Errorf("body %q missing %q", sawBody, want)
+		}
+	}
+	if got.ID != 150 || got.Subject != "VisitorPass demo follow-up" {
+		t.Errorf("decoded activity = %+v; want id=150 subject=...", got)
+	}
+	if got.Location == nil || got.Location.Country != "Denmark" {
+		t.Errorf("server-parsed location lost: %+v", got.Location)
+	}
+}
+
+func TestClient_CreateActivity_RejectsEmptySubject(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("create_activity should not have hit the network for empty subject")
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(srv).CreateActivity(context.Background(), CreateActivityRequest{})
+	if err == nil {
+		t.Fatal("expected error on empty subject")
+	}
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("err = %v; want ErrValidation", err)
+	}
+}
+
+func TestClient_CreateActivity_PropagatesUpstreamError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"success":false,"error":"type 'meetingg' is not a valid activity type"}`)
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(srv).CreateActivity(context.Background(), CreateActivityRequest{
+		Subject: "Bad type",
+		Type:    "meetingg",
+	})
+	if err == nil {
+		t.Fatal("want error on upstream 400, got nil")
+	}
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("err = %v; want ErrValidation", err)
+	}
+}

@@ -37,7 +37,7 @@ func New(ctx context.Context, name, version string, client *pipedrive.Client, do
 	tools.RegisterDeals(srv, client, domain, opts)
 	tools.RegisterPersons(srv, client, domain, opts)
 	tools.RegisterOrganizations(srv, client, domain, opts)
-	tools.RegisterActivities(srv, client, domain)
+	tools.RegisterActivities(srv, client, domain, opts)
 	tools.RegisterNotes(srv, client, opts)
 	tools.RegisterCache(srv, client)
 	tools.RegisterSearch(srv, client)
