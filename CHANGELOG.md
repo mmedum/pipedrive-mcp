@@ -19,6 +19,15 @@ breaking changes require a MAJOR bump.
   `RegisterOrganizations` / `RegisterNotes` and on `server.New`.
   Stops a future caller from swapping the two flags positionally
   (both type-check). Internal refactor — no surface change.
+- Schema-diff CI gate now compares against the PR's base branch
+  (`pull_request.base.sha`) instead of the most recent release tag.
+  The tag-based comparison flagged every PR opened since the last
+  release with the cumulative diff of all merged PRs in between,
+  even on internal-only PRs that introduced no surface change of
+  their own. The new comparison reflects what *this* PR actually
+  introduces. Base-build failure now hard-fails the gate (under
+  the old tag base, a stale-toolchain skip was defensible; under
+  a branch base, a failure means main is broken).
 
 ### Added
 - `create_organization` tool — third v2 write tool. Required input:
