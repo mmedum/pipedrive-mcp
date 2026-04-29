@@ -94,7 +94,7 @@ func TestGetPerson_HappyPath(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, fake, "acme", false)
+		tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -129,7 +129,7 @@ func TestGetPerson_HappyPath(t *testing.T) {
 
 func TestGetPerson_RejectsZeroID(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, &fakePersonsClient{}, "acme", false)
+		tools.RegisterPersons(s, &fakePersonsClient{}, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -155,7 +155,7 @@ func TestGetPerson_UpstreamNotFound(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, fake, "acme", false)
+		tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -186,7 +186,7 @@ func TestListPersons_HappyPath(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, fake, "acme", false)
+		tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -225,7 +225,7 @@ func TestListPersons_HappyPath(t *testing.T) {
 
 func TestListPersons_RejectsBadSortBy(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, &fakePersonsClient{}, "acme", false)
+		tools.RegisterPersons(s, &fakePersonsClient{}, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -244,7 +244,7 @@ func TestListPersons_RejectsBadSortBy(t *testing.T) {
 func TestListPersons_LimitClampedToMax(t *testing.T) {
 	fake := &fakePersonsClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, fake, "acme", false)
+		tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -259,7 +259,7 @@ func TestListPersons_LimitClampedToMax(t *testing.T) {
 
 func TestRegisterPersons_RegistersInDumpRegistry(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, &fakePersonsClient{}, "acme", false)
+		tools.RegisterPersons(s, &fakePersonsClient{}, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 	var buf strings.Builder
@@ -288,7 +288,7 @@ func TestCreatePerson_HappyPath(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, fake, "acme", false)
+		tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -338,7 +338,7 @@ func TestCreatePerson_HappyPath(t *testing.T) {
 func TestCreatePerson_RejectsEmptyName(t *testing.T) {
 	fake := &fakePersonsClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, fake, "acme", false)
+		tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 
@@ -360,7 +360,7 @@ func TestCreatePerson_RejectsEmptyName(t *testing.T) {
 func TestCreatePerson_DryRunSkipsUpstream(t *testing.T) {
 	fake := &fakePersonsClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, fake, "acme", true) // dryRun = true
+		tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{DryRun: true}) // dryRun = true
 	})
 	defer h.Close()
 
@@ -403,7 +403,7 @@ func TestCreatePerson_PropagatesUpstreamError(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, fake, "acme", false)
+		tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{})
 	})
 	defer h.Close()
 

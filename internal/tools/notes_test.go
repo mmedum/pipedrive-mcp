@@ -81,7 +81,7 @@ func TestGetNote_HappyPath(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, fake, false, true)
+		tools.RegisterNotes(s, fake, tools.RegisterOptions{EnableDestructive: true})
 	})
 	defer h.Close()
 
@@ -106,7 +106,7 @@ func TestGetNote_HappyPath(t *testing.T) {
 
 func TestGetNote_RejectsZeroID(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, &fakeNotesClient{}, false, true)
+		tools.RegisterNotes(s, &fakeNotesClient{}, tools.RegisterOptions{EnableDestructive: true})
 	})
 	defer h.Close()
 
@@ -132,7 +132,7 @@ func TestGetNote_UpstreamNotFound(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, fake, false, true)
+		tools.RegisterNotes(s, fake, tools.RegisterOptions{EnableDestructive: true})
 	})
 	defer h.Close()
 
@@ -159,7 +159,7 @@ func TestListNotes_HappyPath_WithCursor(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, fake, false, true)
+		tools.RegisterNotes(s, fake, tools.RegisterOptions{EnableDestructive: true})
 	})
 	defer h.Close()
 
@@ -197,7 +197,7 @@ func TestListNotes_LastPage_OmitsCursor(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, fake, false, true)
+		tools.RegisterNotes(s, fake, tools.RegisterOptions{EnableDestructive: true})
 	})
 	defer h.Close()
 
@@ -222,7 +222,7 @@ func TestListNotes_CursorRoundTripDecodesToOffset(t *testing.T) {
 		notesPage: &pipedrive.V1Pagination{Start: 0, Limit: 25, MoreItemsInCollection: true, NextStart: 25},
 	}
 	h1 := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, fake1, false, true)
+		tools.RegisterNotes(s, fake1, tools.RegisterOptions{EnableDestructive: true})
 	})
 	defer h1.Close()
 
@@ -241,7 +241,7 @@ func TestListNotes_CursorRoundTripDecodesToOffset(t *testing.T) {
 		notesPage: &pipedrive.V1Pagination{Start: 25, Limit: 25, MoreItemsInCollection: false},
 	}
 	h2 := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, fake2, false, true)
+		tools.RegisterNotes(s, fake2, tools.RegisterOptions{EnableDestructive: true})
 	})
 	defer h2.Close()
 	_, _ = h2.Client.CallTool(context.Background(), &mcp.CallToolParams{
@@ -255,7 +255,7 @@ func TestListNotes_CursorRoundTripDecodesToOffset(t *testing.T) {
 
 func TestListNotes_RejectsBadCursor(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, &fakeNotesClient{}, false, true)
+		tools.RegisterNotes(s, &fakeNotesClient{}, tools.RegisterOptions{EnableDestructive: true})
 	})
 	defer h.Close()
 
@@ -273,7 +273,7 @@ func TestListNotes_RejectsBadCursor(t *testing.T) {
 
 func TestListNotes_RejectsBadSortBy(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, &fakeNotesClient{}, false, true)
+		tools.RegisterNotes(s, &fakeNotesClient{}, tools.RegisterOptions{EnableDestructive: true})
 	})
 	defer h.Close()
 
@@ -299,7 +299,7 @@ func TestCreateNote_HappyPath(t *testing.T) {
 		},
 	}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, fake, false, true)
+		tools.RegisterNotes(s, fake, tools.RegisterOptions{EnableDestructive: true})
 	})
 	defer h.Close()
 
@@ -349,7 +349,7 @@ func TestCreateNote_DryRun_PreviewMirrorsEachAnchorType(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h := testutil.Connect(t, func(s *mcp.Server) {
-				tools.RegisterNotes(s, &fakeNotesClient{}, true, true)
+				tools.RegisterNotes(s, &fakeNotesClient{}, tools.RegisterOptions{DryRun: true, EnableDestructive: true})
 			})
 			defer h.Close()
 
@@ -405,7 +405,7 @@ func TestCreateNote_DryRun_PreviewMirrorsEachAnchorType(t *testing.T) {
 func TestCreateNote_DryRun_ReturnsSyntheticPreview(t *testing.T) {
 	fake := &fakeNotesClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, fake, true, true) // dryRun=true
+		tools.RegisterNotes(s, fake, tools.RegisterOptions{DryRun: true, EnableDestructive: true}) // dryRun=true
 	})
 	defer h.Close()
 
@@ -440,7 +440,7 @@ func TestCreateNote_DryRun_ReturnsSyntheticPreview(t *testing.T) {
 
 func TestCreateNote_RejectsEmptyContent(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, &fakeNotesClient{}, false, true)
+		tools.RegisterNotes(s, &fakeNotesClient{}, tools.RegisterOptions{EnableDestructive: true})
 	})
 	defer h.Close()
 
@@ -458,7 +458,7 @@ func TestCreateNote_RejectsEmptyContent(t *testing.T) {
 
 func TestCreateNote_RejectsNoAnchor(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, &fakeNotesClient{}, false, true)
+		tools.RegisterNotes(s, &fakeNotesClient{}, tools.RegisterOptions{EnableDestructive: true})
 	})
 	defer h.Close()
 
@@ -476,7 +476,7 @@ func TestCreateNote_RejectsNoAnchor(t *testing.T) {
 
 func TestCreateNote_RejectsOversizedContent(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, &fakeNotesClient{}, false, true)
+		tools.RegisterNotes(s, &fakeNotesClient{}, tools.RegisterOptions{EnableDestructive: true})
 	})
 	defer h.Close()
 
@@ -497,7 +497,7 @@ func TestCreateNote_RejectsOversizedContent(t *testing.T) {
 func TestDeleteNote_HappyPath(t *testing.T) {
 	fake := &fakeNotesClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, fake, false, true)
+		tools.RegisterNotes(s, fake, tools.RegisterOptions{EnableDestructive: true})
 	})
 	defer h.Close()
 
@@ -527,7 +527,7 @@ func TestDeleteNote_HappyPath(t *testing.T) {
 func TestDeleteNote_DryRun_SuppressesUpstream(t *testing.T) {
 	fake := &fakeNotesClient{}
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, fake, true, true) // dryRun=true, enableDestructive=true
+		tools.RegisterNotes(s, fake, tools.RegisterOptions{DryRun: true, EnableDestructive: true}) // dryRun=true, enableDestructive=true
 	})
 	defer h.Close()
 
@@ -553,7 +553,7 @@ func TestDeleteNote_DryRun_SuppressesUpstream(t *testing.T) {
 
 func TestDeleteNote_RejectsZeroID(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, &fakeNotesClient{}, false, true)
+		tools.RegisterNotes(s, &fakeNotesClient{}, tools.RegisterOptions{EnableDestructive: true})
 	})
 	defer h.Close()
 
@@ -573,7 +573,7 @@ func TestDeleteNote_NotRegisteredWhenDestructiveDisabled(t *testing.T) {
 	// Server-build-time gating per CLAUDE.md hard rule #3 — when the
 	// flag is off, delete_note must not appear in the registry at all.
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, &fakeNotesClient{}, false, false) // enableDestructive=false
+		tools.RegisterNotes(s, &fakeNotesClient{}, tools.RegisterOptions{}) // enableDestructive=false
 	})
 	defer h.Close()
 
@@ -590,7 +590,7 @@ func TestDeleteNote_NotRegisteredWhenDestructiveDisabled(t *testing.T) {
 
 func TestRegisterNotes_RegistersInDumpRegistry(t *testing.T) {
 	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, &fakeNotesClient{}, false, true)
+		tools.RegisterNotes(s, &fakeNotesClient{}, tools.RegisterOptions{EnableDestructive: true})
 	})
 	defer h.Close()
 
