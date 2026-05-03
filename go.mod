@@ -6,7 +6,7 @@ toolchain go1.26.2
 
 require (
 	github.com/google/jsonschema-go v0.4.3
-	github.com/modelcontextprotocol/go-sdk v1.5.0
+	github.com/modelcontextprotocol/go-sdk v1.6.0
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/term v0.42.0
 )
