@@ -31,10 +31,8 @@ Thumbs.db
 /build/
 
 # Per-developer tooling state (not portable across contributors).
-# .claude/ holds Claude Code session config; .entire/ holds Entire
-# checkpoint state. Both are user-local.
+# .claude/ holds Claude Code session config. User-local.
 .claude/
-.entire/
 
 # direnv
 .envrc
