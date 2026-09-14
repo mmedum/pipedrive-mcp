@@ -110,12 +110,18 @@ sboms:
       - -o
       - "cyclonedx-json=${document}"
 
-changelog:
-  # We maintain CHANGELOG.md by hand (Keep a Changelog format with rich
-  # `### Security` / `### Breaking` sections). Goreleaser's commit-log
-  # changelog can't reproduce that, so we disable it and pass our own
-  # extracted section to `goreleaser release --release-notes`.
-  disable: true
+# No changelog block. We maintain CHANGELOG.md by hand (Keep a Changelog
+# format with rich `### Security` / `### Breaking` sections), and the
+# release workflow extracts the matching section and passes it to
+# `goreleaser release --release-notes`, so there is nothing to generate.
+#
+# This block used to say `disable: true`, which reads like the way to
+# suppress the generated commit list and is not: Disable is evaluated in
+# the changelog pipe's Skip, which runs before Run, so ctx.ReleaseNotes
+# was never assigned and the file the workflow had just written was never
+# opened. Every release page this project has published is the footer
+# with nothing above it. Deleting the block is what actually leaves
+# --release-notes in charge.
 
 release:
   draft: false

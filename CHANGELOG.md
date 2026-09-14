@@ -13,6 +13,74 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Fixed
+- The release page carries the release notes. `extract-release-notes.sh`
+  has always pulled the matching `CHANGELOG.md` section and the workflow
+  has always passed it with `--release-notes`; `.goreleaser.yaml` threw
+  it away. `changelog: disable: true` is evaluated in the changelog
+  pipe's `Skip`, which runs before `Run`, so `ctx.ReleaseNotes` was never
+  assigned and the file the workflow had just written was never opened.
+  The v0.1.0 page is the verification footer with nothing above it. The
+  block is deleted rather than set to false.
+- A mistyped subcommand exits non-zero instead of starting the server.
+  `pipedrive-mcp statsu` used to start the MCP server and exit 0, so a
+  typo in a setup script was indistinguishable from a correct invocation
+  and surfaced later as a server that was mysteriously not there. A
+  leading dash is the only thing separating a flag from a mistyped
+  subcommand, so that is the whole rule.
+
+### Added
+- `forbidigo` holds the rule that stdout carries only MCP JSON-RPC
+  frames. That rule is hard rule 2 here and it restates a MUST NOT in the
+  MCP stdio transport, and nothing enforced it. `fmt.Print*` and
+  `os.Stdout` are forbidden outside `main`, which names the process's
+  streams once and passes them down as `io.Writer`. Both spellings were
+  injected into `internal/` and watched to fail, with the configured
+  message at the offending line.
+- `.github/ISSUE_TEMPLATE`, the community-health file GitHub's checklist
+  names that this repository lacked. The bug form asks for `status`
+  output and the version, and says plainly what not to paste: no API
+  token, no company domain, no record contents.
+
+### Changed
+- `main` is one line and the dispatch lives in `run(args, stdout,
+  stderr) int`, so the unknown-command guard is held by a test of its
+  behaviour rather than of a predicate. Verified by neutering the guard
+  so the file still compiles and watching the test go red.
+
+  The command paths still exit from inside. They parse package-level
+  flags and `fail` ends the process, so a second call panics with "flag
+  redefined" and the first attempt at testing the other direction opened
+  a live API connection with the machine's own credentials. Holding that
+  direction needs `runServer` to take a `FlagSet` and its own client,
+  which is a larger change than this one.
+- The README follows the skeleton shared with the sibling MCP servers,
+  checked against GitHub's own README guidance, the community profile
+  checklist and the standard-readme spec: an opening line under 120
+  characters, a `Why pipedrive-mcp` section, `Safety`, `How it works`,
+  `Getting help`, `Documentation` and `Code of conduct`, with `Configure`
+  becoming `Set up Pipedrive`, `Quick start` becoming `Connect a client`,
+  `Tool catalog` becoming `Tools` and `Supported versions` becoming
+  `Versioning`. The status line loses its version number: the release
+  badge carries that and cannot go stale.
+- Hard rule 2 in `CLAUDE.md` quotes the specification it restates, links
+  it, and names what enforces it.
+- Go is 1.26.6 everywhere it is pinned — `go.mod`, both workflows and the
+  Dockerfile. It was 1.26.2, which govulncheck reports as affected by
+  GO-2026-4918 and GO-2026-4971: stdlib flaws in `crypto/tls`,
+  `crypto/x509`, `net/http`, `net/url`, `net/textproto` and
+  `encoding/asn1`, fixed across 1.26.3 to 1.26.6. Every release published
+  so far was built with a vulnerable toolchain.
+
+  The Dockerfile pins by digest as well as by tag, so the digest moved
+  with it — `sha256:3889b425…`, checked against the registry to be an
+  image whose `GOLANG_VERSION` really is 1.26.6. Changing the tag alone
+  would have left the build on 1.26.2 while claiming otherwise, which is
+  worse than leaving it.
+- golangci-lint is pinned to v2.13.2, matching the sibling servers. The
+  local pin had drifted to v2.11.4 and `verify-tool-versions` failed on a
+  machine set up for the others.
+
 ### Added
 - `create_activity` tool — fourth v2 write tool. Required input:
   `subject`. Optional: `type` (defaults to `task` upstream when
