@@ -65,6 +65,18 @@ breaking changes require a MAJOR bump.
   badge carries that and cannot go stale.
 - Hard rule 2 in `CLAUDE.md` quotes the specification it restates, links
   it, and names what enforces it.
+- Go is 1.26.6 everywhere it is pinned — `go.mod`, both workflows and the
+  Dockerfile. It was 1.26.2, which govulncheck reports as affected by
+  GO-2026-4918 and GO-2026-4971: stdlib flaws in `crypto/tls`,
+  `crypto/x509`, `net/http`, `net/url`, `net/textproto` and
+  `encoding/asn1`, fixed across 1.26.3 to 1.26.6. Every release published
+  so far was built with a vulnerable toolchain.
+
+  The Dockerfile pins by digest as well as by tag, so the digest moved
+  with it — `sha256:3889b425…`, checked against the registry to be an
+  image whose `GOLANG_VERSION` really is 1.26.6. Changing the tag alone
+  would have left the build on 1.26.2 while claiming otherwise, which is
+  worse than leaving it.
 - golangci-lint is pinned to v2.13.2, matching the sibling servers. The
   local pin had drifted to v2.11.4 and `verify-tool-versions` failed on a
   machine set up for the others.
