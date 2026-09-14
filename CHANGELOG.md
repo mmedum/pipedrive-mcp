@@ -13,6 +13,29 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Security
+- Every GitHub Action is pinned to a commit SHA rather than a version
+  tag, with the tag kept beside it as a comment. All twelve were on tags
+  — `actions/checkout@v4`, `docker/build-push-action@v7` and the rest —
+  and a tag is mutable: whoever can move it can change what runs in a
+  workflow holding `contents: write` and an OIDC token. Thirty-two
+  references across the three workflows. The sibling MCP servers pin the
+  same way and have a gate for it.
+
+  The SHAs were resolved from each repository rather than copied, and an
+  annotated tag was dereferenced to the commit it points at rather than
+  recorded as the tag object's own hash.
+
+### Changed
+- `github.com/modelcontextprotocol/go-sdk` v1.6.0, `golang.org/x/term`
+  v0.43.0 and `golang.org/x/sys` v0.44.0 — what dependabot proposed,
+  applied on top of current `main` rather than merged from a branch that
+  predates the Go toolchain bump.
+- `actions/checkout` v4 to v6, `actions/setup-go` v5 to v6 and
+  `goreleaser/goreleaser-action` v6 to v7, which is what the three open
+  dependabot pull requests asked for; they are closed in favour of this,
+  since each would have reintroduced a mutable tag.
+
 ### Fixed
 - The release page carries the release notes. `extract-release-notes.sh`
   has always pulled the matching `CHANGELOG.md` section and the workflow
