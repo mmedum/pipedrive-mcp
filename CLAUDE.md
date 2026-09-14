@@ -25,9 +25,20 @@ in the user's plan file under
    needs a CHANGELOG entry under `### Changed` explaining why no v2
    endpoint exists, an inline code comment at the call site, and an
    explicit user go-ahead.
-2. **Stdout is reserved for MCP JSON-RPC frames**. All logs go to stderr.
-   Never `fmt.Println(...)` from anywhere reachable at runtime; use
-   `slog` writing to `os.Stderr`.
+2. **Stdout is reserved for MCP JSON-RPC frames**. This is the protocol,
+   not a house preference. MCP's stdio transport says the server "MUST
+   NOT write anything to its `stdout` that is not a valid MCP message",
+   and "MAY write UTF-8 strings to its standard error (`stderr`) for
+   logging purposes" —
+   <https://modelcontextprotocol.io/specification/2025-06-18/basic/transports>.
+   All logs go to stderr through `slog`. A stray print corrupts the
+   JSON-RPC stream and the client silently stops working.
+
+   `forbidigo` enforces it: `fmt.Print*` and `os.Stdout` are forbidden
+   outside `main`, which names the process's streams once and passes them
+   down as `io.Writer`. Check the message text when verifying it — a
+   settings block that fails to load leaves forbidigo on its defaults,
+   firing, looking like it works.
 3. **No destructive tools registered by default.** The
    `PIPEDRIVE_ENABLE_DESTRUCTIVE` env flag is the only way to register them.
    See `docs/security.md`.

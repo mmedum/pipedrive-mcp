@@ -2,7 +2,7 @@ module github.com/mmedum/pipedrive-mcp
 
 go 1.26
 
-toolchain go1.26.2
+toolchain go1.26.6
 
 require (
 	github.com/google/jsonschema-go v0.4.3

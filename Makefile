@@ -10,7 +10,7 @@ LDFLAGS   = -s -w -X $(PKG)/internal/version.Version=$(VERSION)
 GOBIN    := $(shell $(GO) env GOPATH)/bin
 GOVULNCHECK_VERSION ?= v1.1.4
 GO_LICENSES_VERSION ?= v1.6.0
-GOLANGCI_LINT_VERSION ?= v2.11.4
+GOLANGCI_LINT_VERSION ?= v2.13.2
 
 .PHONY: all
 all: check

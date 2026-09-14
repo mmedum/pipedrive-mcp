@@ -3,12 +3,14 @@
 [![CI](https://github.com/mmedum/pipedrive-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/mmedum/pipedrive-mcp/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-A production-grade [MCP](https://modelcontextprotocol.io) server that
-exposes [Pipedrive CRM](https://pipedrive.com) over stdio to LLM-driven
-clients such as Claude Desktop and Claude Code. Single static Go binary,
-distroless Docker image, signed releases, semver-disciplined surface.
+Pipedrive CRM as MCP tools. Read deals, people, organisations and activities, and write notes.
 
-> **Status: Phase 1 shipped — `v0.1.0` released 2026-04-27.** Fifteen
+A single static Go binary that speaks [MCP](https://modelcontextprotocol.io)
+over stdio to Claude Code, Claude Desktop or any other MCP client, against
+your own Pipedrive API token. Distroless Docker image, signed releases and
+a semver-disciplined tool surface.
+
+> **Status: Phase 1 shipped.** Fifteen
 > tools are registered by default: eleven v2 reads (`list_pipelines`,
 > `list_stages`, `get_deal`, `list_deals`, `get_person`,
 > `list_persons`, `get_organization`, `list_organizations`,
@@ -20,17 +22,22 @@ distroless Docker image, signed releases, semver-disciplined surface.
 > `PIPEDRIVE_ENABLE_DESTRUCTIVE=true` an additional destructive tool
 > (`delete_note`) is registered. See `CHANGELOG.md` for what's
 > landed; Phase 2 (write tools) is the next milestone.
+## Why pipedrive-mcp
 
-## Highlights
+Pipedrive's own API is two APIs: a v2 that is current and a v1 that
+sunsets on 2026-07-31. This server commits to v2, and carves out only the
+endpoints that exist nowhere else — notes — on v1, so nothing here stops
+working on that date by surprise.
 
-- **Pipedrive API v2 first.** The legacy v1 sunsets 2026-07-31; this
-  server commits to v2.
+It runs as a single static binary over stdio, against your own API token.
+No remote transport and no OAuth, which makes what it can reach auditable
+in one sitting.
+
+
 - **No destructive tools by default.** Deletes are gated behind
   `PIPEDRIVE_ENABLE_DESTRUCTIVE`. A server-wide `PIPEDRIVE_DRY_RUN` makes
   every write a rehearsal that returns "would have done X" without firing
   the request.
-- **Stdio only for v1.** No remote transport, no OAuth — simple and
-  auditable.
 - **Tiny static binary** (`CGO_ENABLED=0`, `-trimpath`, `-s -w`) and a
   ~10 MB distroless Docker image.
 - **Reproducible builds** (verified in CI). Releases are signed via
@@ -74,7 +81,7 @@ Requires Go 1.26.2.
 go install github.com/mmedum/pipedrive-mcp/cmd/pipedrive-mcp@latest
 ```
 
-## Configure
+## Set up Pipedrive
 
 The server stores your API token in the **OS keyring** (libsecret on
 Linux, Keychain on macOS, Credential Manager on Windows) rather than
@@ -114,7 +121,7 @@ precedence over the keyring, matching the `gh` and `aws` CLIs.
 | `PIPEDRIVE_DRY_RUN` | no | `false` | When `true`, every write becomes a rehearsal. |
 | `PIPEDRIVE_HTTP_TIMEOUT` | no | `30s` | Per-request outbound HTTP timeout. |
 
-## Quick start
+## Connect a client
 
 ### Claude Desktop, binary
 
@@ -169,7 +176,7 @@ The `-i` flag is required so Docker keeps stdin open for MCP framing.
 After saving the config, restart Claude Desktop and confirm the
 `pipedrive` server appears as connected.
 
-## Tool catalog
+## Tools
 
 Run `pipedrive-mcp --dump-schemas | jq '[.tools[].name]'` for the
 authoritative list of tools the binary registers. As of v0.1.0 the
@@ -207,26 +214,31 @@ The categories below outline the planned post-v0.1.0 surface; see
   log activity composite.
 - **Destructive (opt-in)** — detach product from deal.
 
-## Troubleshooting
+## Safety
 
-- **`401 Unauthorized` at startup, immediate exit.** The API token is
-  invalid, revoked, or for the wrong workspace. Fix the token and restart;
-  the server does not poll for token changes mid-process.
-- **`custom_field "Region" not found`.** The cache is stale. Call the
-  `refresh_field_cache` tool to re-fetch deal / person / organization
-  field metadata in parallel without restarting the server.
-- **LLM does something surprising.** The MCP transport does not carry the
-  user's prompt, so server logs cannot tell you *why* the LLM called a
-  tool. Correlate the request ID in stderr with your MCP client's prompt
-  log to reconstruct intent.
+- **No destructive tools by default.** Deletes are registered only with
+  `PIPEDRIVE_ENABLE_DESTRUCTIVE=true`. A tool that is not registered
+  cannot be called, whatever a model asks for.
+- **`PIPEDRIVE_DRY_RUN` makes every write a rehearsal**, returning what
+  would have been sent without firing the request.
+- **Stdout carries only MCP JSON-RPC frames.** That is the MCP stdio
+  transport's own rule, and `forbidigo` enforces it: the process's
+  streams are named in `main` and nowhere else. A stray print corrupts
+  the stream and the client silently stops working.
+- **A mistyped subcommand exits non-zero** rather than starting the
+  server and reporting success.
 
-Run book and operational guidance: [`docs/operations.md`](docs/operations.md).
+## How it works
 
-## Security
-
-- Read [`SECURITY.md`](SECURITY.md) before reporting a vulnerability.
-- Read [`docs/security.md`](docs/security.md) for token handling, the
-  `--env-file` Docker pattern, and the threat model.
+```
+MCP client ──stdio──► pipedrive-mcp
+                       ├── tools       one handler per tool; shapes the reply
+                       ├── server      SDK wiring and the registered surface
+                       ├── pipedrive   REST client for the v2 and v1 APIs
+                       ├── config      every setting, from environment and flags
+                       ├── credentials the API token: keyring, file, environment
+                       └── userconfig  the non-secret profile
+```
 
 ## Phase plan
 
@@ -244,9 +256,52 @@ Versioning is strict semver. The MCP tool surface is the public contract.
 Each phase boundary requires explicit maintainer approval before the next
 phase starts.
 
-## Supported versions
+## Getting help
+
+- **`401 Unauthorized` at startup, immediate exit.** The API token is
+  invalid, revoked, or for the wrong workspace. Fix the token and restart;
+  the server does not poll for token changes mid-process.
+- **`custom_field "Region" not found`.** The cache is stale. Call the
+  `refresh_field_cache` tool to re-fetch deal / person / organization
+  field metadata in parallel without restarting the server.
+- **LLM does something surprising.** The MCP transport does not carry the
+  user's prompt, so server logs cannot tell you *why* the LLM called a
+  tool. Correlate the request ID in stderr with your MCP client's prompt
+  log to reconstruct intent.
+
+Run book and operational guidance: [`docs/operations.md`](docs/operations.md).
+
+If that does not explain it,
+[open an issue](https://github.com/mmedum/pipedrive-mcp/issues). Never
+paste an API token, a company domain or record contents into one;
+describe the shape instead. Security problems go through
+[`SECURITY.md`](SECURITY.md), privately.
+
+## Versioning
 
 See [`SECURITY.md`](SECURITY.md#supported-versions).
+
+## Development
+
+```bash
+make build     # the binary
+make test      # race detector, coverage
+make check     # everything CI runs
+```
+
+`make check` is the definition of done: gofmt, `go vet`, golangci-lint,
+race tests with coverage, `govulncheck`, a licence allow-list, the stdio
+smoke test and the staleness check.
+
+## Documentation
+
+- [`docs/architecture.md`](docs/architecture.md) — the design and the
+  decisions behind it.
+- [`docs/configuration.md`](docs/configuration.md) — every setting.
+- [`docs/development.md`](docs/development.md) — building and testing.
+- [`docs/operations.md`](docs/operations.md) — running it in anger.
+- [`docs/release.md`](docs/release.md) — how a release is cut.
+- [`docs/security.md`](docs/security.md) — the threat model.
 
 ## Contributing
 
@@ -255,6 +310,16 @@ See [`SECURITY.md`](SECURITY.md#supported-versions).
 - [`docs/development.md`](docs/development.md) — local-run guide:
   prerequisites, `make check`, sandbox-based end-to-end verification,
   Claude Desktop wiring.
+
+## Security
+
+- Read [`SECURITY.md`](SECURITY.md) before reporting a vulnerability.
+- Read [`docs/security.md`](docs/security.md) for token handling, the
+  `--env-file` Docker pattern, and the threat model.
+
+## Code of conduct
+
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — Contributor Covenant.
 
 ## License
 

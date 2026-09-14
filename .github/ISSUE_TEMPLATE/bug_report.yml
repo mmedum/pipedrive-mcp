@@ -1,0 +1,58 @@
+name: Bug report
+description: Something this server does is wrong, or does not work
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not paste anything private.** No API token, no company
+        domain, and no record contents — deal titles, person names and
+        email addresses, note bodies. The output of `pipedrive-mcp
+        status` is safe: it names where the token is stored, never the
+        token. If the problem only reproduces on one record, describe its
+        shape rather than its contents.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you asked for, what the server did, and what you expected instead.
+      placeholder: |
+        I asked Claude to list deals in the "Renewals" pipeline.
+        It answered with [invalid] ... and no deals came back.
+    validations:
+      required: true
+
+  - type: textarea
+    id: status
+    attributes:
+      label: Output of `pipedrive-mcp status`
+      description: Paste it as it comes. It reports no secrets.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`pipedrive-mcp --version`, or the Docker image tag."
+    validations:
+      required: true
+
+  - type: input
+    id: client
+    attributes:
+      label: MCP client
+      description: Claude Code, Claude Desktop, something else — and its version.
+
+  - type: textarea
+    id: settings
+    attributes:
+      label: Relevant settings
+      description: >
+        Any `PIPEDRIVE_*` variables you have set, with values only where
+        they are not secret — `PIPEDRIVE_DRY_RUN`,
+        `PIPEDRIVE_ENABLE_DESTRUCTIVE`, `PIPEDRIVE_HTTP_TIMEOUT`. Say that
+        `PIPEDRIVE_COMPANY_DOMAIN` is set rather than what it is.
+      render: text

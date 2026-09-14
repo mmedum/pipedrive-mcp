@@ -1,0 +1,12 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Check the setup first
+    url: https://github.com/mmedum/pipedrive-mcp#getting-help
+    about: >
+      Most first-run problems are a missing or expired API token, or a
+      company domain that does not match the account. Run `pipedrive-mcp
+      status` first — it says where the token came from and which
+      workspace it reaches.
+  - name: Report a vulnerability privately
+    url: https://github.com/mmedum/pipedrive-mcp/security/advisories/new
+    about: Security problems go here, not in a public issue.
