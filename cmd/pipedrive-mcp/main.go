@@ -39,21 +39,46 @@ import (
 
 const serverName = "pipedrive-mcp"
 
-func main() {
-	if len(os.Args) >= 2 {
-		switch os.Args[1] {
+// everything below takes them as io.Writer, so nothing else reaches stdout.
+//
+//nolint:forbidigo // the one place the process's streams are named;
+func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
+
+// run is main with its arguments and its streams passed in, so the
+// dispatch can be exercised by a test rather than only by a person at a
+// terminal. main itself calls os.Exit, which no test survives.
+//
+// The command paths below still exit from inside, because they parse
+// package-level flags and `fail` ends the process. That is a deeper
+// change than this one and needs a real API token to exercise; what
+// matters here is that the guard is reachable from a test.
+func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 {
+		switch args[0] {
 		case "login":
-			os.Exit(cmdLogin(os.Args[2:]))
+			return cmdLogin(args[1:])
 		case "logout":
-			os.Exit(cmdLogout(os.Args[2:]))
+			return cmdLogout(args[1:])
 		case "status":
-			os.Exit(cmdStatus(os.Args[2:]))
+			return cmdStatus(args[1:], stdout)
+		}
+
+		// Anything the switch did not recognise, and that is not a flag,
+		// was meant to be a subcommand. Falling through starts the server
+		// instead, which looks like a hang: it blocks on stdin and says
+		// nothing. The caller is then handed exit 0 whether it meant to
+		// serve or mistyped `status`, so nothing downstream can tell the
+		// two apart. A leading dash is all that separates them.
+		if !strings.HasPrefix(args[0], "-") {
+			_, _ = fmt.Fprintf(stderr, "pipedrive-mcp: unknown command %q\n\nCommands: login, logout, status\nRun with no command to serve MCP over stdio.\n", args[0])
+			return 1
 		}
 	}
-	runServer()
+	runServer(stdout)
+	return 0
 }
 
-func runServer() {
+func runServer(stdout io.Writer) {
 	var (
 		showVersion bool
 		dumpSchemas bool
@@ -68,7 +93,7 @@ func runServer() {
 		// --version exits before stdio serving begins; stdout is safe
 		// here (the "stdout reserved for MCP frames" rule applies to
 		// the server path, not one-shot CLI commands).
-		fmt.Println(version.Info())
+		_, _ = fmt.Fprintln(stdout, version.Info())
 		return
 	}
 
@@ -76,7 +101,7 @@ func runServer() {
 		// EnableDestructive=true so --dump-schemas surfaces the full
 		// destructive-tool schema for the schema-diff CI gate.
 		_ = server.New(context.Background(), serverName, version.Version, nil, "", tools.RegisterOptions{EnableDestructive: true})
-		if err := tools.DumpJSON(os.Stdout, version.Version); err != nil {
+		if err := tools.DumpJSON(stdout, version.Version); err != nil {
 			fail("dump schemas: %v", err)
 		}
 		return
@@ -273,7 +298,7 @@ func cmdLogout(args []string) int {
 // of an auth probe. Output goes to stdout: this is a one-shot CLI
 // command, not the stdio MCP server, so the stdout-reserved-for-frames
 // rule does not apply.
-func cmdStatus(args []string) int {
+func cmdStatus(args []string, stdout io.Writer) int {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
@@ -286,7 +311,7 @@ func cmdStatus(args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	return runStatus(os.Stdout, *noProbe)
+	return runStatus(stdout, *noProbe)
 }
 
 func runStatus(out io.Writer, noProbe bool) int {
