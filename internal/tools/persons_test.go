@@ -281,7 +281,7 @@ func TestCreatePerson_HappyPath(t *testing.T) {
 			Name:      "Helle Steffenauer",
 			FirstName: "Helle",
 			LastName:  "Steffenauer",
-			Emails:    []pipedrive.ContactPoint{{Value: "hs@ntmail.dk", Primary: true, Label: "work"}},
+			Emails:    []pipedrive.ContactPoint{{Value: "hanna.s@example.com", Primary: true, Label: "work"}},
 			Phones:    []pipedrive.ContactPoint{{Value: "+45 99 34 11 48", Primary: true, Label: "work"}},
 			OrgID:     59,
 			OwnerID:   13,
@@ -298,7 +298,7 @@ func TestCreatePerson_HappyPath(t *testing.T) {
 			"name":       "Helle Steffenauer",
 			"first_name": "Helle",
 			"last_name":  "Steffenauer",
-			"emails":     []map[string]any{{"value": "hs@ntmail.dk", "primary": true, "label": "work"}},
+			"emails":     []map[string]any{{"value": "hanna.s@example.com", "primary": true, "label": "work"}},
 			"phones":     []map[string]any{{"value": "+45 99 34 11 48", "primary": true, "label": "work"}},
 			"org_id":     59,
 		},
@@ -330,7 +330,7 @@ func TestCreatePerson_HappyPath(t *testing.T) {
 	if fake.lastCreateReq.Name != "Helle Steffenauer" ||
 		fake.lastCreateReq.OrgID != 59 ||
 		len(fake.lastCreateReq.Emails) != 1 ||
-		fake.lastCreateReq.Emails[0].Value != "hs@ntmail.dk" {
+		fake.lastCreateReq.Emails[0].Value != "hanna.s@example.com" {
 		t.Errorf("upstream request lost fields: %+v", fake.lastCreateReq)
 	}
 }

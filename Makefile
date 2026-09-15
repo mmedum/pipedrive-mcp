@@ -77,7 +77,11 @@ staleness: ## gates deps
 	go run ./scripts/gates deps
 
 .PHONY: check
-check: verify-tool-versions fmt vet lint test vuln licenses staleness pins smoke ## Run every per-PR CI gate locally
+check: verify-tool-versions fmt vet lint test vuln licenses staleness leaks pins smoke ## Run every per-PR CI gate locally
+
+.PHONY: leaks
+leaks: ## Nothing from a real Pipedrive account is in the tree
+	go run ./scripts/gates leaks
 
 .PHONY: pins
 pins: ## Every action is a commit and every tool version is exact

@@ -13,6 +13,28 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Security
+- A `leaks` gate, in `make check` and CI, and **it found a real address
+  on its first run**: `hs@ntmail.dk` sat in two test files, seven times.
+  A live domain, committed as fixture data. It is `hanna.s@example.com`
+  now — `example.com` is reserved by RFC 2606 precisely so a fixture can
+  use it.
+
+  The rules are this server's own rather than a sibling's, because the
+  identifiers differ: an address at a domain someone could own, a
+  customer's `*.pipedrive.com` subdomain, and a 40-hex run on a line that
+  also says token. Placeholders, Pipedrive's own hosts and the `%s` in a
+  format string are not matches, each for a reason written beside the
+  rule. It also refuses a committed build artifact, which this repository
+  is one `git add -A` away from at any time.
+
+  Watched failing on three planted identifiers, one of each kind, and
+  watched passing again with them removed.
+- The maintainer's address is out of `SECURITY.md`, `CODE_OF_CONDUCT.md`
+  and `CONTRIBUTING.md`. Reports go through GitHub's private security
+  advisory flow, which reaches the same person without putting an address
+  in a public repository — the same change the sibling servers made.
+
 ### Added
 - A `pins` gate, in `make check` and CI. Every action reference must be a
   full commit SHA, every tool version must be exactly one version, and
