@@ -13,6 +13,8 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-15
+
 ### Added
 - `status --json` prints the same state as one JSON object on stdout, so
   a script can read whether this server can start instead of parsing
@@ -37,48 +39,6 @@ breaking changes require a MAJOR bump.
   the released binary prints, asserted by diffing them, and the no-token
   refusal was driven end to end — whole object, reason naming the fix,
   exit 1.
-
-### Changed
-- `gitleaks/gitleaks-action` to v3.0.0, which the four sibling servers
-  were already on. It was held back while the concern was that a major
-  bump might move the version out of `GITLEAKS_VERSION` and break the
-  equality the `pins` gate holds between CI and pre-commit. It does not:
-  the release says "No changes to inputs, outputs, or behavior", the
-  action's source still reads `GITLEAKS_VERSION`, and the only change is
-  Node 20 to Node 24 — which GitHub is removing from Actions this month,
-  so v2 was the riskier place to sit.
-
-### Changed
-- `golang.org/x/term` v0.46.0 and `golang.org/x/sys` v0.48.0. The MCP SDK
-  is **deliberately left at v1.6.0**: taking `@latest` pulled v1.8.0, and
-  the schema-diff gate refused it because the emitted tool schemas
-  changed. That is the gate working — an SDK minor that moves the tool
-  surface is the repository's stated contract moving, and it belongs in a
-  change of its own with the diff read rather than riding in behind a
-  security fix.
-
-### Security
-- A `leaks` gate, in `make check` and CI, and **it found a real address
-  on its first run**, at a live Danish domain, sitting in two test files
-  seven times as fixture data. It is an `example.com` address now — `example.com` is reserved by RFC 2606 precisely so a fixture can
-  use it.
-
-  The rules are this server's own rather than a sibling's, because the
-  identifiers differ: an address at a domain someone could own, a
-  customer's `*.pipedrive.com` subdomain, and a 40-hex run on a line that
-  also says token. Placeholders, Pipedrive's own hosts and the `%s` in a
-  format string are not matches, each for a reason written beside the
-  rule. It also refuses a committed build artifact, which this repository
-  is one `git add -A` away from at any time.
-
-  Watched failing on three planted identifiers, one of each kind, and
-  watched passing again with them removed.
-- The maintainer's address is out of `SECURITY.md`, `CODE_OF_CONDUCT.md`
-  and `CONTRIBUTING.md`. Reports go through GitHub's private security
-  advisory flow, which reaches the same person without putting an address
-  in a public repository — the same change the sibling servers made.
-
-### Added
 - A `pins` gate, in `make check` and CI. Every action reference must be a
   full commit SHA, every tool version must be exactly one version, and
   every workflow must set `defaults: run: shell: bash`. Twenty-nine
@@ -101,6 +61,23 @@ breaking changes require a MAJOR bump.
   two copies cannot disagree. Worth sending back to them.
 - A CodeQL workflow, which this repository did not have: push, pull
   request, and weekly so a rule added after a merge still finds old code.
+
+### Changed
+- `gitleaks/gitleaks-action` to v3.0.0, which the four sibling servers
+  were already on. It was held back while the concern was that a major
+  bump might move the version out of `GITLEAKS_VERSION` and break the
+  equality the `pins` gate holds between CI and pre-commit. It does not:
+  the release says "No changes to inputs, outputs, or behavior", the
+  action's source still reads `GITLEAKS_VERSION`, and the only change is
+  Node 20 to Node 24 — which GitHub is removing from Actions this month,
+  so v2 was the riskier place to sit.
+- `golang.org/x/term` v0.46.0 and `golang.org/x/sys` v0.48.0. The MCP SDK
+  is **deliberately left at v1.6.0**: taking `@latest` pulled v1.8.0, and
+  the schema-diff gate refused it because the emitted tool schemas
+  changed. That is the gate working — an SDK minor that moves the tool
+  surface is the repository's stated contract moving, and it belongs in a
+  change of its own with the diff read rather than riding in behind a
+  security fix.
 
 ### Removed
 - **The Docker image, and everything that carried it**: `Dockerfile`,
@@ -128,6 +105,27 @@ breaking changes require a MAJOR bump.
   Anyone using `ghcr.io/mmedum/pipedrive-mcp` should move to the signed
   archive or `go install`, and run `pipedrive-mcp login` once so the token
   lands in the keyring rather than the environment.
+
+### Security
+- A `leaks` gate, in `make check` and CI, and **it found a real address
+  on its first run**, at a live Danish domain, sitting in two test files
+  seven times as fixture data. It is an `example.com` address now — `example.com` is reserved by RFC 2606 precisely so a fixture can
+  use it.
+
+  The rules are this server's own rather than a sibling's, because the
+  identifiers differ: an address at a domain someone could own, a
+  customer's `*.pipedrive.com` subdomain, and a 40-hex run on a line that
+  also says token. Placeholders, Pipedrive's own hosts and the `%s` in a
+  format string are not matches, each for a reason written beside the
+  rule. It also refuses a committed build artifact, which this repository
+  is one `git add -A` away from at any time.
+
+  Watched failing on three planted identifiers, one of each kind, and
+  watched passing again with them removed.
+- The maintainer's address is out of `SECURITY.md`, `CODE_OF_CONDUCT.md`
+  and `CONTRIBUTING.md`. Reports go through GitHub's private security
+  advisory flow, which reaches the same person without putting an address
+  in a public repository — the same change the sibling servers made.
 
 ## [0.2.0] - 2026-09-15
 
@@ -655,6 +653,7 @@ destructive flag is on.
   External callers can still branch on the error class via `errors.Is`
   and read `Status`/`Message`/`Endpoint`.
 
-[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mmedum/pipedrive-mcp/releases/tag/v0.1.0
