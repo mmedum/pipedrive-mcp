@@ -127,7 +127,13 @@ release:
   draft: false
   prerelease: auto
   mode: replace
-  header: |
+  # The notes come first and the verification block after, matching the
+  # sibling servers: a reader wants to know what changed before being
+  # told how to check the signature. This was a `header:` while the
+  # notes were being discarded, when it was the only thing on the page.
+  footer: |
+    ---
+
     Verify a binary signature:
 
     ```sh

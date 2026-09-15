@@ -42,14 +42,16 @@ func smokeGate(w io.Writer, args []string) error {
 		"PIPEDRIVE_API_TOKEN="+orDefault(os.Getenv("PIPEDRIVE_API_TOKEN"), "smoke-token"),
 		"PIPEDRIVE_COMPANY_DOMAIN="+orDefault(os.Getenv("PIPEDRIVE_COMPANY_DOMAIN"), "smoke"))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	var cmd *exec.Cmd
+	hold := holdOpen()
 	switch mode {
 	case "binary":
 		cmd = exec.CommandContext(ctx, target, "--skip-probe")
 	case "docker":
+		hold = dockerHold
 		cmd = exec.CommandContext(ctx, "docker", "run", "-i", "--rm",
 			"-e", "PIPEDRIVE_API_TOKEN", "-e", "PIPEDRIVE_COMPANY_DOMAIN",
 			target, "--skip-probe")
@@ -66,7 +68,7 @@ func smokeGate(w io.Writer, args []string) error {
 	cmd.Stdin = stdin
 	go func() {
 		_, _ = io.WriteString(stdinW, frameInit+"\n"+frameInitialized+"\n"+frameList+"\n")
-		time.Sleep(holdOpen())
+		time.Sleep(hold)
 		_ = stdinW.Close()
 	}()
 	var stdout, stderr bytes.Buffer
@@ -79,8 +81,8 @@ func smokeGate(w io.Writer, args []string) error {
 
 	reply, err := toolsListReply(stdout.String())
 	if err != nil {
-		return fmt.Errorf("%s %s: %w\nstdout:\n%s\nstderr:\n%s\nexit: %w",
-			mode, target, err, clip(stdout.String()), clip(stderr.String()), runErr)
+		return fmt.Errorf("%s %s: %w\nexit: %s\nstdout:\n%s\nstderr:\n%s",
+			mode, target, err, exitOf(runErr), clip(stdout.String()), clip(stderr.String()))
 	}
 	_, _ = fmt.Fprintf(w, "stdio smoke ok (%s): tools/list answered with %d tool(s)\n", mode, reply)
 	return nil
@@ -133,9 +135,14 @@ func clip(s string) string {
 	return s
 }
 
-// holdOpen is how long stdin stays open after the last frame. Tuned for
-// a Docker cold start on a shared runner; a tighter value works locally
-// and loses the margin.
+// dockerHold is the wait for the docker mode. A container on a cold
+// runner has an image to unpack and a process to start before it reads
+// anything, and a hold tuned for a local binary hands it EOF while it is
+// still booting — which reads exactly like a server that never answered.
+const dockerHold = 15 * time.Second
+
+// holdOpen is how long stdin stays open after the last frame, for a
+// local binary. SMOKE_HOLD overrides it, in either mode.
 func holdOpen() time.Duration {
 	if v := os.Getenv("SMOKE_HOLD"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
@@ -143,4 +150,14 @@ func holdOpen() time.Duration {
 		}
 	}
 	return 3 * time.Second
+}
+
+// exitOf names the process's exit without %w, which renders a nil error
+// as %!w(<nil>) — the first version of this printed exactly that in CI
+// and said nothing useful about why the container was silent.
+func exitOf(err error) string {
+	if err == nil {
+		return "0"
+	}
+	return err.Error()
 }
