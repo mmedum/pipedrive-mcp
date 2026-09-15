@@ -70,27 +70,21 @@ The release workflow runs automatically. Watch it at
       - Archives present for `darwin/{amd64,arm64}`,
         `linux/{amd64,arm64}`, `windows/amd64` (`.tar.gz` for
         unix-likes, `.zip` for windows).
-      - `SHA256SUMS` plus `.sig`/`.cert` for each archive and for
-        `SHA256SUMS` itself.
-      - `<archive>.cdx.json` (CycloneDX SBOM) per archive, plus the
-        matching `.cdx.json.sig`/`.cdx.json.cert` for each.
+      - `SHA256SUMS` plus `SHA256SUMS.bundle`, the one signature over
+        the release. Every archive and every SBOM is covered by its
+        hash in that file, so there are no per-artifact `.sig`/`.cert`.
+      - `<archive>.cdx.json` (CycloneDX SBOM) per archive.
       - SLSA build-provenance attestation visible (cli/cli-style
         "Provenance" badge on each archive).
+- [ ] Verify the signature locally. Use the archive filename goreleaser
+      actually produces — no `v` prefix, `.tar.gz` extension:
 
-      cosign verify ghcr.io/mmedum/pipedrive-mcp:v0.X.Y \
+      sha256sum -c SHA256SUMS --ignore-missing
+
+      cosign verify-blob SHA256SUMS \
+        --bundle SHA256SUMS.bundle \
         --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.+' \
         --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
-- [ ] Verify a binary signature locally. Use the archive filename
-      goreleaser actually produces — no `v` prefix, `.tar.gz`
-      extension; the `.sig`/`.cert` sign the archive, not the
-      binary inside:
-
-      cosign verify-blob \
-        --certificate pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.cert \
-        --signature   pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.sig \
-        --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.+' \
-        --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-        pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz
 - [ ] Verify the build attestation with `gh attestation verify`:
 
       gh attestation verify pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz \

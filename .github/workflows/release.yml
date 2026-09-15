@@ -38,6 +38,13 @@ jobs:
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          # A SHA pins the wrapper, not the tool. Without this the
+          # installer takes whatever cosign is newest, and v0.3.0's
+          # release failed when that cosign started defaulting to the
+          # new bundle format and rejecting the deprecated signing
+          # flags .goreleaser.yaml used at the time.
+          cosign-release: v3.1.3
 
       - name: Install syft
         uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2

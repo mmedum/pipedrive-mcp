@@ -55,19 +55,20 @@ policy; that one is the **runtime** policy.
 ## Provenance
 
 Every release is signed via [cosign](https://github.com/sigstore/cosign)
-keyless OIDC. Verify with (replace `X.Y.Z` with the release version —
-goreleaser strips the `v` prefix from archive filenames; the
-`.sig`/`.cert` sign the `.tar.gz` archive, not the binary inside):
+keyless OIDC. One signature covers the release: `SHA256SUMS` is signed,
+and it holds the hash of every archive and every SBOM. Verify with
+(replace `X.Y.Z` with the release version — goreleaser strips the `v`
+prefix from archive filenames):
 
 ```sh
-cosign verify-blob \
-  --certificate pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.cert \
-  --signature   pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.sig \
+sha256sum -c SHA256SUMS --ignore-missing
+
+cosign verify-blob SHA256SUMS \
+  --bundle SHA256SUMS.bundle \
   --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.*' \
-  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 ```
 
 A CycloneDX SBOM is attached per-archive (e.g.
-`pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.cdx.json`); the matching
-`.cdx.json.sig`/`.cdx.json.cert` sign each SBOM.
+`pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.cdx.json`); each SBOM's hash is
+in the signed `SHA256SUMS`.
