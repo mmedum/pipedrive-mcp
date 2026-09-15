@@ -13,6 +13,15 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Changed
+- `golang.org/x/term` v0.46.0 and `golang.org/x/sys` v0.48.0. The MCP SDK
+  is **deliberately left at v1.6.0**: taking `@latest` pulled v1.8.0, and
+  the schema-diff gate refused it because the emitted tool schemas
+  changed. That is the gate working — an SDK minor that moves the tool
+  surface is the repository's stated contract moving, and it belongs in a
+  change of its own with the diff read rather than riding in behind a
+  security fix.
+
 ### Security
 - A `leaks` gate, in `make check` and CI, and **it found a real address
   on its first run**, at a live Danish domain, sitting in two test files
