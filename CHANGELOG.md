@@ -13,6 +13,30 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Added
+- A `pins` gate, in `make check` and CI. Every action reference must be a
+  full commit SHA, every tool version must be exactly one version, and
+  every workflow must set `defaults: run: shell: bash`. Twenty-nine
+  action references, eighteen tool versions, three workflows. Watched
+  failing both ways before being trusted: one action put back on a tag,
+  and the two gitleaks versions drifted apart.
+
+  It found three things on the way in. Neither workflow set the bash
+  default, so a `run` line would be parsed as PowerShell on a Windows
+  runner. The gitleaks *action* was pinned by SHA while the gitleaks it
+  installs was not — a SHA pins the wrapper, not the tool — so
+  `GITLEAKS_VERSION` is named in `ci.yml` now. And there was no
+  `.pre-commit-config.yaml`, so gitleaks ran only after a push; there is
+  one now, held to the same version by the gate.
+
+  The gate came from a sibling and gained something in the port: it
+  resolves `version: ${{ env.X }}` against the workflow's own `env`
+  block. This repository pins tool versions in one place and references
+  them, which the siblings do not do and which is the better pattern —
+  two copies cannot disagree. Worth sending back to them.
+- A CodeQL workflow, which this repository did not have: push, pull
+  request, and weekly so a rule added after a merge still finds old code.
+
 ### Removed
 - **The Docker image, and everything that carried it**: `Dockerfile`,
   `.dockerignore`, `docker-publish.yml`, the CI build-scan-smoke job, the
