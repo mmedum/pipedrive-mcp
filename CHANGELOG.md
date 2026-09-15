@@ -13,6 +13,14 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Fixed
+- syft is pinned to v1.51.1 in the release workflow, which is what the
+  four sibling servers pin. The action was pinned by SHA and the tool it
+  installs was not — the same hole that failed v0.3.0 through cosign, one
+  step below it in the same job. syft writes the SBOM attached to every
+  archive, so an unpinned one changes what a release ships, or fails it,
+  without anything in this repository moving.
+
 ## [0.3.1] - 2026-09-15
 
 ### Fixed
