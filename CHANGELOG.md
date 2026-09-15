@@ -13,6 +13,8 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-15
+
 ### Changed
 - The four shell scripts under `scripts/` are one Go command with a
   registry, `gates`, and **there is no shell left in the repository**.
@@ -530,5 +532,6 @@ destructive flag is on.
   External callers can still branch on the error class via `errors.Is`
   and read `Status`/`Message`/`Endpoint`.
 
-[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mmedum/pipedrive-mcp/releases/tag/v0.1.0
