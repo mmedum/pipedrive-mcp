@@ -118,7 +118,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           check-latest: false
           cache: true
-      - run: bash scripts/staleness-check.sh
+      - run: go run ./scripts/gates deps
 
   changelog:
     name: CHANGELOG entry
@@ -128,7 +128,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - run: bash scripts/changelog-check.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+      - run: go run ./scripts/gates changelog "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
 
   schema-diff:
     name: Tool schema diff
@@ -204,7 +204,7 @@ jobs:
           exit-code: '1'
           ignorefile: security/known-cves.yaml
       - name: Stdio smoke (Docker)
-        run: bash scripts/stdio-smoke.sh docker pipedrive-mcp:ci
+        run: go run ./scripts/gates smoke docker pipedrive-mcp:ci
 
   stdio-smoke:
     name: Stdio smoke (binary)
@@ -217,7 +217,7 @@ jobs:
           check-latest: false
           cache: true
       - run: go build -o /tmp/pipedrive-mcp ./cmd/pipedrive-mcp
-      - run: bash scripts/stdio-smoke.sh binary /tmp/pipedrive-mcp
+      - run: go run ./scripts/gates smoke binary /tmp/pipedrive-mcp
 
   secret-scan:
     name: gitleaks
