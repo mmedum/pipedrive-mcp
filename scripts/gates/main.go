@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -36,6 +37,10 @@ func init() {
 		"changelog": {
 			run: changelogGate, args: "BASE HEAD",
 			doc: "a change to watched source needs an entry under [Unreleased]",
+		},
+		"pins": {
+			run: pins, args: "",
+			doc: "every action is a commit and every tool version is exact",
 		},
 		"deps": {
 			run: depsGate, args: "",
@@ -82,4 +87,23 @@ func usage(w io.Writer) {
 		_, _ = fmt.Fprintf(&b, "  %-14s %-24s %s\n", name, c.args, c.doc)
 	}
 	_, _ = io.WriteString(w, b.String())
+}
+
+// moduleRoot finds the directory holding go.mod, so a gate reads the
+// repository rather than whatever directory it was invoked from.
+func moduleRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("no go.mod above %s", dir)
+		}
+		dir = parent
+	}
 }
