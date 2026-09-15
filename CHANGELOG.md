@@ -15,9 +15,8 @@ breaking changes require a MAJOR bump.
 
 ### Security
 - A `leaks` gate, in `make check` and CI, and **it found a real address
-  on its first run**: `hs@ntmail.dk` sat in two test files, seven times.
-  A live domain, committed as fixture data. It is `hanna.s@example.com`
-  now — `example.com` is reserved by RFC 2606 precisely so a fixture can
+  on its first run**, at a live Danish domain, sitting in two test files
+  seven times as fixture data. It is an `example.com` address now — `example.com` is reserved by RFC 2606 precisely so a fixture can
   use it.
 
   The rules are this server's own rather than a sibling's, because the
