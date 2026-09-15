@@ -16,6 +16,13 @@ breaking changes require a MAJOR bump.
 ## [0.2.0] - 2026-09-15
 
 ### Changed
+- The verification block moved from `release.header` to `release.footer`,
+  so the release page reads notes first and how-to-verify after, as the
+  sibling servers do. It was a header while the notes were being
+  discarded, when it was the only thing on the page and the order could
+  not matter.
+
+### Changed
 - The four shell scripts under `scripts/` are one Go command with a
   registry, `gates`, and **there is no shell left in the repository**.
   That is how the five sibling MCP servers do it, for reasons that
