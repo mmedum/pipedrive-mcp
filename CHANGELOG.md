@@ -14,6 +14,16 @@ breaking changes require a MAJOR bump.
 ## [Unreleased]
 
 ### Changed
+- `gitleaks/gitleaks-action` to v3.0.0, which the four sibling servers
+  were already on. It was held back while the concern was that a major
+  bump might move the version out of `GITLEAKS_VERSION` and break the
+  equality the `pins` gate holds between CI and pre-commit. It does not:
+  the release says "No changes to inputs, outputs, or behavior", the
+  action's source still reads `GITLEAKS_VERSION`, and the only change is
+  Node 20 to Node 24 — which GitHub is removing from Actions this month,
+  so v2 was the riskier place to sit.
+
+### Changed
 - `golang.org/x/term` v0.46.0 and `golang.org/x/sys` v0.48.0. The MCP SDK
   is **deliberately left at v1.6.0**: taking `@latest` pulled v1.8.0, and
   the schema-diff gate refused it because the emitted tool schemas
