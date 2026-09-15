@@ -4,7 +4,6 @@
 # blobs, CycloneDX SBOM, GitHub Release publishing.
 #
 # It does NOT own:
-#   - Docker image build/push (see .github/workflows/docker-publish.yml)
 #   - SLSA build-provenance attestation (see .github/workflows/release.yml)
 #   - Release-notes generation; we keep CHANGELOG.md as the source of
 #     truth and the workflow extracts the matching section before

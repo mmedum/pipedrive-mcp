@@ -37,22 +37,6 @@ What the keyring does **not** protect against:
   expire by default. Rotate them periodically the same way you'd
   rotate a password.
 
-### Use `--env-file` for the Docker path
-
-Containers can't reach the host OS keyring, so the Docker path needs
-the env var. Use Docker's `--env-file` rather than `-e
-PIPEDRIVE_API_TOKEN=...`. The latter exposes the token in
-`docker inspect`, shell history, and `ps` output:
-
-```sh
-cat > pipedrive.env <<'EOF'
-PIPEDRIVE_API_TOKEN=abc123...
-PIPEDRIVE_COMPANY_DOMAIN=acme
-EOF
-chmod 600 pipedrive.env
-docker run -i --rm --env-file pipedrive.env ghcr.io/mmedum/pipedrive-mcp:latest
-```
-
 ### Other practices
 
 - **Never commit tokens.** `.gitignore` excludes `.env` and `.env.*`
@@ -80,7 +64,6 @@ Threats this server defends against:
     fanout.
 - **Token leakage via logs.** Mitigated by: logging never captures the
   token; only request IDs and metadata.
-- **Token leakage via Docker.** Mitigated by `--env-file` guidance above.
 
 Threats this server **does not** defend against:
 
@@ -158,8 +141,6 @@ operator can audit what the LLM tried to do.
   keyless OIDC. Verification command in
   [`../SECURITY.md`](../SECURITY.md).
 - A CycloneDX SBOM is attached to every GitHub Release.
-- The Dockerfile pins both base images by digest before any production
-  release (CI gate in `.github/workflows/release.yml` enforces this).
 - Dependencies refresh weekly via Dependabot. Any direct dependency
   more than 6 months out of date fails CI unless documented as `pinned:`
   in `go.mod`.
