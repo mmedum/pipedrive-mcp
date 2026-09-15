@@ -14,6 +14,13 @@ env:
   GO_VERSION: "1.26.6"
   GORELEASER_VERSION: "v2.13.1"
 
+# bash on every runner, for every `run` step in this file. The Windows
+# runner defaults to PowerShell, which reads a flag like
+# -coverprofile=cov.out as a file called `cov`. The pins gate checks it.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   archives:
     name: Build, sign, publish archives

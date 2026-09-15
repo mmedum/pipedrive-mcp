@@ -77,7 +77,11 @@ staleness: ## gates deps
 	go run ./scripts/gates deps
 
 .PHONY: check
-check: verify-tool-versions fmt vet lint test vuln licenses staleness ## Run every per-PR CI gate locally
+check: verify-tool-versions fmt vet lint test vuln licenses staleness pins smoke ## Run every per-PR CI gate locally
+
+.PHONY: pins
+pins: ## Every action is a commit and every tool version is exact
+	go run ./scripts/gates pins
 
 .PHONY: smoke
 smoke: build ## Drive the binary over stdio and read the reply
