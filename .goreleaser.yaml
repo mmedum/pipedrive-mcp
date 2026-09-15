@@ -58,34 +58,30 @@ checksum:
   algorithm: sha256
 
 signs:
-  # Sign every artifact (archives + checksums) via cosign keyless OIDC.
-  # Produces .sig and .cert next to each artifact.
+  # One signature, over the checksum file, in cosign's bundle format —
+  # the same shape the four sibling MCP servers use. Every archive and
+  # every SBOM is covered by its hash in SHA256SUMS, so signing each
+  # artifact separately bought a longer asset list rather than more
+  # assurance.
   #
-  # The `signature:` and `certificate:` field VALUES are shell-style
-  # templates expanded with `${artifact}`, NOT Go templates. Don't use
-  # `{{ .Artifact }}` here — goreleaser v2 runs the Go template engine
-  # on these fields with a context that has no `.Artifact` key, and the
-  # release fails at "signing artifacts" with:
-  #   sign failed: <archive>: template: failed to apply
-  #   "{{ .Artifact }}.sig": map has no entry for key "Artifact"
+  # The bundle carries the signature AND the certificate together.
+  # `--output-signature`/`--output-certificate` are deprecated: a cosign
+  # new enough to default to `--new-bundle-format` ignores them and then
+  # fails with `create bundle file: open : no such file or directory`,
+  # because no bundle path was given. That is what broke v0.3.0.
   #
-  # The default for `signature:` is already `${artifact}.sig`, so we
-  # could leave it implicit, but declaring it keeps the pair symmetric
-  # and avoids a surprise when the next reader compares the two lines.
-  # `certificate:` MUST be set — its default is empty, which makes
-  # `${certificate}` expand to "" and cosign sign-blob silently drops
-  # the cert output.
+  # `signature:` is a shell-style template expanded with `${artifact}`,
+  # NOT a Go template. Don't use `{{ .Artifact }}` — goreleaser v2 runs
+  # the Go template engine here with a context that has no `.Artifact`.
   - id: cosign-keyless
     cmd: cosign
-    signature: "${artifact}.sig"
-    certificate: "${artifact}.cert"
+    signature: "${artifact}.bundle"
     args:
       - sign-blob
-      - "--yes"
-      - "--output-signature=${signature}"
-      - "--output-certificate=${certificate}"
+      - "--bundle=${signature}"
       - "${artifact}"
-    artifacts: all
+      - "--yes"
+    artifacts: checksum
     output: true
 
 sboms:

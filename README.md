@@ -53,14 +53,20 @@ the signature (recommended):
 
 ```sh
 # Replace X.Y.Z with the release version. Note: no `v` prefix in the
-# archive filename — goreleaser strips it. The `.sig` and `.cert`
-# sign the .tar.gz archive itself, not the binary inside.
-cosign verify-blob \
-  --certificate pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.cert \
-  --signature   pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.sig \
+# archive filename — goreleaser strips it.
+sha256sum -c SHA256SUMS --ignore-missing
+
+# SHA256SUMS is signed with a keyless Sigstore certificate tied to the
+# release workflow's identity. The bundle carries the signature and the
+# certificate together, and the checksum file covers every archive and
+# every SBOM.
+cosign verify-blob SHA256SUMS \
+  --bundle SHA256SUMS.bundle \
   --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.*' \
-  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+
+# And the archive itself carries build provenance.
+gh attestation verify pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz --owner mmedum
 
 tar -xzf pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz
 sudo mv pipedrive-mcp /usr/local/bin/pipedrive-mcp

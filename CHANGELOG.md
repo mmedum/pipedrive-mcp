@@ -13,6 +13,33 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-15
+
+### Fixed
+- The release workflow publishes again. v0.3.0 is a tag that published
+  nothing: goreleaser failed at "signing artifacts" with `create bundle
+  file: open : no such file or directory`, and the tag is left where it
+  is because the Go module proxy caches a tag within minutes and is
+  immutable — re-pointing it would leave the proxy and the repository
+  naming different commits.
+
+  Two causes, both fixed. The cosign installer was pinned by SHA but the
+  cosign it installs was not, so the release took whatever was newest;
+  that cosign defaults to `--new-bundle-format`, which ignores
+  `--output-signature` and `--output-certificate` and then fails because
+  no `--bundle` path was given. **A SHA pins the wrapper, not the tool**
+  — the same lesson the `pins` gate learned for gitleaks one release
+  ago, in this same repository. `cosign-release` is pinned to v3.1.3 now,
+  as the four sibling servers already pin it.
+
+  And the signing block is the siblings' one: a single bundle over
+  `SHA256SUMS` rather than a `.sig` and a `.cert` beside every artifact.
+  Every archive and every SBOM is covered by its hash in that file, so
+  signing each separately bought a longer asset list rather than more
+  assurance. Verification instructions in `README.md`, `SECURITY.md` and
+  `docs/release.md` follow it, and the runbook loses a step that told the
+  reader to `cosign verify` a Docker image removed in 0.3.0.
+
 ## [0.3.0] - 2026-09-15
 
 ### Added
@@ -653,7 +680,8 @@ destructive flag is on.
   External callers can still branch on the error class via `errors.Is`
   and read `Status`/`Message`/`Endpoint`.
 
-[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/mmedum/pipedrive-mcp/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mmedum/pipedrive-mcp/releases/tag/v0.1.0
