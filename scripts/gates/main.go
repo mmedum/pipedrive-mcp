@@ -38,6 +38,10 @@ func init() {
 			run: changelogGate, args: "BASE HEAD",
 			doc: "a change to watched source needs an entry under [Unreleased]",
 		},
+		"leaks": {
+			run: leaks, args: "",
+			doc: "nothing from a real Pipedrive account is in the tree",
+		},
 		"pins": {
 			run: pins, args: "",
 			doc: "every action is a commit and every tool version is exact",

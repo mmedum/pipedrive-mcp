@@ -5,7 +5,8 @@
 Please report security issues privately. Do **not** open a public GitHub
 issue.
 
-- Email: `mmedum@gmail.com` with `[pipedrive-mcp security]` in the subject.
+- Open a private report through GitHub's [security advisory flow](https://github.com/mmedum/pipedrive-mcp/security/advisories/new),
+  which reaches the maintainer and nobody else.
 - GitHub Security Advisories: use the "Report a vulnerability" button on the
   repository's Security tab.
 

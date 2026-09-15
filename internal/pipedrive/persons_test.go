@@ -212,7 +212,7 @@ func TestClient_CreatePerson(t *testing.T) {
 			"name":"Robin Sample",
 			"first_name":"Robin",
 			"last_name":"Sample",
-			"emails":[{"value":"robin@example.com","primary":true,"label":"work"}],
+			"emails":[{"value":"hanna.s@example.com","primary":true,"label":"work"}],
 			"org_id":59,
 			"owner_id":13
 		}}`)
@@ -223,7 +223,7 @@ func TestClient_CreatePerson(t *testing.T) {
 		Name:      "Robin Sample",
 		FirstName: "Robin",
 		LastName:  "Sample",
-		Emails:    []ContactPoint{{Value: "robin@example.com", Primary: true, Label: "work"}},
+		Emails:    []ContactPoint{{Value: "hanna.s@example.com", Primary: true, Label: "work"}},
 		OrgID:     59,
 	})
 	if err != nil {
@@ -239,7 +239,7 @@ func TestClient_CreatePerson(t *testing.T) {
 		`"name":"Robin Sample"`,
 		`"first_name":"Robin"`,
 		`"last_name":"Sample"`,
-		`"value":"robin@example.com"`,
+		`"value":"hanna.s@example.com"`,
 		`"primary":true`,
 		`"label":"work"`,
 		`"org_id":59`,
@@ -251,7 +251,7 @@ func TestClient_CreatePerson(t *testing.T) {
 	if got.ID != 77 || got.Name != "Robin Sample" {
 		t.Errorf("decoded person = %+v; want id=77 name=\"Robin Sample\"", got)
 	}
-	if len(got.Emails) != 1 || got.Emails[0].Value != "robin@example.com" {
+	if len(got.Emails) != 1 || got.Emails[0].Value != "hanna.s@example.com" {
 		t.Errorf("decoded emails lost: %+v", got.Emails)
 	}
 }
