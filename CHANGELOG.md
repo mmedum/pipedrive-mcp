@@ -13,13 +13,46 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-15
+
 ### Fixed
+- `--version` says which release the binary came from, and says it the
+  same way however it was installed. Two bugs, one line:
+  `go install …@latest` applies no ldflags, so an installed binary called
+  itself `dev (unknown, built unknown, …)` and could not name the release
+  at all; and goreleaser stamps its `{{.Version}}` with the leading `v`
+  stripped, so an archive said `0.3.1` where the module version says
+  `v0.3.1`. The same release therefore reported two different strings
+  depending on how somebody installed it, and anything parsing
+  `--version` got a different answer per install method.
+
+  The linker stays the source of truth for a release build; the module
+  version out of `debug.BuildInfo` is the fallback, which is the honest
+  answer when nothing stamped anything. Both spellings normalise to the
+  one the tag, the module version and the release all use. The four
+  sibling servers fixed this after an outside reader compared them side
+  by side; this one had not.
+
 - syft is pinned to v1.51.1 in the release workflow, which is what the
   four sibling servers pin. The action was pinned by SHA and the tool it
   installs was not — the same hole that failed v0.3.0 through cosign, one
   step below it in the same job. syft writes the SBOM attached to every
   archive, so an unpinned one changes what a release ships, or fails it,
   without anything in this repository moving.
+
+### Added
+- The `pins` gate classifies every action, and an unknown one fails it.
+  The gate could only ever check the versions that were *written*; an
+  action that installs a tool and names no version at all is an absence,
+  which is how both the cosign and the syft holes sat there unreported.
+  Every action is now in one of two tables — the installers, with the
+  input that pins the tool each one installs, or the actions that install
+  nothing, each with the reason — and an action in neither fails the
+  gate, because being unclassified is the state that let the first two
+  through.
+
+  Watched failing on all three shapes before being trusted: `cosign-release`
+  removed, `syft-version` removed, and an unclassified installer added.
 
 ## [0.3.1] - 2026-09-15
 
@@ -688,7 +721,8 @@ destructive flag is on.
   External callers can still branch on the error class via `errors.Is`
   and read `Status`/`Message`/`Endpoint`.
 
-[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/mmedum/pipedrive-mcp/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/mmedum/pipedrive-mcp/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.1.0...v0.2.0
