@@ -13,6 +13,37 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Changed
+- The four shell scripts under `scripts/` are one Go command with a
+  registry, `gates`, and **there is no shell left in the repository**.
+  That is how the five sibling MCP servers do it, for reasons that
+  applied here too: a shell script is held to no gofmt, vet, lint or
+  test; `make check` needed bash *and* jq, which are a dependency rather
+  than a given; and a check that reads JSON with `grep` is how a quote
+  ends up inside a string.
+
+  Each ported gate is now covered by tests of its own, which the shell
+  had none of, and two of the four came out better for being rewritten
+  rather than translated:
+
+  - **`release-notes` stops at a markdown link definition.** The shell
+    version published the compare-link footer as part of the oldest
+    release's notes, because the footer follows that section with no
+    heading in between. It also lifts headings one level, so a section
+    no longer starts at h3 directly under the tag's h1.
+  - **`smoke` decodes the reply instead of grepping it.** `grep '"tools"'`
+    passes on any line that merely contains the word, including an error
+    message that happens to mention it. It now parses the frame, matches
+    the request id, and reports how many tools came back. It also holds
+    stdin open with a pipe rather than a `sleep`, and porting it found
+    why that hold exists: without it the server sees EOF and exits before
+    flushing a reply, which reads exactly like a server that never
+    answered.
+  - `deps` decodes `go list -m -u -json` rather than shelling to jq, and
+    `changelog` keeps the wide diff window the shell version needed so
+    the `[Unreleased]` heading is in view however far the entries sit
+    below it.
+
 ### Security
 - Every GitHub Action is pinned to a commit SHA rather than a version
   tag, with the tag kept beside it as a comment. All twelve were on tags

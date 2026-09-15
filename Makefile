@@ -73,8 +73,8 @@ licenses: ## go-licenses against the allow-list
 	  --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 
 .PHONY: staleness
-staleness: ## scripts/staleness-check.sh
-	bash scripts/staleness-check.sh
+staleness: ## gates deps
+	go run ./scripts/gates deps
 
 .PHONY: check
 check: verify-tool-versions fmt vet lint test vuln licenses staleness ## Run every per-PR CI gate locally
@@ -85,8 +85,8 @@ docker: ## Build the Docker image as pipedrive-mcp:dev
 
 .PHONY: smoke
 smoke: build docker ## Run the binary and Docker stdio smoke tests
-	bash scripts/stdio-smoke.sh binary $(BIN)
-	bash scripts/stdio-smoke.sh docker pipedrive-mcp:dev
+	go run ./scripts/gates smoke binary $(BIN)
+	go run ./scripts/gates smoke docker pipedrive-mcp:dev
 
 .PHONY: dump-schemas
 dump-schemas: build ## Print the registered tool schemas as JSON
