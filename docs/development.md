@@ -11,7 +11,6 @@ For the operations run book see [`operations.md`](operations.md).
 | Tool | Version | Purpose |
 | --- | --- | --- |
 | Go | `1.26.2` | Build and test. The `toolchain` directive in `go.mod` will fetch this automatically on Go ≥ 1.21 hosts. |
-| Docker | any recent | Local Docker build, trivy scan, Docker stdio smoke. Optional if you don't need to verify the Docker path. |
 | `golangci-lint` | latest | Lint gate. Install: `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`. |
 | `govulncheck` | latest | Vulnerability gate. Install: `go install golang.org/x/vuln/cmd/govulncheck@latest`. |
 | `go-licenses` | latest | License compatibility gate. Install: `go install github.com/google/go-licenses@latest`. |
@@ -81,27 +80,6 @@ make licenses      # go-licenses check ./...
 make staleness     # scripts/staleness-check.sh
 ```
 
-The Docker-flavored gates need Docker locally:
-
-```sh
-make docker        # docker build
-make smoke         # local binary + Docker stdio smoke
-```
-
-## Running against a Pipedrive sandbox
-
-Create a personal API token in Pipedrive (Settings → Personal preferences
-→ API). Use a sandbox or test workspace, not your production one — the
-binary becomes a write tool from Phase 2 onwards.
-
-Store the token once in the OS keyring:
-
-```sh
-export PIPEDRIVE_COMPANY_DOMAIN='your-subdomain'
-go run ./cmd/pipedrive-mcp login
-# prompts (no echo): Pipedrive API token for "your-subdomain":
-# validates against the API; on success, writes to keyring
-```
 
 Then run the server:
 

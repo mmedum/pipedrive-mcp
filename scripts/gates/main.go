@@ -9,7 +9,7 @@
 //	go run ./scripts/gates changelog BASE HEAD
 //	go run ./scripts/gates deps
 //	go run ./scripts/gates release-notes VERSION [CHANGELOG]
-//	go run ./scripts/gates smoke (binary|docker) TARGET
+//	go run ./scripts/gates smoke binary TARGET
 package main
 
 import (
@@ -46,7 +46,7 @@ func init() {
 			doc: "one version's CHANGELOG section, which is the release note",
 		},
 		"smoke": {
-			run: smokeGate, args: "(binary|docker) TARGET",
+			run: smokeGate, args: "binary TARGET",
 			doc: "drive an MCP handshake over stdio and read the reply",
 		},
 	}

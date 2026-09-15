@@ -15,8 +15,8 @@ import (
 // The three frames a client must send before it may ask for anything.
 // The notification in the middle is required by the MCP spec after
 // initialize; older versions of the Go SDK were lenient about it and
-// newer ones are not, and the Docker container's buffering is where that
-// gap first showed.
+// newer ones are not, and a container's buffering is where that gap
+// first showed — back when this drove one.
 const (
 	frameInit = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":` +
 		`{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}`
@@ -32,7 +32,7 @@ const (
 // an error message.
 func smokeGate(w io.Writer, args []string) error {
 	if len(args) != 2 {
-		return fmt.Errorf("usage: gates smoke (binary|docker) TARGET")
+		return fmt.Errorf("usage: gates smoke binary TARGET")
 	}
 	mode, target := args[0], args[1]
 
@@ -45,19 +45,11 @@ func smokeGate(w io.Writer, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	var cmd *exec.Cmd
-	hold := holdOpen()
-	switch mode {
-	case "binary":
-		cmd = exec.CommandContext(ctx, target, "--skip-probe")
-	case "docker":
-		hold = dockerHold
-		cmd = exec.CommandContext(ctx, "docker", "run", "-i", "--rm",
-			"-e", "PIPEDRIVE_API_TOKEN", "-e", "PIPEDRIVE_COMPANY_DOMAIN",
-			target, "--skip-probe")
-	default:
-		return fmt.Errorf("unknown mode %q (want binary or docker)", mode)
+	if mode != "binary" {
+		return fmt.Errorf("unknown mode %q (want binary)", mode)
 	}
+	hold := holdOpen()
+	cmd := exec.CommandContext(ctx, target, "--skip-probe")
 	cmd.Env = env
 	// Write the frames, then hold stdin open. A reader that ends at the
 	// last frame hands the server EOF immediately and it shuts down before
@@ -134,12 +126,6 @@ func clip(s string) string {
 	}
 	return s
 }
-
-// dockerHold is the wait for the docker mode. A container on a cold
-// runner has an image to unpack and a process to start before it reads
-// anything, and a hold tuned for a local binary hands it EOF while it is
-// still booting — which reads exactly like a server that never answered.
-const dockerHold = 15 * time.Second
 
 // holdOpen is how long stdin stays open after the last frame, for a
 // local binary. SMOKE_HOLD overrides it, in either mode.

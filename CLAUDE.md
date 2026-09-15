@@ -95,9 +95,7 @@ Before declaring a task complete, run **all** of:
 7. `go-licenses check ./...` against the allow-list.
 8. `bash scripts/staleness-check.sh`
 9. `bash scripts/changelog-check.sh <base> HEAD` (if source paths changed)
-10. `docker build -t pipedrive-mcp:dev .` and trivy scan
 11. `bash scripts/stdio-smoke.sh binary ./pipedrive-mcp`
-12. `bash scripts/stdio-smoke.sh docker pipedrive-mcp:dev`
 
 Plus the manual skills:
 

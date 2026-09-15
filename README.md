@@ -7,8 +7,8 @@ Pipedrive CRM as MCP tools. Read deals, people, organisations and activities, an
 
 A single static Go binary that speaks [MCP](https://modelcontextprotocol.io)
 over stdio to Claude Code, Claude Desktop or any other MCP client, against
-your own Pipedrive API token. Distroless Docker image, signed releases and
-a semver-disciplined tool surface.
+your own Pipedrive API token. Signed releases and a semver-disciplined
+tool surface.
 
 > **Status: Phase 1 shipped.** Fifteen
 > tools are registered by default: eleven v2 reads (`list_pipelines`,
@@ -38,8 +38,7 @@ in one sitting.
   `PIPEDRIVE_ENABLE_DESTRUCTIVE`. A server-wide `PIPEDRIVE_DRY_RUN` makes
   every write a rehearsal that returns "would have done X" without firing
   the request.
-- **Tiny static binary** (`CGO_ENABLED=0`, `-trimpath`, `-s -w`) and a
-  ~10 MB distroless Docker image.
+- **Tiny static binary** (`CGO_ENABLED=0`, `-trimpath`, `-s -w`).
 - **Reproducible builds** (verified in CI). Releases are signed via
   [cosign](https://github.com/sigstore/cosign) keyless OIDC and ship with
   a CycloneDX SBOM.
@@ -65,12 +64,6 @@ cosign verify-blob \
 
 tar -xzf pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz
 sudo mv pipedrive-mcp /usr/local/bin/pipedrive-mcp
-```
-
-### From the Docker image
-
-```sh
-docker pull ghcr.io/mmedum/pipedrive-mcp:latest
 ```
 
 ### From source
@@ -123,7 +116,7 @@ precedence over the keyring, matching the `gh` and `aws` CLIs.
 
 ## Connect a client
 
-### Claude Desktop, binary
+### Claude Desktop
 
 After `pipedrive-mcp login` has stored the token in your keyring AND
 recorded the default domain in user-config, the Claude Desktop config
@@ -142,39 +135,6 @@ needs nothing — no secret, no domain:
 To pin a specific workspace (e.g., when you have several stored), add
 `PIPEDRIVE_COMPANY_DOMAIN` under `env` to override the recorded
 default for this MCP server only.
-
-### Claude Desktop, Docker
-
-Docker containers can't reach the host OS keyring, so the Docker path
-needs `PIPEDRIVE_API_TOKEN` in the env block. Use Docker's
-`--env-file` pattern so the token isn't visible in `docker inspect`:
-
-```json
-{
-  "mcpServers": {
-    "pipedrive": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm",
-        "--env-file", "/secure/path/to/pipedrive.env",
-        "ghcr.io/mmedum/pipedrive-mcp:latest"
-      ]
-    }
-  }
-}
-```
-
-with `/secure/path/to/pipedrive.env` (mode 600):
-
-```env
-PIPEDRIVE_API_TOKEN=...
-PIPEDRIVE_COMPANY_DOMAIN=acme
-```
-
-The `-i` flag is required so Docker keeps stdin open for MCP framing.
-
-After saving the config, restart Claude Desktop and confirm the
-`pipedrive` server appears as connected.
 
 ## Tools
 
@@ -314,8 +274,8 @@ smoke test and the staleness check.
 ## Security
 
 - Read [`SECURITY.md`](SECURITY.md) before reporting a vulnerability.
-- Read [`docs/security.md`](docs/security.md) for token handling, the
-  `--env-file` Docker pattern, and the threat model.
+- Read [`docs/security.md`](docs/security.md) for token handling and
+  the threat model.
 
 ## Code of conduct
 
