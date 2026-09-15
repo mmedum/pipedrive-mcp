@@ -302,60 +302,29 @@ func cmdStatus(args []string, stdout io.Writer) int {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
-		_, _ = fmt.Fprintf(os.Stderr, "usage: pipedrive-mcp status [--no-probe]\n\n"+
+		_, _ = fmt.Fprintf(os.Stderr, "usage: pipedrive-mcp status [--no-probe] [--json]\n\n"+
 			"Reports the active workspace domain, where it came from\n"+
 			"(env or user config), whether a token is available, and\n"+
 			"whether an auth probe against Pipedrive succeeds.\n")
 	}
 	noProbe := fs.Bool("no-probe", false, "skip the network call to Pipedrive (offline mode)")
+	asJSON := fs.Bool("json", false, "print the same state as one JSON object")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	return runStatus(stdout, *noProbe)
+	return runStatus(stdout, *noProbe, *asJSON)
 }
 
-func runStatus(out io.Writer, noProbe bool) int {
-	printf := func(format string, args ...any) {
-		_, _ = fmt.Fprintf(out, format, args...)
-	}
-
-	ucPath, _ := userconfig.DefaultPath()
-	domain, src, err := resolveDomainAtStartup()
-	if err != nil {
-		printf("domain:    (not set)\nhint:      %v\n", err)
-		return 1
-	}
-	printf("domain:    %s (%s)\n", domain, src.Label(ucPath))
-
-	token, tokenSrc, err := credentials.Resolve(credentials.Default(), domain)
-	if err != nil {
-		if errors.Is(err, credentials.ErrNotFound) {
-			printf("token:     (not set)\nhint:      run `pipedrive-mcp login`, or set %s\n", credentials.EnvVar)
-			return 1
+func runStatus(out io.Writer, noProbe, asJSON bool) int {
+	r, code := newStatusReport(noProbe)
+	if asJSON {
+		if err := r.writeJSON(out); err != nil {
+			fail("status: %v", err)
 		}
-		printf("token:     unavailable (%v)\n", err)
-		return 1
+		return code
 	}
-	switch tokenSrc {
-	case credentials.SourceKeyring:
-		printf("token:     keyring (service=%s, account=%s)\n", credentials.ServiceName, domain)
-	case credentials.SourceEnv:
-		printf("token:     env (%s)\n", credentials.EnvVar)
-	default:
-		printf("token:     %s\n", tokenSrc)
-	}
-
-	if noProbe {
-		printf("probe:     skipped (--no-probe)\n")
-		return 0
-	}
-	client := newPipedriveClient(domain, token, 30*time.Second, nil)
-	if err := client.ProbeAuth(context.Background()); err != nil {
-		printf("probe:     fail (%v)\n", err)
-		return 1
-	}
-	printf("probe:     ok (https://%s.pipedrive.com/api/v2)\n", domain)
-	return 0
+	r.writeText(out)
+	return code
 }
 
 // DomainSource names where a resolved domain came from. Surfaced in

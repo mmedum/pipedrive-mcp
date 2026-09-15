@@ -13,6 +13,31 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Added
+- `status --json` prints the same state as one JSON object on stdout, so
+  a script can read whether this server can start instead of parsing
+  output written for a person. `credentials.resolved` is the field to
+  branch on; `schema_version` changes only when a field is removed or its
+  meaning changes. The design is an outside contributor's, from the
+  Google Drive server where it landed first.
+
+  This command differs from the siblings' in two ways that the object had
+  to keep. It **exits non-zero** on every refusal, and it still does — a
+  caller may read the code or the object. And it **contacts Pipedrive**:
+  the probe is part of what `status` reports, so `probe.ran` is separate
+  from `probe.ok`, because a probe skipped with `--no-probe` is neither a
+  pass nor a failure and must not read as either.
+
+  Every stopping point is a field rather than an early return with half
+  an object behind it: no domain, no token, and a failed probe each
+  produce a whole object with a reason, since a caller cannot tell a
+  truncated object from one it failed to parse.
+
+  One collector, two renderers. The text output is byte-identical to what
+  the released binary prints, asserted by diffing them, and the no-token
+  refusal was driven end to end — whole object, reason naming the fix,
+  exit 1.
+
 ### Changed
 - `gitleaks/gitleaks-action` to v3.0.0, which the four sibling servers
   were already on. It was held back while the concern was that a major
