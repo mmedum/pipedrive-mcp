@@ -20,8 +20,7 @@ unchecked boxes lacking justification.
 - [ ] `go-licenses check` passes
 - [ ] `scripts/staleness-check.sh` passes
 - [ ] Tool-schema diff is empty, OR head commit carries `SCHEMA-CHANGE:` (additive / non-breaking) or `BREAKING CHANGE:` (breaking) footer
-- [ ] Docker build + trivy scan clean
-- [ ] `scripts/stdio-smoke.sh` passes for both binary and Docker
+- [ ] `make smoke` passes
 - [ ] gitleaks clean
 
 ## Manual gates

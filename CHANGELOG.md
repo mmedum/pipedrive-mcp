@@ -13,6 +13,33 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Removed
+- **The Docker image, and everything that carried it**: `Dockerfile`,
+  `.dockerignore`, `docker-publish.yml`, the CI build-scan-smoke job, the
+  docker mode of the smoke gate, the dependabot docker ecosystem, and the
+  sections across the README and five documents that described it.
+
+  It did not earn its keep, and the reason is specific to this server
+  rather than a dislike of containers. An MCP stdio server is launched as
+  a subprocess by the client, on the user's own machine, so the container
+  buys no isolation the client does not already have — and it costs the
+  thing this server's auth story is built on. `docs/security.md` said so
+  already: "Containers can't reach the host OS keyring, so the Docker
+  path needs the env var." The containerised route therefore pushed the
+  API token into the environment, which is precisely what `login` and the
+  keyring exist to avoid, and the README's Docker section never mentioned
+  it.
+
+  Against that it cost a 48-line CI job, a 61-line publish workflow,
+  Trivy scanning, base-image digest bookkeeping at every release, weekly
+  dependabot churn, and a stdio smoke that needed a fifteen-second hold
+  for container cold start where a binary needs three. The sibling MCP
+  servers ship no image and are simpler for it.
+
+  Anyone using `ghcr.io/mmedum/pipedrive-mcp` should move to the signed
+  archive or `go install`, and run `pipedrive-mcp login` once so the token
+  lands in the keyring rather than the environment.
+
 ## [0.2.0] - 2026-09-15
 
 ### Changed

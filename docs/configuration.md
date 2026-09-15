@@ -228,19 +228,3 @@ export PIPEDRIVE_DRY_RUN='true'
 Use this to rehearse multi-step LLM workflows against a production token
 without firing any writes.
 
-### Docker with `--env-file`
-
-```sh
-cat > pipedrive.env <<'EOF'
-PIPEDRIVE_API_TOKEN=abc123...
-PIPEDRIVE_COMPANY_DOMAIN=acme
-LOG_FORMAT=json
-EOF
-chmod 600 pipedrive.env
-
-docker run -i --rm --env-file pipedrive.env ghcr.io/mmedum/pipedrive-mcp:latest
-```
-
-`--env-file` keeps the token out of your shell history and out of
-`docker inspect` output. See [`security.md`](security.md) for more on
-token handling.

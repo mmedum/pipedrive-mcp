@@ -36,7 +36,7 @@ body:
     id: version
     attributes:
       label: Version
-      description: "`pipedrive-mcp --version`, or the Docker image tag."
+      description: "`pipedrive-mcp --version`."
     validations:
       required: true
 

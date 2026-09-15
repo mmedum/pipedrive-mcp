@@ -79,14 +79,9 @@ staleness: ## gates deps
 .PHONY: check
 check: verify-tool-versions fmt vet lint test vuln licenses staleness ## Run every per-PR CI gate locally
 
-.PHONY: docker
-docker: ## Build the Docker image as pipedrive-mcp:dev
-	docker build -t pipedrive-mcp:dev --build-arg VERSION=$(VERSION) .
-
 .PHONY: smoke
-smoke: build docker ## Run the binary and Docker stdio smoke tests
+smoke: build ## Drive the binary over stdio and read the reply
 	go run ./scripts/gates smoke binary $(BIN)
-	go run ./scripts/gates smoke docker pipedrive-mcp:dev
 
 .PHONY: dump-schemas
 dump-schemas: build ## Print the registered tool schemas as JSON

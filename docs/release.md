@@ -9,9 +9,6 @@ How to cut a tagged release. Two parallel workflows trigger on a
   extracts the matching `## [X.Y.Z]` section from `CHANGELOG.md` as
   the release notes (so our Keep-a-Changelog format wins, not
   goreleaser's git-log changelog).
-- `.github/workflows/docker-publish.yml` — multi-arch Docker image
-  pushed to GHCR, cosign-signed by digest. Split out so the archive
-  release isn't blocked by Docker registry hiccups.
 
 This doc is the **before** and **after** checklist for the maintainer
 who pushes the tag.
@@ -28,7 +25,7 @@ A release lands a verified state of `main`. Don't tag from a branch.
       `CONTRIBUTING.md` "Phases and approvals" + the phase plan the
       maintainer is working from).
 - [ ] `make check` passes locally on the commit you're about to tag.
-- [ ] `make smoke` passes locally (binary + Docker stdio smoke).
+- [ ] `make smoke` passes locally.
 - [ ] Sandbox integration tests green (Phase 1+):
       `go test -tags=integration -race -count=3 -shuffle=on ./...`
 - [ ] `CHANGELOG.md` `[Unreleased]` section reflects exactly the
@@ -36,12 +33,6 @@ A release lands a verified state of `main`. Don't tag from a branch.
 - [ ] `make dump-schemas` output diffed against the previous tag.
       Any breaking change has a `BREAKING CHANGE:` commit footer
       somewhere in the range.
-- [ ] `Dockerfile`'s `FROM` lines pinned by SHA256 digest, not
-      floating tag. Procedure for resolving the digests is in
-      [`operations.md`](operations.md#pinning-docker-base-images-before-release).
-      The release workflow's "Verify Dockerfile pins" step fails if
-      either FROM line is unpinned — fix on `main` first, don't try
-      to patch in a release commit.
 - [ ] `/security-review` over the cumulative diff since the previous
       tag. Output committed under `audit/security-reviews/v<tag>.md`.
 - [ ] `/simplify` over the cumulative diff. Output under
@@ -85,8 +76,6 @@ The release workflow runs automatically. Watch it at
         matching `.cdx.json.sig`/`.cdx.json.cert` for each.
       - SLSA build-provenance attestation visible (cli/cli-style
         "Provenance" badge on each archive).
-- [ ] Pull the freshly-pushed Docker image and verify the cosign
-      signature:
 
       cosign verify ghcr.io/mmedum/pipedrive-mcp:v0.X.Y \
         --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.+' \
@@ -128,11 +117,6 @@ The release workflow runs automatically. Watch it at
   `[Unreleased]`. Fix the CHANGELOG on `main`, redo the tag.
 - **Cosign signing failure**: usually a transient Fulcio CA blip;
   re-running the workflow on the same tag works.
-- **Docker push 403 (`docker-publish.yml`)**: `GITHUB_TOKEN` lost
-  write permission to the package; check the repo's Actions → General
-  → Workflow permissions.
-- **Dockerfile FROM-pin guard fails**: a `FROM` line drifted to a
-  floating tag. Fix on `main`, retag.
 - **Trivy CVE introduced by base-image bump** (in CI on PRs): either
   fix the underlying issue or add a grace-period entry under
   `security/known-cves.yaml` per `docs/security.md`.

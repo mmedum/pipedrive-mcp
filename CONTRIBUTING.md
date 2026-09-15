@@ -23,7 +23,7 @@ make check
 Every PR must pass:
 
 1. The CI gates from `.github/workflows/ci.yml` (build, vet, lint, test,
-   coverage, govulncheck, license check, staleness, schema diff, Docker
+   coverage, govulncheck, license check, staleness, schema diff
    build + trivy, stdio smoke, CHANGELOG check, gitleaks).
 2. The manual gates from `.github/pull_request_template.md` (`/simplify`
    and `/security-review` skill output, docs updated, design rationale captured,

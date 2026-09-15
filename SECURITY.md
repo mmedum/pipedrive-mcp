@@ -10,7 +10,7 @@ issue.
   repository's Security tab.
 
 Include enough detail for the maintainer to reproduce the issue: affected
-version (binary or Docker tag), steps, and any logs or stack traces. If the
+version, steps, and any logs or stack traces. If the
 issue requires a particular Pipedrive account configuration to reproduce,
 describe it without including real credentials or PII.
 
@@ -45,7 +45,7 @@ This table will be updated as the project ships releases.
 
 ## Operator guidance
 
-Operator-level guidance — token handling, Docker `--env-file` patterns,
+Operator-level guidance — token handling,
 threat model, the LLM audit-trail caveat, and the scope of
 `PIPEDRIVE_ENABLE_DESTRUCTIVE` and `PIPEDRIVE_DRY_RUN` — lives in
 [`docs/security.md`](docs/security.md). This file is the **reporting**
