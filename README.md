@@ -216,6 +216,15 @@ Versioning is strict semver. The MCP tool surface is the public contract.
 Each phase boundary requires explicit maintainer approval before the next
 phase starts.
 
+### Reading the setup from a script
+
+`pipedrive-mcp status --json` prints the same state as one JSON object on
+stdout. `credentials.resolved` is the field to branch on, `probe.ran`
+distinguishes a skipped check from a failed one, and the command still
+exits non-zero on every refusal, so a caller may read either. A label in
+the human output is free to be reworded in any release; the object is
+not.
+
 ## Getting help
 
 - **`401 Unauthorized` at startup, immediate exit.** The API token is
