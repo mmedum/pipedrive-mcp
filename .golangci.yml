@@ -64,6 +64,9 @@ linters:
 
   exclusions:
     rules:
+      # scripts/ is maintainer tooling run at a terminal, not the server.
+      - path: ^scripts/
+        linters: [forbidigo]
       - path: _test\.go
         linters:
           - gocyclo

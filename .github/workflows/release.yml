@@ -44,7 +44,7 @@ jobs:
 
       - name: Extract release notes from CHANGELOG.md
         run: |
-          bash scripts/extract-release-notes.sh "${GITHUB_REF_NAME}" > /tmp/notes.md
+          go run ./scripts/gates release-notes "${GITHUB_REF_NAME}" > /tmp/notes.md
           if [ ! -s /tmp/notes.md ]; then
             echo "::error::No CHANGELOG.md section found for ${GITHUB_REF_NAME} — release-prep step missed?"
             exit 1
