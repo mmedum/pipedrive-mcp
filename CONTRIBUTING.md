@@ -84,7 +84,7 @@ The integration test suite runs against a dedicated Pipedrive sandbox.
 
 | Role | Owner |
 | --- | --- |
-| Sandbox account | Mark Medum Bundgaard (`mmedum@gmail.com`) |
+| Sandbox account | the maintainer's own Pipedrive trial |
 | API token in CI secrets | Mark Medum Bundgaard |
 | Token rotation cadence | Quarterly (Jan, Apr, Jul, Oct), first week of month |
 

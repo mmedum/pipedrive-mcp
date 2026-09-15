@@ -52,7 +52,8 @@ spaces.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the project maintainers at `mmedum@gmail.com`. All complaints
+reported through GitHub's [security advisory flow](https://github.com/mmedum/pipedrive-mcp/security/advisories/new),
+which reaches the maintainer and nobody else. All complaints
 will be reviewed and investigated promptly and fairly.
 
 ## Attribution
