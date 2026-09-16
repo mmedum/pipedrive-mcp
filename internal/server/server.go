@@ -24,6 +24,8 @@ const instructions = `Pipedrive CRM tools, against one workspace's API token.
 
 Start with search. It is the natural-language gateway: it turns a name into the numeric id every other tool needs, and it covers deals, persons, organizations, products, files and leads in one call. The list_ tools are the precision filters for when you already hold the ids. list_pipelines and list_stages name the pipeline and stage a deal is filed under, and take no paging, because a workspace rarely has more than twenty pipelines.
 
+whoami says which account the token acts as. Call it before attributing anything to "me": its user_id is the owner_id a record gets when you create one without naming an owner, so it is what turns "my open deals" into list_deals(owner_id=...), and it reports the timezone an activity's due_time is written in.
+
 Read one record with get_deal, get_person, get_organization, get_activity or get_note, and many with the matching list_ tool. A get_ is one call and a list_ is one call, but a list_ you then page through is as many calls as you ask for, so filter rather than sweeping. Custom fields come back resolved to the names they carry in the workspace rather than the 40-character hashes Pipedrive stores them under, so you can read them and quote them directly; refresh_field_cache re-reads those names after somebody adds or renames a field in the Pipedrive UI.
 
 Every mutation goes through a manage_ tool — manage_deal, manage_person, manage_organization, manage_activity, manage_note — with an action saying which.
@@ -32,7 +34,9 @@ Writing is guarded. A manage_ tool reads its target before it writes and refuses
 
 IMPORTANT: a list_ page holding fewer rows than the limit is NOT the end. Keep going while next_cursor comes back non-empty.
 
-Two things the API cannot do, which retrying will not fix. Activity type (call, email, meeting and so on) cannot be filtered server-side, so ask for the rows and filter them on their own type field. And activities are not indexed by search: reach them through list_activities, filtered by the deal or person they hang off.
+Three things no amount of retrying will fix. Activity type (call, email, meeting and so on) cannot be filtered server-side, so ask for the rows and filter them on their own type field. Activities are not indexed by search: reach them through list_activities, filtered by the deal or person they hang off. And a field that already holds a value can be changed but NOT cleared — Pipedrive v2 rejects a null and stores an empty string as a value — so omit what you do not mean to change rather than sending a blank to empty it.
+
+Resources pipedrive://deals/{id}, and the same for persons, organizations, activities and notes, carry what the matching get_ tool returns, for attaching a record rather than calling a tool. They take no options, so include_attendees and include_notes still need the tool.
 
 Everything here is Pipedrive v2 except notes, which v2 does not expose at all; those come from v1 and behave the same way, except that deleting one is soft — it clears active_flag, and nothing here sets it back. Custom fields are readable everywhere and not yet writable. Products, leads, files, projects and goals are not here.`
 
