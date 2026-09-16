@@ -241,37 +241,21 @@ func updatePersonAction(ctx context.Context, c personsClient, companyDomain stri
 		OwnerID:   in.OwnerID,
 	}
 
-	before, err := c.GetPerson(ctx, in.PersonID)
-	if err != nil {
-		return errorResult(err), managePersonOutput{}
+	person, changed, res := guardedWrite[pipedrive.Person]{
+		Spec:          personFields,
+		Resource:      fmt.Sprintf("person %d", in.PersonID),
+		ExpectVersion: in.ExpectVersion,
+		Version:       func(p *pipedrive.Person) string { return p.UpdateTime },
+		Overwrite:     in.Overwrite,
+		DryRun:        in.DryRun,
+		Get:           func(ctx context.Context) (*pipedrive.Person, error) { return c.GetPerson(ctx, in.PersonID) },
+		Predict:       func(p *pipedrive.Person) pipedrive.Person { return personAfterUpdate(*p, req) },
+		Put:           func(ctx context.Context) (*pipedrive.Person, error) { return c.UpdatePerson(ctx, in.PersonID, req) },
+	}.run(ctx)
+	if res != nil {
+		return res, managePersonOutput{}
 	}
-	if err = checkExpectVersion(in.ExpectVersion, before.UpdateTime, fmt.Sprintf("person %d", in.PersonID)); err != nil {
-		return errorResult(err), managePersonOutput{}
-	}
-
-	predicted := personAfterUpdate(*before, req)
-	changed := changedFields(personFields, before, &predicted)
-	if len(changed) == 0 {
-		return nil, managePersonOutput{Person: resolvedPerson(ctx, c, companyDomain, before)}
-	}
-	if err = requireOverwrite(personFields, fmt.Sprintf("person %d", in.PersonID), before, changed, in.Overwrite); err != nil {
-		return errorResult(err), managePersonOutput{}
-	}
-	if in.DryRun {
-		return nil, managePersonOutput{
-			Person:  resolvedPerson(ctx, c, companyDomain, before),
-			Changed: changed,
-		}
-	}
-
-	after, err := c.UpdatePerson(ctx, in.PersonID, req)
-	if err != nil {
-		return errorResult(err), managePersonOutput{}
-	}
-	return nil, managePersonOutput{
-		Person:  resolvedPerson(ctx, c, companyDomain, after),
-		Changed: changedFields(personFields, before, after),
-	}
+	return nil, managePersonOutput{Person: resolvedPerson(ctx, c, companyDomain, person), Changed: changed}
 }
 
 func personAfterUpdate(before pipedrive.Person, req pipedrive.UpdatePersonRequest) pipedrive.Person {

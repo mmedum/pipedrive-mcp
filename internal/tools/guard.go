@@ -1,9 +1,12 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
 )
@@ -237,4 +240,73 @@ func setIf[T any](dst, src *T) {
 	if src != nil {
 		*dst = *src
 	}
+}
+
+// guardedWrite is the read-guard-write sequence every manage_* mutation
+// runs. It exists because that sequence is the security-critical part of
+// this package and it was written out once per resource, which is how
+// the postures drifted apart: deals and activities gated the overwrite
+// check behind the action while persons and organizations did not, and
+// nothing made the five agree. Ordering lives here now, once.
+//
+// The caller supplies what actually differs — the field table, the
+// record label, how to fetch, how to predict, how to write — and gets
+// back the record to summarize plus the fields that moved.
+type guardedWrite[T any] struct {
+	Spec     []fieldSpec[T]
+	Resource string // "deal 9", for the refusal text
+
+	// ExpectVersion is the caller's copy of the record version; empty
+	// means they did not ask for the check. Version reads it off the
+	// stored record.
+	ExpectVersion string
+	Version       func(*T) string
+
+	// Overwrite permits replacing populated fields. A transition passes
+	// true because it names both the change and the field it lands on,
+	// so the caller already sees the whole blast radius.
+	Overwrite bool
+	DryRun    bool
+
+	Get     func(context.Context) (*T, error)
+	Predict func(*T) T
+	Put     func(context.Context) (*T, error)
+}
+
+// run returns the record to report, the fields that changed, and a
+// non-nil result when the caller should stop and return it.
+//
+// Three outcomes reach the caller with res == nil: a no-op (changed is
+// empty, nothing was sent), a dry run (changed is what would move,
+// nothing was sent), and a real write (changed is what the upstream
+// actually altered, diffed against the echo rather than the prediction
+// because Pipedrive normalises some of what it stores).
+func (w guardedWrite[T]) run(ctx context.Context) (rec *T, changed []string, stop *mcp.CallToolResult) {
+	before, err := w.Get(ctx)
+	if err != nil {
+		return nil, nil, errorResult(err)
+	}
+	if err = checkExpectVersion(w.ExpectVersion, w.Version(before), w.Resource); err != nil {
+		return nil, nil, errorResult(err)
+	}
+
+	predicted := w.Predict(before)
+	changed = changedFields(w.Spec, before, &predicted)
+	if len(changed) == 0 {
+		// Everything asked for is already stored. Saying so beats a
+		// round trip that would report the same thing.
+		return before, nil, nil
+	}
+	if err = requireOverwrite(w.Spec, w.Resource, before, changed, w.Overwrite); err != nil {
+		return nil, nil, errorResult(err)
+	}
+	if w.DryRun {
+		return before, changed, nil
+	}
+
+	after, err := w.Put(ctx)
+	if err != nil {
+		return nil, nil, errorResult(err)
+	}
+	return after, changedFields(w.Spec, before, after), nil
 }

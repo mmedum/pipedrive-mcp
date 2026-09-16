@@ -228,37 +228,23 @@ func updateOrganizationAction(ctx context.Context, c organizationsClient, compan
 		OwnerID: in.OwnerID,
 	}
 
-	before, err := c.GetOrganization(ctx, in.OrgID)
-	if err != nil {
-		return errorResult(err), manageOrganizationOutput{}
+	org, changed, res := guardedWrite[pipedrive.Organization]{
+		Spec:          organizationFields,
+		Resource:      fmt.Sprintf("organization %d", in.OrgID),
+		ExpectVersion: in.ExpectVersion,
+		Version:       func(o *pipedrive.Organization) string { return o.UpdateTime },
+		Overwrite:     in.Overwrite,
+		DryRun:        in.DryRun,
+		Get:           func(ctx context.Context) (*pipedrive.Organization, error) { return c.GetOrganization(ctx, in.OrgID) },
+		Predict:       func(o *pipedrive.Organization) pipedrive.Organization { return organizationAfterUpdate(*o, req) },
+		Put: func(ctx context.Context) (*pipedrive.Organization, error) {
+			return c.UpdateOrganization(ctx, in.OrgID, req)
+		},
+	}.run(ctx)
+	if res != nil {
+		return res, manageOrganizationOutput{}
 	}
-	if err = checkExpectVersion(in.ExpectVersion, before.UpdateTime, fmt.Sprintf("organization %d", in.OrgID)); err != nil {
-		return errorResult(err), manageOrganizationOutput{}
-	}
-
-	predicted := organizationAfterUpdate(*before, req)
-	changed := changedFields(organizationFields, before, &predicted)
-	if len(changed) == 0 {
-		return nil, manageOrganizationOutput{Organization: resolvedOrganization(ctx, c, companyDomain, before)}
-	}
-	if err = requireOverwrite(organizationFields, fmt.Sprintf("organization %d", in.OrgID), before, changed, in.Overwrite); err != nil {
-		return errorResult(err), manageOrganizationOutput{}
-	}
-	if in.DryRun {
-		return nil, manageOrganizationOutput{
-			Organization: resolvedOrganization(ctx, c, companyDomain, before),
-			Changed:      changed,
-		}
-	}
-
-	after, err := c.UpdateOrganization(ctx, in.OrgID, req)
-	if err != nil {
-		return errorResult(err), manageOrganizationOutput{}
-	}
-	return nil, manageOrganizationOutput{
-		Organization: resolvedOrganization(ctx, c, companyDomain, after),
-		Changed:      changedFields(organizationFields, before, after),
-	}
+	return nil, manageOrganizationOutput{Organization: resolvedOrganization(ctx, c, companyDomain, org), Changed: changed}
 }
 
 func organizationAfterUpdate(before pipedrive.Organization, req pipedrive.UpdateOrganizationRequest) pipedrive.Organization {
