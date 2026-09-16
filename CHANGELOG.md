@@ -13,6 +13,8 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-17
+
 ### Added
 
 - A **Claude Desktop bundle** (`.mcpb`) on every release, and the MCP
