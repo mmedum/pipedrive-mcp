@@ -25,9 +25,24 @@ type fakePersonsClient struct {
 	lastListOpts   pipedrive.ListPersonsOptions
 	lastCreateReq  pipedrive.CreatePersonRequest
 	createCallSeen bool
+
+	updatePerson  *pipedrive.Person
+	updateErr     error
+	lastUpdateReq pipedrive.UpdatePersonRequest
+	lastUpdateID  int64
+	updateCalls   int
+	getCalls      int
+}
+
+func (f *fakePersonsClient) UpdatePerson(_ context.Context, id int64, req pipedrive.UpdatePersonRequest) (*pipedrive.Person, error) {
+	f.lastUpdateID = id
+	f.lastUpdateReq = req
+	f.updateCalls++
+	return f.updatePerson, f.updateErr
 }
 
 func (f *fakePersonsClient) GetPerson(_ context.Context, _ int64) (*pipedrive.Person, error) {
+	f.getCalls++
 	return f.person, f.err
 }
 
@@ -267,7 +282,7 @@ func TestRegisterPersons_RegistersInDumpRegistry(t *testing.T) {
 		t.Fatalf("DumpJSON: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{`"get_person"`, `"list_persons"`, `"create_person"`} {
+	for _, want := range []string{`"get_person"`, `"list_persons"`, `"manage_person"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dump missing %s", want)
 		}
@@ -293,8 +308,9 @@ func TestCreatePerson_HappyPath(t *testing.T) {
 	defer h.Close()
 
 	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "create_person",
+		Name: "manage_person",
 		Arguments: map[string]any{
+			"action":     "create",
 			"name":       "Helle Steffenauer",
 			"first_name": "Helle",
 			"last_name":  "Steffenauer",
@@ -343,8 +359,9 @@ func TestCreatePerson_RejectsEmptyName(t *testing.T) {
 	defer h.Close()
 
 	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "create_person",
-		Arguments: map[string]any{"name": ""},
+		Name: "manage_person",
+		Arguments: map[string]any{
+			"action": "create", "name": ""},
 	})
 	if !res.IsError {
 		t.Fatal("expected isError on empty name")
@@ -365,8 +382,9 @@ func TestCreatePerson_DryRunSkipsUpstream(t *testing.T) {
 	defer h.Close()
 
 	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "create_person",
+		Name: "manage_person",
 		Arguments: map[string]any{
+			"action": "create",
 			"name":   "Dry run probe",
 			"org_id": 59,
 		},
@@ -408,8 +426,9 @@ func TestCreatePerson_PropagatesUpstreamError(t *testing.T) {
 	defer h.Close()
 
 	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "create_person",
+		Name: "manage_person",
 		Arguments: map[string]any{
+			"action":   "create",
 			"name":     "Bad owner",
 			"owner_id": 999999,
 		},

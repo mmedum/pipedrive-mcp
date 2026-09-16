@@ -47,8 +47,8 @@ This table will be updated as the project ships releases.
 ## Operator guidance
 
 Operator-level guidance — token handling,
-threat model, the LLM audit-trail caveat, and the scope of
-`PIPEDRIVE_ENABLE_DESTRUCTIVE` and `PIPEDRIVE_DRY_RUN` — lives in
+threat model, the LLM audit-trail caveat, and the guarded-write
+contract (`dry_run`, `overwrite`, `expect_version`) — lives in
 [`docs/security.md`](docs/security.md). This file is the **reporting**
 policy; that one is the **runtime** policy.
 

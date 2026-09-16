@@ -98,9 +98,9 @@ func runServer(stdout io.Writer) {
 	}
 
 	if dumpSchemas {
-		// EnableDestructive=true so --dump-schemas surfaces the full
-		// destructive-tool schema for the schema-diff CI gate.
-		_ = server.New(context.Background(), serverName, version.Version, nil, "", tools.RegisterOptions{EnableDestructive: true})
+		// Every tool registers unconditionally now, so the dump always
+		// carries the full surface the schema-diff CI gate compares.
+		_ = server.New(context.Background(), serverName, version.Version, nil, "", tools.RegisterOptions{})
 		if err := tools.DumpJSON(stdout, version.Version); err != nil {
 			fail("dump schemas: %v", err)
 		}
@@ -148,8 +148,7 @@ func runServer(stdout io.Writer) {
 	}
 
 	srv := server.New(ctx, serverName, version.Version, client, cfg.CompanyDomain, tools.RegisterOptions{
-		DryRun:            cfg.DryRun,
-		EnableDestructive: cfg.EnableDestructive,
+		DryRun: cfg.DryRun,
 	})
 	if err := srv.Run(ctx, &mcp.StdioTransport{}); err != nil && !isCleanShutdown(err) {
 		fail("server: %v", err)

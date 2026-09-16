@@ -1,15 +1,14 @@
 package tools
 
-// RegisterOptions bundles the server-wide flags every Register
-// function for a write-bearing resource takes. Bundling stops a
-// future caller from swapping `DryRun` and `EnableDestructive`
-// positionally — both type-check, both look fine in code review.
+// RegisterOptions carries the server-wide settings a Register function
+// needs.
 //
-// Both fields gate *registration*: when EnableDestructive is false,
-// destructive tools (currently only `delete_note`) don't register at
-// all. Per CLAUDE.md hard rule #3, that's server-build-time gating,
-// not annotation-based — flipping it requires a server restart.
+// DryRun mirrors PIPEDRIVE_DRY_RUN and is a floor, not a default: a
+// handler ORs it with the caller's per-call dry_run, so a call can turn
+// a rehearsal on and nothing on the wire can turn one off. docs/security.md
+// tells an operator that setting the env var makes speculative LLM work
+// safe; a tool that honoured only the per-call input would make that
+// false, and the tool that can delete is exactly the one that would.
 type RegisterOptions struct {
-	DryRun            bool // mirrors PIPEDRIVE_DRY_RUN
-	EnableDestructive bool // mirrors PIPEDRIVE_ENABLE_DESTRUCTIVE
+	DryRun bool // mirrors PIPEDRIVE_DRY_RUN
 }

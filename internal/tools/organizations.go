@@ -13,6 +13,7 @@ type organizationsClient interface {
 	GetOrganization(ctx context.Context, id int64) (*pipedrive.Organization, error)
 	ListOrganizations(ctx context.Context, opts pipedrive.ListOrganizationsOptions) ([]pipedrive.Organization, string, error)
 	CreateOrganization(ctx context.Context, req pipedrive.CreateOrganizationRequest) (*pipedrive.Organization, error)
+	UpdateOrganization(ctx context.Context, id int64, req pipedrive.UpdateOrganizationRequest) (*pipedrive.Organization, error)
 	ResolveOrganizationCustomFields(ctx context.Context, raw map[string]any) map[string]any
 }
 
@@ -69,21 +70,10 @@ type listOrganizationsOutput struct {
 	NextCursor    string                `json:"next_cursor,omitempty" jsonschema:"pass to the next list_organizations call to get the next page; empty when there are no more pages"`
 }
 
-type createOrganizationInput struct {
-	Name    string `json:"name" jsonschema:"the organization's display name; required, non-empty. If the user did not give you a name, ask — do NOT invent one."`
-	Address string `json:"address,omitempty" jsonschema:"single-line address as the user dictated it (e.g. '123 Main St, San Francisco, CA 94103'). Pipedrive parses it server-side into structured country/locality/postal_code on the response. Do NOT pre-parse into JSON or split into components."`
-	OwnerID int64  `json:"owner_id,omitempty" jsonschema:"id of the user to own the record; omit to default to the API-token user"`
-}
-
-type createOrganizationOutput struct {
-	Organization organizationSummary `json:"organization" jsonschema:"the newly-created organization as Pipedrive echoes it. When dry_run is true, this is a synthetic record with id=0 reflecting what would have been created."`
-	DryRun       bool                `json:"dry_run,omitempty" jsonschema:"true when PIPEDRIVE_DRY_RUN was set on the server: no upstream POST was issued"`
-}
-
-// RegisterOrganizations wires get_organization, list_organizations,
-// and create_organization into the MCP server. opts.DryRun, when
-// true, makes create_organization return a synthetic preview without
-// firing the upstream POST.
+// RegisterOrganizations wires the organization tools into the MCP
+// server. Reads are discrete (get_organization, list_organizations);
+// every mutation goes through manage_organization. opts.DryRun is the
+// server-wide dry-run floor.
 func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain string, opts RegisterOptions) {
 	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 
@@ -140,35 +130,151 @@ func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain s
 		return nil, out, nil
 	})
 
-	AddTool(s, &mcp.Tool{
-		Name:        "create_organization",
-		Description: "Create a new Pipedrive organization. Required: `name`. If the user did not give you a name, ask — do NOT invent one. Honours PIPEDRIVE_DRY_RUN=true on the server by returning a synthetic preview (dry_run=true, id=0) without issuing the POST. Custom fields are not writable through this tool yet.",
-	}, createOrganizationHandler(c, companyDomain, opts.DryRun))
+	registerManageOrganization(s, c, companyDomain, opts)
 }
 
-func createOrganizationHandler(c organizationsClient, companyDomain string, dryRun bool) mcp.ToolHandlerFor[createOrganizationInput, createOrganizationOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in createOrganizationInput) (*mcp.CallToolResult, createOrganizationOutput, error) {
-		if in.Name == "" {
-			return errorResult(fmt.Errorf("%w: name must not be empty", pipedrive.ErrValidation)), createOrganizationOutput{}, nil
+var allowedOrganizationActions = map[string]bool{"create": true, "update": true}
+
+// organizationFields is the one table of LLM-facing field names a write
+// can touch. The address projects to the single line Pipedrive parsed
+// it from, which is the same shape a write sends.
+var organizationFields = []fieldSpec[pipedrive.Organization]{
+	{"name", func(o *pipedrive.Organization) string { return projectString(o.Name) }},
+	{"address", func(o *pipedrive.Organization) string { return projectAddress(o.Address) }},
+	{"owner_id", func(o *pipedrive.Organization) string { return projectID(o.OwnerID) }},
+}
+
+type manageOrganizationInput struct {
+	Action        string  `json:"action" jsonschema:"create or update"`
+	OrgID         int64   `json:"org_id,omitempty" jsonschema:"the organization to act on, required by update and ignored by create"`
+	Name          *string `json:"name,omitempty" jsonschema:"the organization's display name, required by create. If the user did not give you a name, ask — do NOT invent one"`
+	Address       *string `json:"address,omitempty" jsonschema:"a single-line address exactly as the user dictated it, such as 123 Main St, San Francisco, CA 94103. Pipedrive parses it server-side into country, locality and postal_code, so do NOT pre-parse it or split it into components"`
+	OwnerID       *int64  `json:"owner_id,omitempty" jsonschema:"the user who owns the record; omit on create to take the API token's own user"`
+	DryRun        bool    `json:"dry_run,omitempty" jsonschema:"report what the write would find and change, and send nothing"`
+	Overwrite     bool    `json:"overwrite,omitempty" jsonschema:"allow update to replace fields that already hold a value. Without it such an update is refused, naming each field"`
+	ExpectVersion string  `json:"expect_version,omitempty" jsonschema:"the update_time from the read that informed this write; the write is refused if the organization changed since"`
+}
+
+type manageOrganizationOutput struct {
+	Action       string              `json:"action" jsonschema:"the action that ran"`
+	Organization organizationSummary `json:"organization" jsonschema:"the organization as Pipedrive stored it. When dry_run is true nothing was persisted and a created organization carries id=0."`
+	Changed      []string            `json:"changed,omitempty" jsonschema:"names of the fields this write actually altered, empty when it was a no-op. On a dry run, the fields it would alter."`
+	DryRun       bool                `json:"dry_run,omitempty" jsonschema:"true when nothing was sent upstream"`
+}
+
+func registerManageOrganization(s *mcp.Server, c organizationsClient, companyDomain string, opts RegisterOptions) {
+	destructiveTrue := true
+	mutating := mcp.ToolAnnotations{DestructiveHint: &destructiveTrue, IdempotentHint: false}
+
+	AddTool(s, &mcp.Tool{
+		Name:        "manage_organization",
+		Description: "Create an organization — the account or company a deal and its people hang off — or edit one. One call, either action: create takes name, update takes org_id. Writing is guarded. An update reads the organization first and refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. IMPORTANT: send address as ONE LINE the way a person would say it and let Pipedrive parse it — the structured country, locality and postal_code you see on a read are its output, not its input, and pre-splitting them loses the parse. Custom fields are readable through get_organization and list_organizations but are not writable here yet. Use search to find an org_id from a name.",
+		Annotations: &mutating,
+	}, manageOrganizationHandler(c, companyDomain, opts.DryRun))
+}
+
+func manageOrganizationHandler(c organizationsClient, companyDomain string, dryRun bool) mcp.ToolHandlerFor[manageOrganizationInput, manageOrganizationOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in manageOrganizationInput) (*mcp.CallToolResult, manageOrganizationOutput, error) {
+		if err := validateAction(in.Action, allowedOrganizationActions); err != nil {
+			return errorResult(err), manageOrganizationOutput{}, nil
 		}
-		req := pipedrive.CreateOrganizationRequest{
-			Name:    in.Name,
-			Address: in.Address,
-			OwnerID: in.OwnerID,
+		in.DryRun = in.DryRun || dryRun
+
+		var (
+			res *mcp.CallToolResult
+			out manageOrganizationOutput
+		)
+		if in.Action == "create" {
+			res, out = createOrganizationAction(ctx, c, companyDomain, in)
+		} else {
+			res, out = updateOrganizationAction(ctx, c, companyDomain, in)
 		}
-		if dryRun {
-			return nil, createOrganizationOutput{
-				Organization: summarizeOrganization(companyDomain, syntheticOrgFromRequest(req), nil),
-				DryRun:       true,
-			}, nil
+		if res == nil {
+			out.Action = in.Action
+			out.DryRun = in.DryRun
 		}
+		return res, out, nil
+	}
+}
+
+func createOrganizationAction(ctx context.Context, c organizationsClient, companyDomain string, in manageOrganizationInput) (*mcp.CallToolResult, manageOrganizationOutput) {
+	if in.Name == nil || *in.Name == "" {
+		return errorResult(fmt.Errorf("%w: name must not be empty", pipedrive.ErrValidation)), manageOrganizationOutput{}
+	}
+	req := pipedrive.CreateOrganizationRequest{
+		Name:    *in.Name,
+		Address: derefString(in.Address),
+		OwnerID: derefID(in.OwnerID),
+	}
+	created := syntheticOrgFromRequest(req)
+	var resolved map[string]any
+	if !in.DryRun {
 		o, err := c.CreateOrganization(ctx, req)
 		if err != nil {
-			return errorResult(err), createOrganizationOutput{}, nil
+			return errorResult(err), manageOrganizationOutput{}
 		}
-		resolved := c.ResolveOrganizationCustomFields(ctx, o.CustomFields)
-		return nil, createOrganizationOutput{Organization: summarizeOrganization(companyDomain, o, resolved)}, nil
+		created = o
+		resolved = c.ResolveOrganizationCustomFields(ctx, o.CustomFields)
 	}
+	return nil, manageOrganizationOutput{
+		Organization: summarizeOrganization(companyDomain, created, resolved),
+		Changed:      changedFields(organizationFields, &pipedrive.Organization{}, created),
+	}
+}
+
+func updateOrganizationAction(ctx context.Context, c organizationsClient, companyDomain string, in manageOrganizationInput) (*mcp.CallToolResult, manageOrganizationOutput) {
+	if err := validatePositiveID(in.OrgID, "org_id"); err != nil {
+		return errorResult(err), manageOrganizationOutput{}
+	}
+	req := pipedrive.UpdateOrganizationRequest{
+		Name:    in.Name,
+		Address: in.Address,
+		OwnerID: in.OwnerID,
+	}
+
+	before, err := c.GetOrganization(ctx, in.OrgID)
+	if err != nil {
+		return errorResult(err), manageOrganizationOutput{}
+	}
+	if err = checkExpectVersion(in.ExpectVersion, before.UpdateTime, fmt.Sprintf("organization %d", in.OrgID)); err != nil {
+		return errorResult(err), manageOrganizationOutput{}
+	}
+
+	predicted := organizationAfterUpdate(*before, req)
+	changed := changedFields(organizationFields, before, &predicted)
+	if len(changed) == 0 {
+		return nil, manageOrganizationOutput{Organization: summarizeOrganization(companyDomain, before, c.ResolveOrganizationCustomFields(ctx, before.CustomFields))}
+	}
+	if err = requireOverwrite(organizationFields, fmt.Sprintf("organization %d", in.OrgID), before, changed, in.Overwrite); err != nil {
+		return errorResult(err), manageOrganizationOutput{}
+	}
+	if in.DryRun {
+		return nil, manageOrganizationOutput{
+			Organization: summarizeOrganization(companyDomain, before, c.ResolveOrganizationCustomFields(ctx, before.CustomFields)),
+			Changed:      changed,
+		}
+	}
+
+	after, err := c.UpdateOrganization(ctx, in.OrgID, req)
+	if err != nil {
+		return errorResult(err), manageOrganizationOutput{}
+	}
+	return nil, manageOrganizationOutput{
+		Organization: summarizeOrganization(companyDomain, after, c.ResolveOrganizationCustomFields(ctx, after.CustomFields)),
+		Changed:      changedFields(organizationFields, before, after),
+	}
+}
+
+func organizationAfterUpdate(before pipedrive.Organization, req pipedrive.UpdateOrganizationRequest) pipedrive.Organization {
+	after := before
+	setIf(&after.Name, req.Name)
+	setIf(&after.OwnerID, req.OwnerID)
+	if req.Address != nil {
+		// Pipedrive re-parses the line server-side; the prediction only
+		// needs the value the guard and the diff compare on.
+		after.Address = &pipedrive.Address{Value: *req.Address}
+	}
+	return after
 }
 
 // syntheticOrgFromRequest builds a placeholder Organization mirroring
