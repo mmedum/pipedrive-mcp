@@ -58,12 +58,11 @@ const (
 // resolved separately by the credentials package — it is not part of
 // Config so the env-var lookup logic doesn't fight with the keyring.
 type Config struct {
-	CompanyDomain     string
-	LogLevel          LogLevel
-	LogFormat         LogFormat
-	EnableDestructive bool
-	DryRun            bool
-	HTTPTimeout       time.Duration
+	CompanyDomain string
+	LogLevel      LogLevel
+	LogFormat     LogFormat
+	DryRun        bool
+	HTTPTimeout   time.Duration
 }
 
 var (
@@ -124,14 +123,6 @@ func LoadFor(rawDomain string) (Config, error) {
 			return Config{}, fmt.Errorf("config: LOG_FORMAT %q is not one of text|json", v)
 		}
 		c.LogFormat = format
-	}
-
-	if v := os.Getenv("PIPEDRIVE_ENABLE_DESTRUCTIVE"); v != "" {
-		b, err := strconv.ParseBool(v)
-		if err != nil {
-			return Config{}, fmt.Errorf("config: PIPEDRIVE_ENABLE_DESTRUCTIVE %q: use true or false", v)
-		}
-		c.EnableDestructive = b
 	}
 
 	if v := os.Getenv("PIPEDRIVE_DRY_RUN"); v != "" {

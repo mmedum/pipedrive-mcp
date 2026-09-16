@@ -25,9 +25,24 @@ type fakeOrganizationsClient struct {
 	lastListOpts   pipedrive.ListOrganizationsOptions
 	lastCreateReq  pipedrive.CreateOrganizationRequest
 	createCallSeen bool
+
+	updateOrg     *pipedrive.Organization
+	updateErr     error
+	lastUpdateReq pipedrive.UpdateOrganizationRequest
+	lastUpdateID  int64
+	updateCalls   int
+	getCalls      int
+}
+
+func (f *fakeOrganizationsClient) UpdateOrganization(_ context.Context, id int64, req pipedrive.UpdateOrganizationRequest) (*pipedrive.Organization, error) {
+	f.lastUpdateID = id
+	f.lastUpdateReq = req
+	f.updateCalls++
+	return f.updateOrg, f.updateErr
 }
 
 func (f *fakeOrganizationsClient) GetOrganization(_ context.Context, _ int64) (*pipedrive.Organization, error) {
+	f.getCalls++
 	return f.org, f.err
 }
 
@@ -257,7 +272,7 @@ func TestRegisterOrganizations_RegistersInDumpRegistry(t *testing.T) {
 		t.Fatalf("DumpJSON: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{`"get_organization"`, `"list_organizations"`, `"create_organization"`} {
+	for _, want := range []string{`"get_organization"`, `"list_organizations"`, `"manage_organization"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dump missing %s", want)
 		}
@@ -279,8 +294,9 @@ func TestCreateOrganization_HappyPath(t *testing.T) {
 	defer h.Close()
 
 	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "create_organization",
+		Name: "manage_organization",
 		Arguments: map[string]any{
+			"action":   "create",
 			"name":     "Nordjyllands Trafikselskab",
 			"address":  "John F. Kennedys Plads 1T, Aalborg, Denmark",
 			"owner_id": 13,
@@ -328,8 +344,9 @@ func TestCreateOrganization_RejectsEmptyName(t *testing.T) {
 	defer h.Close()
 
 	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "create_organization",
-		Arguments: map[string]any{"name": ""},
+		Name: "manage_organization",
+		Arguments: map[string]any{
+			"action": "create", "name": ""},
 	})
 	if !res.IsError {
 		t.Fatal("expected isError on empty name")
@@ -350,8 +367,9 @@ func TestCreateOrganization_DryRunSkipsUpstream(t *testing.T) {
 	defer h.Close()
 
 	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "create_organization",
+		Name: "manage_organization",
 		Arguments: map[string]any{
+			"action":  "create",
 			"name":    "Dry run probe",
 			"address": "Somewhere on the moon",
 		},
@@ -398,8 +416,9 @@ func TestCreateOrganization_PropagatesUpstreamError(t *testing.T) {
 	defer h.Close()
 
 	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "create_organization",
+		Name: "manage_organization",
 		Arguments: map[string]any{
+			"action":   "create",
 			"name":     "Bad owner",
 			"owner_id": 999999,
 		},

@@ -183,7 +183,7 @@ func TestClient_CreateNote_RoundTrip(t *testing.T) {
 func TestClient_CreateNote_RejectsEmptyContent(t *testing.T) {
 	// Hits the client-side guard, never makes an HTTP call.
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		t.Error("create_note should not have hit the network for empty content")
+		t.Error("CreateNote should not have hit the network for empty content")
 	}))
 	defer srv.Close()
 
@@ -201,7 +201,7 @@ func TestClient_CreateNote_RejectsEmptyContent(t *testing.T) {
 
 func TestClient_CreateNote_RejectsNoAnchor(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		t.Error("create_note should not have hit the network without an anchor")
+		t.Error("CreateNote should not have hit the network without an anchor")
 	}))
 	defer srv.Close()
 
@@ -288,5 +288,89 @@ func TestClient_CreateNote_NoRetryOn5xx(t *testing.T) {
 	}
 	if hits != 1 {
 		t.Errorf("upstream hits = %d; want 1 (no retry on POST 5xx)", hits)
+	}
+}
+
+func TestClient_UpdateNote_RoundTrip(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/notes/55" {
+			t.Errorf("path = %q, want /api/v1/notes/55", r.URL.Path)
+		}
+		if r.Method != http.MethodPut {
+			t.Errorf("method = %q, want PUT", r.Method)
+		}
+		if ct := r.Header.Get("Content-Type"); ct != "application/json" {
+			t.Errorf("content-type = %q, want application/json", ct)
+		}
+		// v1 treats the notes PUT as a partial update, so the body must
+		// carry only what the caller asked to change — omitempty on
+		// every field is what makes that true.
+		var raw map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if len(raw) != 1 {
+			t.Errorf("body = %v; want only the changed field", raw)
+		}
+		if raw["content"] != "<p>revised</p>" {
+			t.Errorf("body content = %v; want <p>revised</p>", raw["content"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"success":true,"data":{
+			"id":55,
+			"content":"<p>revised</p>",
+			"user_id":13,
+			"deal_id":42,
+			"add_time":"2026-04-27 10:00:00",
+			"update_time":"2026-04-27 11:00:00",
+			"active_flag":true
+		}}`)
+	}))
+	defer srv.Close()
+
+	got, err := newTestClient(srv).UpdateNote(context.Background(), 55, UpdateNoteRequest{
+		Content: "<p>revised</p>",
+	})
+	if err != nil {
+		t.Fatalf("UpdateNote: %v", err)
+	}
+	if got.ID != 55 || got.Content != "<p>revised</p>" {
+		t.Errorf("note = %+v; want id=55 content=<p>revised</p>", got)
+	}
+	if got.UpdateTime != "2026-04-27 11:00:00" {
+		t.Errorf("update_time = %q; want the post-write value the tool layer diffs on", got.UpdateTime)
+	}
+}
+
+func TestClient_UpdateNote_NoRetryOn5xx(t *testing.T) {
+	// PUT is idempotent by HTTP semantics but Pipedrive gives no such
+	// guarantee, so it stays on the conservative non-GET retry branch.
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, `{"success":false,"error":"server error"}`)
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(srv).UpdateNote(context.Background(), 55, UpdateNoteRequest{Content: "x"})
+	if err == nil {
+		t.Fatal("want error on 500")
+	}
+	if hits != 1 {
+		t.Errorf("upstream hits = %d; want 1 (no retry on PUT 5xx)", hits)
+	}
+}
+
+func TestClient_UpdateNote_NotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"success":false,"error":"Note not found"}`)
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(srv).UpdateNote(context.Background(), 999, UpdateNoteRequest{Content: "x"})
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v; want ErrNotFound", err)
 	}
 }

@@ -13,6 +13,7 @@ type personsClient interface {
 	GetPerson(ctx context.Context, id int64) (*pipedrive.Person, error)
 	ListPersons(ctx context.Context, opts pipedrive.ListPersonsOptions) ([]pipedrive.Person, string, error)
 	CreatePerson(ctx context.Context, req pipedrive.CreatePersonRequest) (*pipedrive.Person, error)
+	UpdatePerson(ctx context.Context, id int64, req pipedrive.UpdatePersonRequest) (*pipedrive.Person, error)
 	ResolvePersonCustomFields(ctx context.Context, raw map[string]any) map[string]any
 }
 
@@ -63,24 +64,9 @@ type listPersonsOutput struct {
 	NextCursor string          `json:"next_cursor,omitempty" jsonschema:"pass to the next list_persons call to get the next page; empty when there are no more pages"`
 }
 
-type createPersonInput struct {
-	Name      string                   `json:"name" jsonschema:"the person's full name; required, non-empty. If the user did not give you a name, ask — do NOT invent one."`
-	FirstName string                   `json:"first_name,omitempty" jsonschema:"first / given name; optional. Pipedrive will combine first_name + last_name into name if name is set; passing both is fine."`
-	LastName  string                   `json:"last_name,omitempty" jsonschema:"last / family name; optional"`
-	Emails    []pipedrive.ContactPoint `json:"emails,omitempty" jsonschema:"email addresses. Each entry: {value, primary, label}. Set primary=true on at most one; label is free-text (e.g. 'work', 'home')."`
-	Phones    []pipedrive.ContactPoint `json:"phones,omitempty" jsonschema:"phone numbers. Same shape as emails."`
-	OrgID     int64                    `json:"org_id,omitempty" jsonschema:"id of the organization to link the person to; 0 = no link. Use search(type=organization) to resolve a name."`
-	OwnerID   int64                    `json:"owner_id,omitempty" jsonschema:"id of the user to own the record; omit to default to the API-token user"`
-}
-
-type createPersonOutput struct {
-	Person personSummary `json:"person" jsonschema:"the newly-created person as Pipedrive echoes it. When dry_run is true, this is a synthetic record with id=0 reflecting what would have been created."`
-	DryRun bool          `json:"dry_run,omitempty" jsonschema:"true when PIPEDRIVE_DRY_RUN was set on the server: no upstream POST was issued"`
-}
-
-// RegisterPersons wires get_person, list_persons, and create_person
-// into the MCP server. opts.DryRun, when true, makes create_person
-// return a synthetic preview without firing the upstream POST.
+// RegisterPersons wires the person tools into the MCP server. Reads are
+// discrete (get_person, list_persons); every mutation goes through
+// manage_person. opts.DryRun is the server-wide dry-run floor.
 func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string, opts RegisterOptions) {
 	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 
@@ -138,39 +124,175 @@ func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string, opts 
 		return nil, out, nil
 	})
 
-	AddTool(s, &mcp.Tool{
-		Name:        "create_person",
-		Description: "Create a new Pipedrive person (contact). Required: `name`. If the user did not give you a name, ask — do NOT invent one. Honours PIPEDRIVE_DRY_RUN=true on the server by returning a synthetic preview (dry_run=true, id=0) without issuing the POST. Custom fields are not writable through this tool yet.",
-	}, createPersonHandler(c, companyDomain, opts.DryRun))
+	registerManagePerson(s, c, companyDomain, opts)
 }
 
-func createPersonHandler(c personsClient, companyDomain string, dryRun bool) mcp.ToolHandlerFor[createPersonInput, createPersonOutput] {
-	return func(ctx context.Context, _ *mcp.CallToolRequest, in createPersonInput) (*mcp.CallToolResult, createPersonOutput, error) {
-		if in.Name == "" {
-			return errorResult(fmt.Errorf("%w: name must not be empty", pipedrive.ErrValidation)), createPersonOutput{}, nil
+var allowedPersonActions = map[string]bool{"create": true, "update": true}
+
+// personFields is the one table of LLM-facing field names a write can
+// touch. Emails and phones project to their primary value: Pipedrive
+// replaces a contact-point collection wholesale, so "does this person
+// already have an email" is the question the overwrite guard needs
+// answered, not which of several.
+var personFields = []fieldSpec[pipedrive.Person]{
+	{"name", func(p *pipedrive.Person) string { return projectString(p.Name) }},
+	{"first_name", func(p *pipedrive.Person) string { return projectString(p.FirstName) }},
+	{"last_name", func(p *pipedrive.Person) string { return projectString(p.LastName) }},
+	{"emails", func(p *pipedrive.Person) string { return projectContactPoints(p.Emails) }},
+	{"phones", func(p *pipedrive.Person) string { return projectContactPoints(p.Phones) }},
+	{"org_id", func(p *pipedrive.Person) string { return projectID(p.OrgID) }},
+	{"owner_id", func(p *pipedrive.Person) string { return projectID(p.OwnerID) }},
+}
+
+type managePersonInput struct {
+	Action        string                   `json:"action" jsonschema:"create or update"`
+	PersonID      int64                    `json:"person_id,omitempty" jsonschema:"the person to act on, required by update and ignored by create"`
+	Name          *string                  `json:"name,omitempty" jsonschema:"the person's full name, required by create. If the user did not give you a name, ask — do NOT invent one"`
+	FirstName     *string                  `json:"first_name,omitempty" jsonschema:"first or given name; Pipedrive combines first_name and last_name into name, and passing all three is fine"`
+	LastName      *string                  `json:"last_name,omitempty" jsonschema:"last or family name"`
+	Emails        []pipedrive.ContactPoint `json:"emails,omitempty" jsonschema:"email addresses, each {value, primary, label}. At most one primary; label is free text such as work or home. On update this REPLACES the whole collection rather than adding to it, because that is what Pipedrive does with it"`
+	Phones        []pipedrive.ContactPoint `json:"phones,omitempty" jsonschema:"phone numbers, same shape as emails, and replaced wholesale on update for the same reason"`
+	OrgID         *int64                   `json:"org_id,omitempty" jsonschema:"the organization the person belongs to. Use search to turn a company name into the id. Omit to leave it as it is; unlinking is not supported here"`
+	OwnerID       *int64                   `json:"owner_id,omitempty" jsonschema:"the user who owns the record; omit on create to take the API token's own user"`
+	DryRun        bool                     `json:"dry_run,omitempty" jsonschema:"report what the write would find and change, and send nothing"`
+	Overwrite     bool                     `json:"overwrite,omitempty" jsonschema:"allow update to replace fields that already hold a value. Without it such an update is refused, naming each field"`
+	ExpectVersion string                   `json:"expect_version,omitempty" jsonschema:"the update_time from the read that informed this write; the write is refused if the person changed since"`
+}
+
+type managePersonOutput struct {
+	Action  string        `json:"action" jsonschema:"the action that ran"`
+	Person  personSummary `json:"person" jsonschema:"the person as Pipedrive stored it. When dry_run is true nothing was persisted and a created person carries id=0."`
+	Changed []string      `json:"changed,omitempty" jsonschema:"names of the fields this write actually altered, empty when it was a no-op. On a dry run, the fields it would alter."`
+	DryRun  bool          `json:"dry_run,omitempty" jsonschema:"true when nothing was sent upstream"`
+}
+
+func registerManagePerson(s *mcp.Server, c personsClient, companyDomain string, opts RegisterOptions) {
+	destructiveTrue := true
+	mutating := mcp.ToolAnnotations{DestructiveHint: &destructiveTrue, IdempotentHint: false}
+
+	AddTool(s, &mcp.Tool{
+		Name:        "manage_person",
+		Description: "Create a contact or edit one. One call, either action: create takes name, update takes person_id. Writing is guarded. An update reads the person first and refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. IMPORTANT: emails and phones REPLACE the stored collection rather than adding to it, because that is what Pipedrive does with them — to add an address, read the person first and send the existing entries back alongside the new one, or you will silently drop the rest. Custom fields are readable through get_person and list_persons but are not writable here yet. Use search to turn a company name into the org_id this links to.",
+		Annotations: &mutating,
+	}, managePersonHandler(c, companyDomain, opts.DryRun))
+}
+
+func managePersonHandler(c personsClient, companyDomain string, dryRun bool) mcp.ToolHandlerFor[managePersonInput, managePersonOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in managePersonInput) (*mcp.CallToolResult, managePersonOutput, error) {
+		if err := validateAction(in.Action, allowedPersonActions); err != nil {
+			return errorResult(err), managePersonOutput{}, nil
 		}
-		req := pipedrive.CreatePersonRequest{
-			Name:      in.Name,
-			FirstName: in.FirstName,
-			LastName:  in.LastName,
-			Emails:    in.Emails,
-			Phones:    in.Phones,
-			OrgID:     in.OrgID,
-			OwnerID:   in.OwnerID,
+		in.DryRun = in.DryRun || dryRun
+
+		var (
+			res *mcp.CallToolResult
+			out managePersonOutput
+		)
+		if in.Action == "create" {
+			res, out = createPersonAction(ctx, c, companyDomain, in)
+		} else {
+			res, out = updatePersonAction(ctx, c, companyDomain, in)
 		}
-		if dryRun {
-			return nil, createPersonOutput{
-				Person: summarizePerson(companyDomain, syntheticPersonFromRequest(req), nil),
-				DryRun: true,
-			}, nil
+		if res == nil {
+			out.Action = in.Action
+			out.DryRun = in.DryRun
 		}
+		return res, out, nil
+	}
+}
+
+func createPersonAction(ctx context.Context, c personsClient, companyDomain string, in managePersonInput) (*mcp.CallToolResult, managePersonOutput) {
+	if in.Name == nil || *in.Name == "" {
+		return errorResult(fmt.Errorf("%w: name must not be empty", pipedrive.ErrValidation)), managePersonOutput{}
+	}
+	req := pipedrive.CreatePersonRequest{
+		Name:      *in.Name,
+		FirstName: derefString(in.FirstName),
+		LastName:  derefString(in.LastName),
+		Emails:    in.Emails,
+		Phones:    in.Phones,
+		OrgID:     derefID(in.OrgID),
+		OwnerID:   derefID(in.OwnerID),
+	}
+	created := syntheticPersonFromRequest(req)
+	var resolved map[string]any
+	if !in.DryRun {
 		p, err := c.CreatePerson(ctx, req)
 		if err != nil {
-			return errorResult(err), createPersonOutput{}, nil
+			return errorResult(err), managePersonOutput{}
 		}
-		resolved := c.ResolvePersonCustomFields(ctx, p.CustomFields)
-		return nil, createPersonOutput{Person: summarizePerson(companyDomain, p, resolved)}, nil
+		created = p
+		resolved = c.ResolvePersonCustomFields(ctx, p.CustomFields)
 	}
+	return nil, managePersonOutput{
+		Person:  summarizePerson(companyDomain, created, resolved),
+		Changed: changedFields(personFields, &pipedrive.Person{}, created),
+	}
+}
+
+func updatePersonAction(ctx context.Context, c personsClient, companyDomain string, in managePersonInput) (*mcp.CallToolResult, managePersonOutput) {
+	if err := validatePositiveID(in.PersonID, "person_id"); err != nil {
+		return errorResult(err), managePersonOutput{}
+	}
+	req := pipedrive.UpdatePersonRequest{
+		Name:      in.Name,
+		Emails:    in.Emails,
+		Phones:    in.Phones,
+		FirstName: in.FirstName,
+		LastName:  in.LastName,
+		OrgID:     in.OrgID,
+		OwnerID:   in.OwnerID,
+	}
+
+	before, err := c.GetPerson(ctx, in.PersonID)
+	if err != nil {
+		return errorResult(err), managePersonOutput{}
+	}
+	if err = checkExpectVersion(in.ExpectVersion, before.UpdateTime, fmt.Sprintf("person %d", in.PersonID)); err != nil {
+		return errorResult(err), managePersonOutput{}
+	}
+
+	predicted := personAfterUpdate(*before, req)
+	changed := changedFields(personFields, before, &predicted)
+	if len(changed) == 0 {
+		return nil, managePersonOutput{Person: summarizePerson(companyDomain, before, c.ResolvePersonCustomFields(ctx, before.CustomFields))}
+	}
+	if err = requireOverwrite(personFields, fmt.Sprintf("person %d", in.PersonID), before, changed, in.Overwrite); err != nil {
+		return errorResult(err), managePersonOutput{}
+	}
+	if in.DryRun {
+		return nil, managePersonOutput{
+			Person:  summarizePerson(companyDomain, before, c.ResolvePersonCustomFields(ctx, before.CustomFields)),
+			Changed: changed,
+		}
+	}
+
+	after, err := c.UpdatePerson(ctx, in.PersonID, req)
+	if err != nil {
+		return errorResult(err), managePersonOutput{}
+	}
+	return nil, managePersonOutput{
+		Person:  summarizePerson(companyDomain, after, c.ResolvePersonCustomFields(ctx, after.CustomFields)),
+		Changed: changedFields(personFields, before, after),
+	}
+}
+
+func personAfterUpdate(before pipedrive.Person, req pipedrive.UpdatePersonRequest) pipedrive.Person {
+	after := before
+	setIf(&after.Name, req.Name)
+	setIf(&after.FirstName, req.FirstName)
+	setIf(&after.LastName, req.LastName)
+	setIf(&after.OrgID, req.OrgID)
+	setIf(&after.OwnerID, req.OwnerID)
+	// Contact points replace rather than merge, which is what Pipedrive
+	// does with them.
+	if req.Emails != nil {
+		after.Emails = req.Emails
+	}
+	if req.Phones != nil {
+		after.Phones = req.Phones
+	}
+	return after
 }
 
 // syntheticPersonFromRequest builds a placeholder Person that mirrors

@@ -40,6 +40,32 @@ type CreatePersonRequest struct {
 	OwnerID   int64          `json:"owner_id,omitempty"`
 }
 
+// UpdatePersonRequest is the JSON body for PATCH /api/v2/persons/{id}.
+// Pointers so nil omits the field and it keeps its stored value. The
+// slices are nil-or-replace, because Pipedrive replaces a contact-point
+// collection wholesale rather than merging into it. Clearing a field is
+// not supported — see UpdateDealRequest.
+type UpdatePersonRequest struct {
+	Name      *string        `json:"name,omitempty"`
+	FirstName *string        `json:"first_name,omitempty"`
+	LastName  *string        `json:"last_name,omitempty"`
+	Emails    []ContactPoint `json:"emails,omitempty"`
+	Phones    []ContactPoint `json:"phones,omitempty"`
+	OrgID     *int64         `json:"org_id,omitempty"`
+	OwnerID   *int64         `json:"owner_id,omitempty"`
+}
+
+// UpdatePerson edits a person via PATCH /api/v2/persons/{id} and
+// returns the record Pipedrive echoes back.
+func (c *Client) UpdatePerson(ctx context.Context, id int64, req UpdatePersonRequest) (*Person, error) {
+	var resp itemEnvelope[Person]
+	if err := c.patchV2(ctx, "/persons/"+strconv.FormatInt(id, 10), req, &resp); err != nil {
+		return nil, err
+	}
+	p := resp.Data
+	return &p, nil
+}
+
 // GetPerson fetches a single person by ID. custom_fields are nested
 // under the person's `custom_fields` object per Pipedrive v2 — caller
 // resolves hash keys to names via the per-Client FieldCache.

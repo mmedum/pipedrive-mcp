@@ -26,9 +26,24 @@ type fakeDealsClient struct {
 	lastListOpts   pipedrive.ListDealsOptions
 	lastCreateReq  pipedrive.CreateDealRequest
 	createCallSeen bool
+
+	updateDeal    *pipedrive.Deal
+	updateErr     error
+	lastUpdateReq pipedrive.UpdateDealRequest
+	lastUpdateID  int64
+	updateCalls   int
+	getCalls      int
+}
+
+func (f *fakeDealsClient) UpdateDeal(_ context.Context, id int64, req pipedrive.UpdateDealRequest) (*pipedrive.Deal, error) {
+	f.lastUpdateID = id
+	f.lastUpdateReq = req
+	f.updateCalls++
+	return f.updateDeal, f.updateErr
 }
 
 func (f *fakeDealsClient) GetDeal(_ context.Context, _ int64) (*pipedrive.Deal, error) {
+	f.getCalls++
 	return f.deal, f.dealErr
 }
 
@@ -368,7 +383,7 @@ func TestRegisterDeals_RegistersInDumpRegistry(t *testing.T) {
 		t.Fatalf("DumpJSON: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{`"get_deal"`, `"list_deals"`, `"create_deal"`} {
+	for _, want := range []string{`"get_deal"`, `"list_deals"`, `"manage_deal"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dump missing %s; got: %s", want, out)
 		}
@@ -395,8 +410,9 @@ func TestCreateDeal_HappyPath(t *testing.T) {
 	defer h.Close()
 
 	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "create_deal",
+		Name: "manage_deal",
 		Arguments: map[string]any{
+			"action":      "create",
 			"title":       "Acme — VisitorPass renewal",
 			"value":       75000,
 			"currency":    "DKK",
@@ -447,8 +463,9 @@ func TestCreateDeal_RejectsEmptyTitle(t *testing.T) {
 	defer h.Close()
 
 	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "create_deal",
-		Arguments: map[string]any{"title": ""},
+		Name: "manage_deal",
+		Arguments: map[string]any{
+			"action": "create", "title": ""},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
@@ -473,8 +490,9 @@ func TestCreateDeal_DryRunSkipsUpstream(t *testing.T) {
 
 	prob := 65
 	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "create_deal",
+		Name: "manage_deal",
 		Arguments: map[string]any{
+			"action":      "create",
 			"title":       "Dry run probe",
 			"value":       1234,
 			"currency":    "USD",
@@ -527,8 +545,9 @@ func TestCreateDeal_PropagatesUpstreamError(t *testing.T) {
 	defer h.Close()
 
 	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "create_deal",
+		Name: "manage_deal",
 		Arguments: map[string]any{
+			"action":      "create",
 			"title":       "Bad pipeline test",
 			"pipeline_id": 999,
 		},
