@@ -228,6 +228,21 @@ breaking changes require a MAJOR bump.
 
 ### Fixed
 
+- The phase plan in `README.md` claimed `v0.2.0` shipped the write tools
+  and `v0.3.0` the workflow tools. Neither did: every tag from `v0.2.0`
+  to `v0.3.2` went to release and supply-chain engineering, and the write
+  and workflow surface both land here in `v0.4.0`. The table now says
+  what shipped rather than what was planned, and separates that from what
+  `v1.0.0` still needs — including a resolution to the Pipedrive v1
+  sunset, which the notes tools and `whoami` both sit on.
+
+- Two references to files that no longer exist. `CLAUDE.md` pointed the
+  phased delivery plan at a plan file outside the repo that has since
+  been deleted; the plan now lives in `README.md` and `CONTRIBUTING.md`,
+  where a contributor can read it. `docs/development.md` still named
+  `scripts/stdio-smoke.sh` and `scripts/staleness-check.sh`, which became
+  one Go command back in `v0.2.0`.
+
 - `tools.SDKVersion` said `v1.5.0` while `go.mod` pinned `v1.6.0`. That
   constant is stamped into the schema dump so a surface diff caused by an
   SDK upgrade can be classified as PATCH rather than as a breaking change;

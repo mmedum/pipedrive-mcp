@@ -9,9 +9,11 @@ still applies; this file adds project-level rules.
 `pipedrive-mcp` is a production-grade MCP (Model Context Protocol) server
 that exposes Pipedrive CRM operations over stdio to LLM-driven clients
 (Claude Desktop, Claude Code, etc.). The architecture overview is in
-`docs/architecture.md`; the phased delivery plan and exit criteria live
-in the user's plan file under
-`~/.claude/plans/pipedrive-go-mcp-validated-river.md`.
+`docs/architecture.md`. The phased delivery plan lives in the repo — the
+table under "Phase plan" in `README.md` for what each tag ships, and
+"Phases and approvals" in `CONTRIBUTING.md` for the approval rule. It
+used to live in a plan file outside the repo; that file is gone, which
+is why it now lives somewhere a contributor can actually read.
 
 ## Hard rules
 
