@@ -293,43 +293,24 @@ func writeDealAction(ctx context.Context, c dealsClient, companyDomain string, i
 		return res, manageDealOutput{}
 	}
 
-	before, err := c.GetDeal(ctx, in.DealID)
-	if err != nil {
-		return errorResult(err), manageDealOutput{}
+	deal, changed, res := guardedWrite[pipedrive.Deal]{
+		Spec:          dealFields,
+		Resource:      fmt.Sprintf("deal %d", in.DealID),
+		ExpectVersion: in.ExpectVersion,
+		Version:       func(d *pipedrive.Deal) string { return d.UpdateTime },
+		// A transition names both the change and the field it lands on,
+		// so it authorises itself: the caller already sees the whole
+		// blast radius. Only a free-form update needs permission.
+		Overwrite: in.Overwrite || in.Action != "update",
+		DryRun:    in.DryRun,
+		Get:       func(ctx context.Context) (*pipedrive.Deal, error) { return c.GetDeal(ctx, in.DealID) },
+		Predict:   func(d *pipedrive.Deal) pipedrive.Deal { return dealAfterUpdate(*d, req) },
+		Put:       func(ctx context.Context) (*pipedrive.Deal, error) { return c.UpdateDeal(ctx, in.DealID, req) },
+	}.run(ctx)
+	if res != nil {
+		return res, manageDealOutput{}
 	}
-	if err = checkExpectVersion(in.ExpectVersion, before.UpdateTime, fmt.Sprintf("deal %d", in.DealID)); err != nil {
-		return errorResult(err), manageDealOutput{}
-	}
-
-	predicted := dealAfterUpdate(*before, req)
-	changed := changedFields(dealFields, before, &predicted)
-	if len(changed) == 0 {
-		return nil, manageDealOutput{Deal: resolvedDeal(ctx, c, companyDomain, before)}
-	}
-	// A transition names both the change and the field it lands on, so
-	// it authorises itself — the caller can already see the whole blast
-	// radius. Only a free-form update needs permission. Expressed as a
-	// property of the action rather than control flow, so every resource
-	// reaches requireOverwrite by the same path.
-	selfAuthorising := in.Action != "update"
-	if err = requireOverwrite(dealFields, fmt.Sprintf("deal %d", in.DealID), before, changed, in.Overwrite || selfAuthorising); err != nil {
-		return errorResult(err), manageDealOutput{}
-	}
-	if in.DryRun {
-		return nil, manageDealOutput{
-			Deal:    resolvedDeal(ctx, c, companyDomain, before),
-			Changed: changed,
-		}
-	}
-
-	after, err := c.UpdateDeal(ctx, in.DealID, req)
-	if err != nil {
-		return errorResult(err), manageDealOutput{}
-	}
-	return nil, manageDealOutput{
-		Deal:    resolvedDeal(ctx, c, companyDomain, after),
-		Changed: changedFields(dealFields, before, after),
-	}
+	return nil, manageDealOutput{Deal: resolvedDeal(ctx, c, companyDomain, deal), Changed: changed}
 }
 
 // dealRequestFor turns an action plus its inputs into the PATCH body.
