@@ -187,6 +187,27 @@ it is protecting, and the argument that permits the write.
   Pipedrive has no compare-and-set, so this catches a concurrent edit,
   not a determined race.
 
+### The upstream may change more than you asked for
+
+A dry run predicts what **this server would send**. Pipedrive may derive
+more from it, and the rehearsal cannot know that without reimplementing
+its rules.
+
+Established live on 2026-09-17: changing a person's `first_name` comes
+back reporting `["name", "first_name"]`, because Pipedrive recomputes
+`name` from the parts. The dry run for the same call predicts
+`["first_name"]` alone.
+
+That direction is the safe one and it is worth being clear about why.
+The rehearsal **under**-reports rather than over-promising, so a caller
+is never told less will change than does — they are told less *will*
+change and then shown the full set afterwards, since the post-write
+report diffs against the record Pipedrive echoed rather than against the
+prediction. The guard is unaffected: it refuses over the fields the
+request touches, and a request that would change nothing is skipped
+before any derivation could occur, which protects a manually-set `name`
+rather than clobbering it.
+
 A refusal comes back as a tool-execution error (`isError: true`) tagged
 `[refused]`, which is its own class precisely so a model can tell it
 apart from a validation failure and from an upstream error. Retrying is
