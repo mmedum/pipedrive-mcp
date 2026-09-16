@@ -221,3 +221,11 @@ export PIPEDRIVE_DRY_RUN='true'
 Use this to rehearse multi-step LLM workflows against a production token
 without firing any writes.
 
+## Reading the setup from a script
+
+`pipedrive-mcp status --json` prints the same state as one JSON object on
+stdout. `credentials.resolved` is the field to branch on, `probe.ran`
+distinguishes a skipped check from a failed one, and the command still
+exits non-zero on every refusal, so a caller may read either. A label in
+the human output is free to be reworded in any release; the object is
+not.
