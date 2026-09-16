@@ -25,16 +25,25 @@ import (
 // destructive: a wholesale-replace collection dropped its other entries
 // with nothing refusing and nothing reporting it.
 func TestEveryWritableFieldHasAFieldSpec(t *testing.T) {
+	// Creates are checked too: createXAction reports `changed` by
+	// diffing the created record against a zero one, so a create field
+	// with no table entry is a field the create silently fails to
+	// report having set.
 	cases := []struct {
 		resource string
 		req      any
 		tabled   []string
 	}{
-		{"deal", pipedrive.UpdateDealRequest{}, names(dealFields)},
-		{"person", pipedrive.UpdatePersonRequest{}, names(personFields)},
-		{"organization", pipedrive.UpdateOrganizationRequest{}, names(organizationFields)},
-		{"activity", pipedrive.UpdateActivityRequest{}, names(activityFields)},
-		{"note", pipedrive.UpdateNoteRequest{}, names(noteFields)},
+		{"deal/update", pipedrive.UpdateDealRequest{}, names(dealFields)},
+		{"person/update", pipedrive.UpdatePersonRequest{}, names(personFields)},
+		{"organization/update", pipedrive.UpdateOrganizationRequest{}, names(organizationFields)},
+		{"activity/update", pipedrive.UpdateActivityRequest{}, names(activityFields)},
+		{"note/update", pipedrive.UpdateNoteRequest{}, names(noteFields)},
+		{"deal/create", pipedrive.CreateDealRequest{}, names(dealFields)},
+		{"person/create", pipedrive.CreatePersonRequest{}, names(personFields)},
+		{"organization/create", pipedrive.CreateOrganizationRequest{}, names(organizationFields)},
+		{"activity/create", pipedrive.CreateActivityRequest{}, names(activityFields)},
+		{"note/create", pipedrive.CreateNoteRequest{}, names(noteFields)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.resource, func(t *testing.T) {
