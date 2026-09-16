@@ -273,14 +273,32 @@ MCP client ──stdio──► pipedrive-mcp
 
 Versioning is strict semver. The MCP tool surface is the public contract.
 
-| Tag | Phase | What ships |
+### What shipped
+
+| Tag | Phase | What it was |
 | --- | --- | --- |
-| (no tag) | Phase 0 | Repo scaffolding, CI, server boot, startup probe — folded into `v0.1.0` rather than cut as `v0.0.1` |
-| `v0.1.0` | Phase 1 | All read tools |
-| `v0.2.0` | Phase 2 | All write tools |
-| `v0.3.0` | Phase 3 | Workflow tools |
-| `v0.9.0` → `v1.0.0-rc.N` | Phase 4 | Polish, evals, security review |
-| `v1.0.0` | Phase 5 | Stable surface, supported-version table |
+| `v0.1.0` | Phase 1 | The read surface, the notes v1 carve-out, `create_note` / `delete_note`, `refresh_field_cache`. Phase 0's scaffolding folded in rather than cut as `v0.0.1`. |
+| `v0.2.0` – `v0.3.2` | — | Release and supply-chain engineering, no tool-surface change: the gate scripts rewritten as one Go command, every action pinned by commit SHA, cosign signing, CycloneDX SBOMs, build provenance, reproducible builds, `--version`. |
+| `v0.4.0` | Phases 2 and 3 | The write and workflow surface in one release — five `manage_*` tools with guarded writes, plus `whoami` and MCP resource templates — and the whole surface aligned to the Google Workspace MCP conventions. |
+
+The middle tags went to release engineering rather than to phases, so the
+phase numbers and the version numbers stopped tracking each other. The
+table above says what actually happened rather than what was planned.
+
+### What is left
+
+| Tag | Phase | What it needs |
+| --- | --- | --- |
+| `v0.5.0` | Phase 3.5 | Custom-field **writes** (they are readable everywhere and writable nowhere), and an integration suite — no `//go:build integration` files ship yet, so the sandbox gate is still a manual rundown. |
+| `v0.9.0` → `v1.0.0-rc.N` | Phase 4 | An eval suite (a release gate from Phase 4 onwards, and it does not exist yet), polish, and validation against a second workspace. |
+| `v1.0.0` | Phase 5 | A stable surface and a supported-version table. |
+
+**`v1.0.0` is gated on more than a checklist.** It means breaking changes
+require a MAJOR bump, and two parts of this surface — the notes tools and
+`whoami` — sit on Pipedrive **v1, which sunsets 2026-07-31**. If that
+date passes without a v2 `/notes`, those tools break or change shape, and
+a 1.0.0 cut before then would be a promise the API will not let us keep.
+The v1 sunset needs a resolution first.
 
 Each phase boundary requires explicit maintainer approval before the next
 phase starts.
