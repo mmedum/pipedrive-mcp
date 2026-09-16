@@ -199,26 +199,31 @@ normalises some of what it stores.
 
 ### Clearing a field
 
-**You cannot, and the tools say so.** Established live against
-`PATCH /api/v2/deals/{id}` on 2026-09-16:
+**Not through this server, and the tool descriptions say so.** The
+reason is a v2 gap rather than a Pipedrive-wide impossibility, which is
+worth keeping straight — established live on 2026-09-16 against a real
+deal:
 
-- `{"expected_close_date": null}` is **rejected**:
-  `Validation failed: expected_close_date: The value is not a valid 'string'.`
-- `{"expected_close_date": ""}` is **accepted** and returns
-  `success: true`, but the stored value becomes `0000-00-00` — MySQL's
-  zero date — rather than the field being removed. A deal that never had
-  a date omits the field entirely, so the two are distinguishable on a
-  read.
+| Call | Body | Result |
+| --- | --- | --- |
+| `PATCH /api/v2/deals/{id}` | `{"expected_close_date": null}` | **rejected** — `The value is not a valid 'string'` |
+| `PATCH /api/v2/deals/{id}` | `{"expected_close_date": ""}` | accepted, `success: true`, stores `0000-00-00` (MySQL's zero date) |
+| `PUT /api/v1/deals/{id}` | `{"expected_close_date": null}` | **accepted, and actually clears it** — the field reads back absent |
 
-So neither spelling empties a field, and a tool that advertised one
-would be lying to the model. Every `manage_*` input says "omit to leave
-it as it is" instead, and the request structs stay `*T` with `omitempty`
-— nil omits, non-nil sends — with no third state, because there is no
-third behaviour to reach for.
+So v2 has no spelling that empties a date field: a null is refused and
+an empty string is stored as a value. A deal that never had a date omits
+the field entirely, so the zero date is distinguishable from absent on a
+read, and a tool that called `""` a clear would be lying to the model.
 
-This was found by a live probe, not by reading the docs, and it cost a
-deal one modified field. If someone later establishes what v2 actually
-wants per field, the place to change is the `Update*Request` types and
+v1 does it correctly. This server does not use that, and should not
+without a deliberate decision: it would be a third v1 carve-out on an
+API that **sunsets 2026-07-31**, built for a capability nobody has asked
+for. Every `manage_*` input says "omit to leave it as it is" instead,
+and the `Update*Request` types stay `*T` with `omitempty` — nil omits,
+non-nil sends, no third state, because there is no third behaviour worth
+reaching for.
+
+If v2 later grows a working clear, change the `Update*Request` types and
 the input descriptions together, never one without the other.
 
 `PIPEDRIVE_DRY_RUN` sits under all of it as a server-wide floor: every

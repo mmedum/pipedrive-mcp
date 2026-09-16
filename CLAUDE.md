@@ -354,11 +354,12 @@ once, up front.
 
 **Clearing a field is not supported, and no tool may claim otherwise.**
 Pipedrive v2 rejects a null and stores an empty string as a value, so
-neither empties a field; `docs/architecture.md` has the live evidence.
-Every optional input reads "omit to leave it as it is". If you are
-tempted to add a third state to a request struct to express a clear,
-read that section first — it was written after a probe changed a real
-deal and could not change it back.
+neither empties a field. v1 clears correctly, which is how we know it is
+a v2 gap and not a law of nature — but reaching for it would be a third
+carve-out on an API that sunsets 2026-07-31. Every optional input reads
+"omit to leave it as it is". `docs/architecture.md`, "Clearing a field",
+has the request-by-request evidence; read it before adding a third state
+to a request struct.
 
 ## LLM-facing summary types
 

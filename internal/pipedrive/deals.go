@@ -60,13 +60,18 @@ type CreateDealRequest struct {
 // would not do — it could not tell "leave person_id alone" from "send
 // zero".
 //
-// CLEARING a field is NOT supported, and pointers do not change that.
-// Verified live against v2: null is rejected outright for
+// CLEARING a field is NOT supported here, and pointers do not change
+// that. Verified live against v2: null is rejected for
 // expected_close_date ("The value is not a valid 'string'"), and an
 // empty string stores the zero date 0000-00-00 rather than removing the
-// value. Neither is a clear. See docs/architecture.md, "Clearing a
-// field", and do not advertise clearing in a tool description until
-// somebody has established what v2 actually wants, per field.
+// value. Neither empties the field.
+//
+// v1 CAN clear it — PUT /api/v1/deals/{id} with a null works — but this
+// server deliberately does not use that: it would be a third v1
+// carve-out on an API that sunsets 2026-07-31, for a capability nobody
+// has asked for. See docs/architecture.md, "Clearing a field", and do
+// not advertise clearing in a tool description without changing this
+// type in the same commit.
 //
 // Status carries the won/lost transitions; Pipedrive sets won_time and
 // lost_time itself, so they are not writable here.
