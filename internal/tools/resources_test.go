@@ -139,3 +139,79 @@ func TestResources_UpstreamErrorCarriesTheClassTag(t *testing.T) {
 		t.Errorf("err = %q; want the [not_found] class tag", err)
 	}
 }
+
+func TestResources_EveryTemplateResolves(t *testing.T) {
+	// One fetch closure per resource type, and only the deals one was
+	// exercised. A closure that panics or wires up the wrong summarizer
+	// would have shipped unnoticed for the other four.
+	fake := &fakeResourcesClient{
+		deal: &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "open"},
+	}
+	h := resourcesHarness(t, fake)
+	defer h.Close()
+
+	cases := []struct {
+		uri     string
+		wantKey string
+	}{
+		{"pipedrive://deals/9", "title"},
+		{"pipedrive://persons/3", "name"},
+		{"pipedrive://organizations/47", "name"},
+		{"pipedrive://activities/5", "subject"},
+		{"pipedrive://notes/77", "content"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.uri, func(t *testing.T) {
+			res, err := h.Client.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: tc.uri})
+			if err != nil {
+				t.Fatalf("ReadResource(%s): %v", tc.uri, err)
+			}
+			if len(res.Contents) != 1 {
+				t.Fatalf("contents = %d; want 1", len(res.Contents))
+			}
+			c := res.Contents[0]
+			if c.URI != tc.uri {
+				t.Errorf("echoed uri = %q; want %q", c.URI, tc.uri)
+			}
+			if c.MIMEType != "application/json" {
+				t.Errorf("mime = %q; want application/json", c.MIMEType)
+			}
+			var body map[string]any
+			if err := json.Unmarshal([]byte(c.Text), &body); err != nil {
+				t.Fatalf("body is not JSON: %v", err)
+			}
+			if _, ok := body[tc.wantKey]; !ok {
+				t.Errorf("body has no %q; the wrong summarizer may be wired up: %v", tc.wantKey, keysOf(body))
+			}
+			if id, ok := body["id"]; !ok || id == float64(0) {
+				t.Errorf("body id = %v; want the fetched record's id", id)
+			}
+		})
+	}
+}
+
+func TestResources_UnknownCollectionIsNotServed(t *testing.T) {
+	h := resourcesHarness(t, &fakeResourcesClient{})
+	defer h.Close()
+
+	for _, uri := range []string{
+		"pipedrive://products/1",  // a resource this server does not expose
+		"pipedrive://deals",       // no id
+		"https://example.com/9",   // not our scheme
+		"pipedrive://deals/9/sub", // a second path segment
+	} {
+		t.Run(uri, func(t *testing.T) {
+			if _, err := h.Client.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: uri}); err == nil {
+				t.Errorf("%q should not resolve", uri)
+			}
+		})
+	}
+}
+
+func keysOf(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
