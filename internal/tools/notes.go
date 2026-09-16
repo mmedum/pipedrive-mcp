@@ -226,10 +226,16 @@ func manageNoteHandler(c notesClient, dryRun bool) mcp.ToolHandlerFor[manageNote
 			res, out = createNoteAction(ctx, c, in)
 		case "update":
 			res, out = updateNoteAction(ctx, c, in)
-		default:
-			// validateAction has already closed the enum, so this is
-			// "delete" and nothing else.
+		case "delete":
 			res, out = deleteNoteAction(ctx, c, in)
+		default:
+			// Named explicitly rather than letting delete be the
+			// fallthrough. validateAction has already closed the enum,
+			// so this is unreachable — but notes is the one resource
+			// whose default branch destroys, and a fifth action added to
+			// allowedNoteActions two hundred lines away should not
+			// silently become a soft delete.
+			return errorResult(fmt.Errorf("%w: action %q has no handler", pipedrive.ErrValidation, in.Action)), manageNoteOutput{}, nil
 		}
 		if res == nil {
 			// Echo the action once, here, rather than having each

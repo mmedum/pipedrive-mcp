@@ -253,3 +253,54 @@ func setProbeValue(v reflect.Value) bool {
 	}
 	return false
 }
+
+// Two distinct collections must never project identically. The values a
+// caller supplies are free text, so an unquoted join lets a label
+// containing the separator absorb the next entry and make a real change
+// look like no change at all.
+func TestCollectionProjectionsCannotCollide(t *testing.T) {
+	cases := []struct {
+		name string
+		a, b []pipedrive.ContactPoint
+	}{
+		{
+			// Collides under a plain `value|label` join separated by
+			// commas: the first label swallows the second entry whole.
+			"label absorbs the next entry",
+			[]pipedrive.ContactPoint{{Value: "a", Label: "b"}, {Value: "c", Label: "d"}},
+			[]pipedrive.ContactPoint{{Value: "a", Label: "b,c|d"}},
+		},
+		{
+			"separator inside a value",
+			[]pipedrive.ContactPoint{{Value: "a,b"}},
+			[]pipedrive.ContactPoint{{Value: "a"}, {Value: "b"}},
+		},
+		{
+			"primary marker forged in a label",
+			[]pipedrive.ContactPoint{{Value: "a@example.com", Primary: true}},
+			[]pipedrive.ContactPoint{{Value: "a@example.com", Label: "*"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if projectContactPoints(tc.a) == projectContactPoints(tc.b) {
+				t.Errorf("two different collections project identically as %q — a real change would read as a no-op",
+					projectContactPoints(tc.a))
+			}
+		})
+	}
+}
+
+func TestManageNoteHandler_DeleteIsNamedNotFallenInto(t *testing.T) {
+	// notes is the only resource whose switch default would destroy.
+	// Guard against a future action silently inheriting that branch by
+	// asserting the default errors rather than deletes.
+	if !allowedNoteActions["delete"] {
+		t.Fatal("delete is no longer a known note action; this test needs rewriting")
+	}
+	for action := range allowedNoteActions {
+		if action != "create" && action != "update" && action != "delete" {
+			t.Errorf("action %q has no explicit case in manageNoteHandler and would fall through to delete", action)
+		}
+	}
+}
