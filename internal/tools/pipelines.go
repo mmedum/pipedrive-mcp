@@ -60,12 +60,11 @@ type listStagesOutput struct {
 // server. The companyDomain is needed for URL injection on outputs;
 // pass cfg.CompanyDomain from the server constructor.
 func RegisterPipelines(s *mcp.Server, c pipelinesClient, companyDomain string) {
-	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 
 	AddTool(s, &mcp.Tool{
 		Name:        "list_pipelines",
 		Description: "List every Pipedrive pipeline the API token's user can see. Returns id, name, display order, active flag, and a URL to the Pipedrive UI for each. No filtering or pagination — Pipedrive workspaces typically have under 20 pipelines total.",
-		Annotations: &readOnly,
+		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listPipelinesInput) (*mcp.CallToolResult, listPipelinesOutput, error) {
 		got, err := c.ListPipelines(ctx)
 		if err != nil {
@@ -87,7 +86,7 @@ func RegisterPipelines(s *mcp.Server, c pipelinesClient, companyDomain string) {
 	AddTool(s, &mcp.Tool{
 		Name:        "list_stages",
 		Description: "List Pipedrive stages, optionally filtered to a single pipeline. A stage represents a step in a pipeline (e.g. \"Lead In\", \"Negotiation\", \"Closed Won\"). Returns id, name, order_nr, active flag, owning pipeline_id, and Pipedrive's default deal_probability (0-100) for each stage.",
-		Annotations: &readOnly,
+		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listStagesInput) (*mcp.CallToolResult, listStagesOutput, error) {
 		// Pipedrive's /api/v2/stages returns an empty array both for a
 		// real-but-empty pipeline AND for an unknown/invisible pipeline.

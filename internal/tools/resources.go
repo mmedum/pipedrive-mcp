@@ -17,10 +17,14 @@ import (
 // that attaches records rather than calling tools reads the same
 // content through a URI.
 //
-// The resources are deliberately a mirror and not a second
-// implementation: each handler calls the same summarize* function its
-// tool does, so the two can never drift into reporting different
-// things about the same record. What they cannot express is the
+// The resources are a mirror and not a second implementation: each
+// handler calls the same resolvedX function its tool does — resolve the
+// custom-field hashes to workspace names, then summarize — so the two
+// cannot drift into reporting different things about the same record.
+// Sharing the whole composition rather than just its last step is what
+// makes that true; sharing only summarizeX left the resolve step
+// duplicated, and a get_ handler that grew one would have left its
+// resource behind. What they cannot express is the
 // tools' options — include_notes, include_attendees, custom-field
 // resolution on a list — so a caller who needs those still calls the
 // tool. The descriptions say so.
@@ -59,7 +63,7 @@ func RegisterResources(s *mcp.Server, c resourcesClient, companyDomain string) {
 				if err != nil {
 					return nil, err
 				}
-				return summarizeDeal(companyDomain, d, c.ResolveDealCustomFields(ctx, d.CustomFields)), nil
+				return resolvedDeal(ctx, c, companyDomain, d), nil
 			},
 		},
 		{
@@ -71,7 +75,7 @@ func RegisterResources(s *mcp.Server, c resourcesClient, companyDomain string) {
 				if err != nil {
 					return nil, err
 				}
-				return summarizePerson(companyDomain, p, c.ResolvePersonCustomFields(ctx, p.CustomFields)), nil
+				return resolvedPerson(ctx, c, companyDomain, p), nil
 			},
 		},
 		{
@@ -83,7 +87,7 @@ func RegisterResources(s *mcp.Server, c resourcesClient, companyDomain string) {
 				if err != nil {
 					return nil, err
 				}
-				return summarizeOrganization(companyDomain, o, c.ResolveOrganizationCustomFields(ctx, o.CustomFields)), nil
+				return resolvedOrganization(ctx, c, companyDomain, o), nil
 			},
 		},
 		{
@@ -155,14 +159,23 @@ func recordResourceHandler(collection string, fetch func(context.Context, int64)
 	}
 }
 
+// resourceID parses the record id out of a resource URI. Errors carry
+// the same [class] tag a tool call would produce, so a resource read and
+// a tool call describe the same failure the same way — the fetch path
+// above already routes through errorText for exactly that reason.
 func resourceID(uri, prefix string) (int64, error) {
 	rest, ok := strings.CutPrefix(uri, prefix)
 	if !ok {
-		return 0, fmt.Errorf("resource uri %q does not start with %q", uri, prefix)
+		return 0, fmt.Errorf("%s", errorText(fmt.Errorf("%w: resource uri %q does not start with %q", pipedrive.ErrValidation, uri, prefix)))
 	}
 	id, err := strconv.ParseInt(rest, 10, 64)
-	if err != nil || id <= 0 {
-		return 0, fmt.Errorf("resource uri %q: %q is not a positive record id", uri, rest)
+	if err != nil {
+		return 0, fmt.Errorf("%s", errorText(fmt.Errorf("%w: resource uri %q: %q is not a number", pipedrive.ErrValidation, uri, rest)))
+	}
+	// Reuse the tools' own id check so a resource and a get_ tool agree
+	// on what counts as a usable id.
+	if err := validatePositiveID(id, "record id"); err != nil {
+		return 0, fmt.Errorf("%s", errorText(err))
 	}
 	return id, nil
 }

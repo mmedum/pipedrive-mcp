@@ -39,12 +39,11 @@ type whoamiOutput struct {
 
 // RegisterWhoAmI wires the whoami tool into the MCP server.
 func RegisterWhoAmI(s *mcp.Server, c whoamiClient) {
-	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true}
 
 	AddTool(s, &mcp.Tool{
 		Name:        "whoami",
-		Description: "WHICH ACCOUNT this server is acting as, and WHICH WORKSPACE it is pointed at. Call it before you attribute anything to \"me\" or \"my deals\": the answer's user_id is the owner_id a record gets when you create one without naming an owner, so it is what turns \"show me my open deals\" into list_deals(owner_id=...). It also reports the user's timezone, which is the zone an activity's due_date and due_time are written in — getting that wrong schedules a meeting on the wrong day. Cheap: one call, and the answer does not change during a session. Takes no arguments, because a token authenticates as exactly one user. It cannot tell you about anyone else: Pipedrive v2 exposes no users resource, so there is no tool here that lists colleagues or resolves an owner_id back to a name.",
-		Annotations: &readOnly,
+		Description: "WHICH ACCOUNT this server is acting as, and WHICH WORKSPACE it is pointed at. Call it before you attribute anything to \"me\" or \"my deals\": the answer's user_id is the owner_id a record gets when you create one without naming an owner, so it is what turns \"show me my open deals\" into list_deals(owner_id=...). It also reports the user's timezone, which is the zone an activity's due_date and due_time are written in — getting that wrong schedules a meeting on the wrong day. Cheap: the answer is fetched once and reused for the life of the server, because a token authenticates as exactly one user, so calling it again costs nothing. Takes no arguments, because a token authenticates as exactly one user. It cannot tell you about anyone else: Pipedrive v2 exposes no users resource, so there is no tool here that lists colleagues or resolves an owner_id back to a name.",
+		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ whoamiInput) (*mcp.CallToolResult, whoamiOutput, error) {
 		u, err := c.WhoAmI(ctx)
 		if err != nil {

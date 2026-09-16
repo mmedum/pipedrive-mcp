@@ -115,12 +115,11 @@ type listActivitiesOutput struct {
 // goes through manage_activity. opts.DryRun is the server-wide dry-run
 // floor.
 func RegisterActivities(s *mcp.Server, c activitiesClient, companyDomain string, opts RegisterOptions) {
-	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 
 	AddTool(s, &mcp.Tool{
 		Name:        "get_activity",
 		Description: "Fetch a single Pipedrive activity (call, email, meeting, task, ...) by activity_id. Returns id, subject, type, owner_id, linked deal_id / person_id / org_id, due_date, due_time, duration, done flag, location, participants, conference meeting details, and notes. Set include_attendees=true to also return calendar invitees with RSVP status. Unknown activity_id returns a [not_found] error. To find an activity by subject text, call `list_activities` filtered by deal_id or person_id; activities are not indexed by `search`.",
-		Annotations: &readOnly,
+		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getActivityInput) (*mcp.CallToolResult, getActivityOutput, error) {
 		if err := validatePositiveID(in.ActivityID, "activity_id"); err != nil {
 			return errorResult(err), getActivityOutput{}, nil
@@ -137,7 +136,7 @@ func RegisterActivities(s *mcp.Server, c activitiesClient, companyDomain string,
 	AddTool(s, &mcp.Tool{
 		Name:        "list_activities",
 		Description: "List Pipedrive activities filtered by status (open | done | all), owner, deal, person, organization, lead, or update window. Returns id, subject, type, owner_id, linked deal/person/org ids, due_date, due_time, duration, done flag, location, participants, and conference details. Notes (`note`, `public_description`) are stripped by default — set `include_notes=true` or call `get_activity` for full text. Default sort is update_time desc — most-recently-touched first, ideal for 'what's happening with X lately'. Pass sort_by=due_date and status=open for an upcoming-calendar view. For more results, pass the next_cursor from the previous response. Activity-type (call/email/meeting/...) cannot be filtered server-side on Pipedrive v2; filter the returned rows by their `type` field client-side.",
-		Annotations: &readOnly,
+		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listActivitiesInput) (*mcp.CallToolResult, listActivitiesOutput, error) {
 		if err := validateEnum(in.Status, "status", allowedActivityStatuses); err != nil {
 			return errorResult(err), listActivitiesOutput{}, nil
@@ -260,13 +259,11 @@ type manageActivityOutput struct {
 }
 
 func registerManageActivity(s *mcp.Server, c activitiesClient, companyDomain string, opts RegisterOptions) {
-	destructiveTrue := true
-	mutating := mcp.ToolAnnotations{DestructiveHint: &destructiveTrue, IdempotentHint: false}
 
 	AddTool(s, &mcp.Tool{
 		Name:        "manage_activity",
-		Description: "Create an activity — a call, email, meeting or task — edit one, or tick it off. One call, whichever action: create takes subject, every other action takes activity_id. To log something that already happened, create it with done true and the note; to schedule something, give it a due_date. Writing is guarded. An update reads the activity first and refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. complete and reopen just flip done and take no overwrite, because the field they change is the one you named — and reopen is why completing is not a one-way door. IMPORTANT: note is private and public_description is what attendees read in the calendar invite, so do not put one where the other belongs. The activity-type key varies per workspace: copy an exact one off an existing activity rather than guessing, since an unknown type is rejected upstream. A field that already holds a value can be changed but NOT cleared: Pipedrive v2 rejects a null and reads an empty string as a value. Use search to turn a company or person name into the ids this links to.",
-		Annotations: &mutating,
+		Description: "Create an activity — a call, email, meeting or task — edit one, or tick it off. One call, whichever action: create takes subject, every other action takes activity_id. To log something that already happened, create it with done true and the note; to schedule something, give it a due_date. Writing is guarded, and every action except create reads the activity before it writes, so a write is two API calls. An update refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. complete and reopen just flip done and take no overwrite, because the field they change is the one you named — and reopen is why completing is not a one-way door. IMPORTANT: note is private and public_description is what attendees read in the calendar invite, so do not put one where the other belongs. The activity-type key varies per workspace: copy an exact one off an existing activity rather than guessing, since an unknown type is rejected upstream. A field that already holds a value can be changed but NOT cleared: Pipedrive v2 rejects a null and reads an empty string as a value. Use search to turn a company or person name into the ids this links to.",
+		Annotations: mutatingAnnotations(),
 	}, manageActivityHandler(c, companyDomain, opts.DryRun))
 }
 
@@ -300,21 +297,21 @@ func createActivityAction(ctx context.Context, c activitiesClient, companyDomain
 	}
 	req := pipedrive.CreateActivityRequest{
 		Subject:           *in.Subject,
-		Type:              derefString(in.Type),
-		DueDate:           derefString(in.DueDate),
-		DueTime:           derefString(in.DueTime),
-		Duration:          derefString(in.Duration),
-		DealID:            derefID(in.DealID),
-		PersonID:          derefID(in.PersonID),
-		OrgID:             derefID(in.OrgID),
-		LeadID:            derefString(in.LeadID),
-		OwnerID:           derefID(in.OwnerID),
-		Note:              derefString(in.Note),
-		PublicDescription: derefString(in.PublicDescription),
-		Location:          derefString(in.Location),
+		Type:              deref(in.Type),
+		DueDate:           deref(in.DueDate),
+		DueTime:           deref(in.DueTime),
+		Duration:          deref(in.Duration),
+		DealID:            deref(in.DealID),
+		PersonID:          deref(in.PersonID),
+		OrgID:             deref(in.OrgID),
+		LeadID:            deref(in.LeadID),
+		OwnerID:           deref(in.OwnerID),
+		Note:              deref(in.Note),
+		PublicDescription: deref(in.PublicDescription),
+		Location:          deref(in.Location),
 		Participants:      in.Participants,
-		Done:              derefBool(in.Done),
-		Busy:              derefBool(in.Busy),
+		Done:              deref(in.Done),
+		Busy:              deref(in.Busy),
 	}
 	created := syntheticActivityFromRequest(req)
 	if !in.DryRun {
@@ -351,12 +348,14 @@ func writeActivityAction(ctx context.Context, c activitiesClient, companyDomain 
 	if len(changed) == 0 {
 		return nil, manageActivityOutput{Activity: summarizeActivity(companyDomain, before)}
 	}
-	// complete and reopen name both the change and the field it lands
-	// on, so the caller already sees the whole blast radius.
-	if in.Action == "update" {
-		if err = requireOverwrite(activityFields, fmt.Sprintf("activity %d", in.ActivityID), before, changed, in.Overwrite); err != nil {
-			return errorResult(err), manageActivityOutput{}
-		}
+	// A transition names both the change and the field it lands on, so
+	// it authorises itself — the caller can already see the whole blast
+	// radius. Only a free-form update needs permission. Expressed as a
+	// property of the action rather than control flow, so every resource
+	// reaches requireOverwrite by the same path.
+	selfAuthorising := in.Action != "update"
+	if err = requireOverwrite(activityFields, fmt.Sprintf("activity %d", in.ActivityID), before, changed, in.Overwrite || selfAuthorising); err != nil {
+		return errorResult(err), manageActivityOutput{}
 	}
 	if in.DryRun {
 		return nil, manageActivityOutput{Activity: summarizeActivity(companyDomain, before), Changed: changed}
@@ -378,9 +377,9 @@ func writeActivityAction(ctx context.Context, c activitiesClient, companyDomain 
 func activityRequestFor(in manageActivityInput) pipedrive.UpdateActivityRequest {
 	switch in.Action {
 	case "complete":
-		return pipedrive.UpdateActivityRequest{Done: boolPtr(true)}
+		return pipedrive.UpdateActivityRequest{Done: ptr(true)}
 	case "reopen":
-		return pipedrive.UpdateActivityRequest{Done: boolPtr(false)}
+		return pipedrive.UpdateActivityRequest{Done: ptr(false)}
 	default: // update
 		return pipedrive.UpdateActivityRequest{
 			Subject:           in.Subject,

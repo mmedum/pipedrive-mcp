@@ -125,9 +125,15 @@ func TestManageDeal_Transitions(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			// The echo mirrors what the row actually asks for, so the
+			// fixture cannot contradict the assertion.
+			echo := &pipedrive.Deal{ID: 9, Title: "Acme", Status: "open", StageID: 4, UpdateTime: "t1"}
+			if tc.wantStatus != "" {
+				echo.Status = tc.wantStatus
+			}
 			fake := &fakeDealsClient{
 				deal:       &pipedrive.Deal{ID: 9, Title: "Acme", Status: "open", StageID: 2, UpdateTime: "t0"},
-				updateDeal: &pipedrive.Deal{ID: 9, Title: "Acme", Status: "won", StageID: 4, UpdateTime: "t1"},
+				updateDeal: echo,
 			}
 			var out writeOut
 			res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal", tc.args, &out)
@@ -283,10 +289,9 @@ func TestManagePerson_UpdateGuardAndChangedReport(t *testing.T) {
 		person:       &pipedrive.Person{ID: 3, Name: "A Contact", UpdateTime: "t0"},
 		updatePerson: &pipedrive.Person{ID: 3, Name: "A Contact", OrgID: 7, UpdateTime: "t1"},
 	}
-	reg := func(s *mcp.Server) { tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{}) }
 
 	var out writeOut
-	res := callTool(t, reg, "manage_person", map[string]any{"action": "update", "person_id": 3, "org_id": 7}, &out)
+	res := callTool(t, personsReg(fake), "manage_person", map[string]any{"action": "update", "person_id": 3, "org_id": 7}, &out)
 	if res.IsError {
 		t.Fatalf("unexpected isError: %s", contentText(res))
 	}
@@ -300,9 +305,8 @@ func TestManagePerson_UpdateGuardAndChangedReport(t *testing.T) {
 
 func TestManagePerson_RefusesReplacingAName(t *testing.T) {
 	fake := &fakePersonsClient{person: &pipedrive.Person{ID: 3, Name: "A Contact", UpdateTime: "t0"}}
-	reg := func(s *mcp.Server) { tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{}) }
 
-	res := callTool(t, reg, "manage_person", map[string]any{"action": "update", "person_id": 3, "name": "Someone Else"}, nil)
+	res := callTool(t, personsReg(fake), "manage_person", map[string]any{"action": "update", "person_id": 3, "name": "Someone Else"}, nil)
 	if !res.IsError {
 		t.Fatal("expected a refusal")
 	}
@@ -320,9 +324,8 @@ func TestManagePerson_EmailsReplaceWholesale(t *testing.T) {
 			Emails: []pipedrive.ContactPoint{{Value: "old@example.com", Primary: true}},
 		},
 	}
-	reg := func(s *mcp.Server) { tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{}) }
 
-	res := callTool(t, reg, "manage_person", map[string]any{
+	res := callTool(t, personsReg(fake), "manage_person", map[string]any{
 		"action": "update", "person_id": 3,
 		"emails": []map[string]any{{"value": "new@example.com", "primary": true}},
 	}, nil)
@@ -343,9 +346,8 @@ func TestManageOrganization_UpdateAddressGuard(t *testing.T) {
 			Address: &pipedrive.Address{Value: "123 Main St, Springfield"},
 		},
 	}
-	reg := func(s *mcp.Server) { tools.RegisterOrganizations(s, fake, "acme", tools.RegisterOptions{}) }
 
-	res := callTool(t, reg, "manage_organization", map[string]any{
+	res := callTool(t, orgsReg(fake), "manage_organization", map[string]any{
 		"action": "update", "org_id": 47, "address": "456 Other Rd",
 	}, nil)
 	if !res.IsError {
@@ -364,10 +366,9 @@ func TestManageOrganization_UpdateHappyPath(t *testing.T) {
 		org:       &pipedrive.Organization{ID: 47, Name: "Acme Inc", UpdateTime: "t0"},
 		updateOrg: &pipedrive.Organization{ID: 47, Name: "Acme Inc", Address: &pipedrive.Address{Value: "456 Other Rd"}, UpdateTime: "t1"},
 	}
-	reg := func(s *mcp.Server) { tools.RegisterOrganizations(s, fake, "acme", tools.RegisterOptions{}) }
 
 	var out writeOut
-	res := callTool(t, reg, "manage_organization", map[string]any{
+	res := callTool(t, orgsReg(fake), "manage_organization", map[string]any{
 		"action": "update", "org_id": 47, "address": "456 Other Rd",
 	}, &out)
 	if res.IsError {
@@ -384,10 +385,21 @@ func TestManageOrganization_UpdateHappyPath(t *testing.T) {
 
 // ----------------------------------------------------------- activities
 
+func personsReg(fake *fakePersonsClient) func(*mcp.Server) {
+	return func(s *mcp.Server) { tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{}) }
+}
+
+func orgsReg(fake *fakeOrganizationsClient) func(*mcp.Server) {
+	return func(s *mcp.Server) { tools.RegisterOrganizations(s, fake, "acme", tools.RegisterOptions{}) }
+}
+
 func activitiesReg(fake *fakeActivitiesClient) func(*mcp.Server) {
 	return func(s *mcp.Server) { tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{}) }
 }
 
+// done is a *bool precisely so false can be sent: a bare bool could not
+// tell "reopen this" from "say nothing about done", which is what makes
+// completing reversible rather than a one-way door.
 func TestManageActivity_CompleteAndReopen(t *testing.T) {
 	for _, tc := range []struct {
 		action   string
@@ -419,26 +431,6 @@ func TestManageActivity_CompleteAndReopen(t *testing.T) {
 				t.Errorf("update calls = %d; want 1", fake.updateCalls)
 			}
 		})
-	}
-}
-
-func TestManageActivity_ReopenIsWhyCompleteIsNotOneWay(t *testing.T) {
-	// done is a *bool precisely so "false" can be sent: a bare bool
-	// could not tell "reopen this" from "say nothing about done".
-	fake := &fakeActivitiesClient{
-		activity:       &pipedrive.Activity{ID: 5, Subject: "Call", Done: true, UpdateTime: "t0"},
-		updateActivity: &pipedrive.Activity{ID: 5, Subject: "Call", Done: false, UpdateTime: "t1"},
-	}
-	res := callTool(t, activitiesReg(fake), "manage_activity",
-		map[string]any{"action": "reopen", "activity_id": 5}, nil)
-	if res.IsError {
-		t.Fatalf("unexpected isError: %s", contentText(res))
-	}
-	if fake.lastUpdateReq.Done == nil {
-		t.Fatal("reopen must send done explicitly, not omit it")
-	}
-	if *fake.lastUpdateReq.Done {
-		t.Error("reopen sent done=true")
 	}
 }
 
@@ -627,9 +619,8 @@ func TestManagePerson_UpdateOverlayCoversEveryField(t *testing.T) {
 			OwnerID: 8, UpdateTime: "t1",
 		},
 	}
-	reg := func(s *mcp.Server) { tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{}) }
 	var out writeOut
-	res := callTool(t, reg, "manage_person", map[string]any{
+	res := callTool(t, personsReg(fake), "manage_person", map[string]any{
 		"action": "update", "person_id": 3, "overwrite": true,
 		"name": "A Contact", "first_name": "A", "last_name": "Contact",
 		"emails":   []map[string]any{{"value": "a@example.com", "primary": true}},
@@ -753,8 +744,7 @@ func TestManagePerson_TruncatingContactPointsIsGuarded(t *testing.T) {
 			},
 		},
 	}
-	reg := func(s *mcp.Server) { tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{}) }
-	res := callTool(t, reg, "manage_person", map[string]any{
+	res := callTool(t, personsReg(fake), "manage_person", map[string]any{
 		"action": "update", "person_id": 7,
 		"first_name": "Ada", // empty upstream, so it needs no permission
 		"emails":     []map[string]any{{"value": "a@example.com", "primary": true}},
@@ -784,9 +774,8 @@ func TestManagePerson_TruncationIsReportedWhenPermitted(t *testing.T) {
 			Emails: []pipedrive.ContactPoint{{Value: "a@example.com", Primary: true}},
 		},
 	}
-	reg := func(s *mcp.Server) { tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{}) }
 	var out writeOut
-	res := callTool(t, reg, "manage_person", map[string]any{
+	res := callTool(t, personsReg(fake), "manage_person", map[string]any{
 		"action": "update", "person_id": 7, "overwrite": true,
 		"emails": []map[string]any{{"value": "a@example.com", "primary": true}},
 	}, &out)
@@ -795,5 +784,73 @@ func TestManagePerson_TruncationIsReportedWhenPermitted(t *testing.T) {
 	}
 	if !changedSet(out.Changed)["emails"] {
 		t.Errorf("changed = %v; a truncation must be named", out.Changed)
+	}
+}
+
+func TestManageWrite_CustomFieldsAreResolvedOnEveryPath(t *testing.T) {
+	// Every write path must resolve custom-field hashes to the names the
+	// workspace gives them, or the LLM gets 40-char hashes it cannot cite.
+	//
+	// This exists because a refactor once dropped the resolve on the
+	// create path and every test still passed: nothing asserted that a
+	// created record comes back with its custom fields named.
+	byName := func(raw map[string]any) map[string]any {
+		out := map[string]any{}
+		for k, v := range raw {
+			if k == "abcdef0123456789abcdef0123456789abcdef01" {
+				out["Renewal owner"] = v
+				continue
+			}
+			out[k] = v
+		}
+		return out
+	}
+	withHash := map[string]any{"abcdef0123456789abcdef0123456789abcdef01": "someone"}
+
+	type probe struct {
+		name string
+		args map[string]any
+		fake *fakeDealsClient
+	}
+	for _, tc := range []probe{
+		{
+			name: "create",
+			args: map[string]any{"action": "create", "title": "Acme renewal"},
+			fake: &fakeDealsClient{
+				resolver:   byName,
+				createDeal: &pipedrive.Deal{ID: 9, Title: "Acme renewal", CustomFields: withHash},
+			},
+		},
+		{
+			name: "update",
+			args: map[string]any{"action": "update", "deal_id": 9, "value": 5000},
+			fake: &fakeDealsClient{
+				resolver:   byName,
+				deal:       &pipedrive.Deal{ID: 9, Title: "Acme renewal", UpdateTime: "t0"},
+				updateDeal: &pipedrive.Deal{ID: 9, Title: "Acme renewal", Value: 5000, UpdateTime: "t1", CustomFields: withHash},
+			},
+		},
+		{
+			name: "transition",
+			args: map[string]any{"action": "mark_won", "deal_id": 9},
+			fake: &fakeDealsClient{
+				resolver:   byName,
+				deal:       &pipedrive.Deal{ID: 9, Status: "open", UpdateTime: "t0"},
+				updateDeal: &pipedrive.Deal{ID: 9, Status: "won", UpdateTime: "t1", CustomFields: withHash},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out struct {
+				Deal dealRow `json:"deal"`
+			}
+			res := callTool(t, dealsReg(tc.fake, tools.RegisterOptions{}), "manage_deal", tc.args, &out)
+			if res.IsError {
+				t.Fatalf("unexpected isError: %s", contentText(res))
+			}
+			if _, named := out.Deal.CustomFields["Renewal owner"]; !named {
+				t.Errorf("custom fields = %v; want the hash resolved to its workspace name", out.Deal.CustomFields)
+			}
+		})
 	}
 }

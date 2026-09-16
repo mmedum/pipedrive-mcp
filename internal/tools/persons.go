@@ -68,12 +68,11 @@ type listPersonsOutput struct {
 // discrete (get_person, list_persons); every mutation goes through
 // manage_person. opts.DryRun is the server-wide dry-run floor.
 func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string, opts RegisterOptions) {
-	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 
 	AddTool(s, &mcp.Tool{
 		Name:        "get_person",
 		Description: "Fetch a single Pipedrive person by person_id. Returns id, name, first_name, last_name, all emails (with primary flag and label), all phones, owner_id, linked org_id, add/update timestamps, and any custom fields resolved by name. Unknown person_id returns a [not_found] error. To find a person by name, call `search` first to resolve the id.",
-		Annotations: &readOnly,
+		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getPersonInput) (*mcp.CallToolResult, getPersonOutput, error) {
 		if err := validatePositiveID(in.PersonID, "person_id"); err != nil {
 			return errorResult(err), getPersonOutput{}, nil
@@ -82,14 +81,13 @@ func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string, opts 
 		if err != nil {
 			return errorResult(err), getPersonOutput{}, nil
 		}
-		resolved := c.ResolvePersonCustomFields(ctx, p.CustomFields)
-		return nil, getPersonOutput{Person: summarizePerson(companyDomain, p, resolved)}, nil
+		return nil, getPersonOutput{Person: resolvedPerson(ctx, c, companyDomain, p)}, nil
 	})
 
 	AddTool(s, &mcp.Tool{
 		Name:        "list_persons",
 		Description: "List Pipedrive persons filtered by owner, linked organization, or update window. Returns id, name, first_name, last_name, emails, phones, owner_id, linked org_id, add/update timestamps, and any custom fields resolved by name. Default sort is update_time desc — most-recently-touched first, ideal for 'who at company X have we been talking to lately'. Default limit is 25, max 100. For more results, pass the next_cursor from the previous response. To find a person by name (rather than ID), call `search` with type=person — search is the natural-language gateway, list_persons is the precision filter when the IDs are already known.",
-		Annotations: &readOnly,
+		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listPersonsInput) (*mcp.CallToolResult, listPersonsOutput, error) {
 		if err := validateEnum(in.SortBy, "sort_by", allowedPersonSortFields); err != nil {
 			return errorResult(err), listPersonsOutput{}, nil
@@ -118,8 +116,7 @@ func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string, opts 
 			NextCursor: next,
 		}
 		for i := range persons {
-			resolved := c.ResolvePersonCustomFields(ctx, persons[i].CustomFields)
-			out.Persons = append(out.Persons, summarizePerson(companyDomain, &persons[i], resolved))
+			out.Persons = append(out.Persons, resolvedPerson(ctx, c, companyDomain, &persons[i]))
 		}
 		return nil, out, nil
 	})
@@ -130,10 +127,11 @@ func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string, opts 
 var allowedPersonActions = map[string]bool{"create": true, "update": true}
 
 // personFields is the one table of LLM-facing field names a write can
-// touch. Emails and phones project to their primary value: Pipedrive
-// replaces a contact-point collection wholesale, so "does this person
-// already have an email" is the question the overwrite guard needs
-// answered, not which of several.
+// touch. Emails and phones project through projectContactPoints, which
+// renders every field of every entry — see the rule on projectCollection
+// in guard.go. "Does this person already have an email" is NOT the
+// question the guard needs answered; that reasoning shipped once and was
+// wrong twice over.
 var personFields = []fieldSpec[pipedrive.Person]{
 	{"name", func(p *pipedrive.Person) string { return projectString(p.Name) }},
 	{"first_name", func(p *pipedrive.Person) string { return projectString(p.FirstName) }},
@@ -167,13 +165,11 @@ type managePersonOutput struct {
 }
 
 func registerManagePerson(s *mcp.Server, c personsClient, companyDomain string, opts RegisterOptions) {
-	destructiveTrue := true
-	mutating := mcp.ToolAnnotations{DestructiveHint: &destructiveTrue, IdempotentHint: false}
 
 	AddTool(s, &mcp.Tool{
 		Name:        "manage_person",
-		Description: "Create a contact or edit one. One call, either action: create takes name, update takes person_id. Writing is guarded. An update reads the person first and refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. IMPORTANT: emails and phones REPLACE the stored collection rather than adding to it, because that is what Pipedrive does with them — to add an address, read the person first and send the existing entries back alongside the new one, or you will silently drop the rest. Custom fields are readable through get_person and list_persons but are not writable here yet. Use search to turn a company name into the org_id this links to.",
-		Annotations: &mutating,
+		Description: "Create a contact or edit one. One call, either action: create takes name, update takes person_id. Writing is guarded, and update reads the person before it writes, so a write is two API calls. It refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. IMPORTANT: emails and phones REPLACE the stored collection rather than adding to it, because that is what Pipedrive does with them — to add an address, read the person first and send the existing entries back alongside the new one, or you will silently drop the rest. Custom fields are readable through get_person and list_persons but are not writable here yet. Use search to turn a company name into the org_id this links to.",
+		Annotations: mutatingAnnotations(),
 	}, managePersonHandler(c, companyDomain, opts.DryRun))
 }
 
@@ -207,25 +203,26 @@ func createPersonAction(ctx context.Context, c personsClient, companyDomain stri
 	}
 	req := pipedrive.CreatePersonRequest{
 		Name:      *in.Name,
-		FirstName: derefString(in.FirstName),
-		LastName:  derefString(in.LastName),
+		FirstName: deref(in.FirstName),
+		LastName:  deref(in.LastName),
 		Emails:    in.Emails,
 		Phones:    in.Phones,
-		OrgID:     derefID(in.OrgID),
-		OwnerID:   derefID(in.OwnerID),
+		OrgID:     deref(in.OrgID),
+		OwnerID:   deref(in.OwnerID),
 	}
 	created := syntheticPersonFromRequest(req)
-	var resolved map[string]any
 	if !in.DryRun {
-		p, err := c.CreatePerson(ctx, req)
+		c, err := c.CreatePerson(ctx, req)
 		if err != nil {
 			return errorResult(err), managePersonOutput{}
 		}
-		created = p
-		resolved = c.ResolvePersonCustomFields(ctx, p.CustomFields)
+		created = c
 	}
+	// resolvedX on both paths, so a dry-run preview and a real
+	// create describe their custom fields the same way. The
+	// synthetic record carries none, so this resolves an empty map.
 	return nil, managePersonOutput{
-		Person:  summarizePerson(companyDomain, created, resolved),
+		Person:  resolvedPerson(ctx, c, companyDomain, created),
 		Changed: changedFields(personFields, &pipedrive.Person{}, created),
 	}
 }
@@ -255,14 +252,14 @@ func updatePersonAction(ctx context.Context, c personsClient, companyDomain stri
 	predicted := personAfterUpdate(*before, req)
 	changed := changedFields(personFields, before, &predicted)
 	if len(changed) == 0 {
-		return nil, managePersonOutput{Person: summarizePerson(companyDomain, before, c.ResolvePersonCustomFields(ctx, before.CustomFields))}
+		return nil, managePersonOutput{Person: resolvedPerson(ctx, c, companyDomain, before)}
 	}
 	if err = requireOverwrite(personFields, fmt.Sprintf("person %d", in.PersonID), before, changed, in.Overwrite); err != nil {
 		return errorResult(err), managePersonOutput{}
 	}
 	if in.DryRun {
 		return nil, managePersonOutput{
-			Person:  summarizePerson(companyDomain, before, c.ResolvePersonCustomFields(ctx, before.CustomFields)),
+			Person:  resolvedPerson(ctx, c, companyDomain, before),
 			Changed: changed,
 		}
 	}
@@ -272,7 +269,7 @@ func updatePersonAction(ctx context.Context, c personsClient, companyDomain stri
 		return errorResult(err), managePersonOutput{}
 	}
 	return nil, managePersonOutput{
-		Person:  summarizePerson(companyDomain, after, c.ResolvePersonCustomFields(ctx, after.CustomFields)),
+		Person:  resolvedPerson(ctx, c, companyDomain, after),
 		Changed: changedFields(personFields, before, after),
 	}
 }
@@ -309,6 +306,20 @@ func syntheticPersonFromRequest(req pipedrive.CreatePersonRequest) *pipedrive.Pe
 		OrgID:     req.OrgID,
 		OwnerID:   req.OwnerID,
 	}
+}
+
+// personFieldResolver is the narrow slice of a client that resolvedPerson needs, so the
+// resource templates can share the composition rather than repeating it.
+type personFieldResolver interface {
+	ResolvePersonCustomFields(ctx context.Context, raw map[string]any) map[string]any
+}
+
+// resolvedPerson resolves custom-field hashes to workspace names and summarizes
+// in one step. Written out separately at six sites per resource, a
+// forgotten resolve silently shipped 40-char field hashes to the LLM
+// instead of the names it can actually cite.
+func resolvedPerson(ctx context.Context, c personFieldResolver, domain string, r *pipedrive.Person) personSummary {
+	return summarizePerson(domain, r, c.ResolvePersonCustomFields(ctx, r.CustomFields))
 }
 
 func summarizePerson(domain string, p *pipedrive.Person, customFields map[string]any) personSummary {

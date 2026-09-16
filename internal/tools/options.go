@@ -3,6 +3,12 @@ package tools
 // RegisterOptions carries the server-wide settings a Register function
 // needs.
 //
+// It stays a struct with one field on purpose. The original reason — it
+// stopped a caller swapping two positional bools — left with
+// EnableDestructive, but a named extension point still beats a bare bool
+// at eight call sites, and the swap hazard returns the moment a second
+// setting lands.
+//
 // DryRun mirrors PIPEDRIVE_DRY_RUN and is a floor, not a default: a
 // handler ORs it with the caller's per-call dry_run, so a call can turn
 // a rehearsal on and nothing on the wire can turn one off. docs/security.md

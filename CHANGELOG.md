@@ -162,6 +162,9 @@ breaking changes require a MAJOR bump.
   `overwrite` refusal and the dry-run prediction, so the three cannot
   disagree about what a write would do. Adding a field is one edit.
 
+  **Read tools declare `idempotentHint` as well as `readOnlyHint`.** A
+  read is idempotent by definition; only `whoami` said so before.
+
   **Collections are guarded on their whole contents, not on whether they
   are occupied.** Pipedrive replaces a person's emails and phones, and an
   activity's participants, wholesale rather than merging into them, so
@@ -173,6 +176,12 @@ breaking changes require a MAJOR bump.
   `changed`. A test asserts that every field an `Update*Request` can send
   has a table entry, because a writable-but-untabled field is one that
   gets written without being guarded or reported.
+
+- `whoami` is memoised for the life of the process, behind the same
+  `sync.Once` shape the field caches use. Its description tells the model
+  the answer does not change during a session, which is an invitation to
+  call it every turn; without the memo each of those was a full v1 round
+  trip for a value a fixed token cannot change.
 
 - `whoami` reports which account the token acts as and which workspace
   it points at. Its `user_id` is the `owner_id` a record gets when you
