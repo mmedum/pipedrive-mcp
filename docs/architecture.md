@@ -343,6 +343,67 @@ table above says what actually happened rather than what was planned.
 | `v0.9.0` → `v1.0.0-rc.N` | Phase 4 | An eval suite (a release gate from Phase 4 onwards, and it does not exist yet), polish, and validation against a second workspace. |
 | `v1.0.0` | Phase 5 | A stable surface and a supported-version table. |
 
+### v0.5.0 in detail
+
+0.5.0 closes the gaps 0.4.0 knowingly shipped with. Ordered by what would
+hurt most to leave undone.
+
+**1. Custom-field writes.** They are readable everywhere and writable
+nowhere, which is the first wall a user hits — a CRM whose custom fields
+are read-only is a CRM you still have to open a browser for. `FieldCache`
+has `Resolve` (hash → workspace name) and no inverse, so a write cannot
+accept `"Renewal owner"` and turn it into the 40-char key Pipedrive
+stores. Touches `internal/pipedrive/fieldcache.go`, every `manage_*`
+input, and — per the invariant in `fieldtable_test.go` — the field tables,
+since a field a write can set must be tabled or it is written unguarded
+and unreported.
+
+**2. An integration suite.** No `//go:build integration` files ship, so
+the sandbox gate is satisfied by probes that live in a scratchpad and run
+when somebody remembers. This is the highest-value item on the list and
+the ordering above understates it: **every serious defect found during
+the 0.4.0 work was found by driving the live API, and not one of them was
+visible to the unit tests**, which assert against fakes. Three guard bugs,
+a wire-format error, and Pipedrive's derived-`name` behaviour all came
+from real calls. Promoting the two write probes to real tests is what
+makes that repeatable instead of lucky.
+
+**3. A second workspace.** Everything so far ran against one. Custom-field
+configurations, pipeline shapes and permission levels vary, and the 403
+spike below needs a second account regardless.
+
+**4. The two remaining Phase 0 spikes**, both in `CONTRIBUTING.md`:
+403 disambiguation (needs a permission-denied and a business-rule 403 from
+a real account, to tighten `businessRule403Signals`), and the hand-rolled
+HTTP versus OpenAPI-generator decision, which needs recording either way.
+
+**5. A Claude Desktop smoke.** 0.4.0 was driven through stdio and Claude
+Code. The runbook accepts either, so this is a gap in coverage rather than
+in process.
+
+**Deferred review findings.** Each was raised by a `/simplify` pass during
+0.4.0 and judged not worth blocking the release. None is a defect:
+
+- `dealRequestFor` returns `*mcp.CallToolResult` where every other
+  validator in the package returns `error` and lets the caller wrap.
+- The action taxonomy is written four times per resource — the enum map,
+  the create branch, the request builder's `default`, and the guard
+  posture — so adding an action is four edits, and a new transition-shaped
+  action inherits whichever posture it lands in.
+- 95 hand-rolled `Connect` + `CallTool` + `DecodeStructured` blocks across
+  the tests. `callTool` in `manage_write_test.go` is the right helper in
+  the wrong package; it belongs in `internal/server/testutil`.
+- `projectString` is an identity function wrapped at 19 table entries. It
+  buys a uniform column and costs a reader's attention on the column where
+  the projection is load-bearing.
+- `populatedFields` builds a `map[string]bool` for a membership test over
+  at most 18 elements.
+
+**Explicitly not in 0.5.0.** Products, leads, files, projects and goals
+are new resources and belong to their own milestone. Field clearing is
+blocked on Pipedrive v2, not on us. The v1 sunset migration is its own
+piece of work and gates 1.0 rather than 0.5.
+
 **`v1.0.0` is gated on more than a checklist.** It means breaking changes
 require a MAJOR bump, and two parts of this surface — the notes tools and
 `whoami` — sit on Pipedrive **v1, which sunsets 2026-07-31**. If that
