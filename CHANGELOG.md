@@ -260,6 +260,34 @@ breaking changes require a MAJOR bump.
 
 ### Fixed
 
+- `README.md` did not follow the shape the sibling servers use, which is
+  what a reader comparing them side by side notices first. It now carries
+  the same section skeleton as `google-drive-mcp`, `google-sheets-mcp`,
+  `google-docs-mcp` and `google-chat-mcp` — identical heading for
+  heading — plus the four badges they carry rather than two, an `Install`
+  that leads with `go install` and the `PATH` gotcha that follows it, a
+  `Configuration` section instead of an env table buried under setup, and
+  a `Tools` table with one row per tool saying what it does rather than
+  grouped rows saying what it answers.
+
+  Two sections were pointers rather than content and are now written out:
+  `Versioning` said "see SECURITY.md" where the siblings state the
+  stability contract, and `Getting help` opened with troubleshooting
+  without mentioning that `pipedrive-mcp status` answers most of it —
+  `status --json` included, which existed and went unadvertised.
+
+  The phase plan moved to `docs/architecture.md` and the `status --json`
+  shape to `docs/configuration.md`, which is where the siblings keep
+  both; the README links to them.
+
+- `CODE_OF_CONDUCT.md` was Contributor Covenant 2.x while all five
+  sibling servers are on 3.0. Adopted 3.0, which replaces the
+  "Our Standards / Enforcement" shape with "Encouraged Behaviors /
+  Restricted Behaviors / Reporting an Issue / Addressing and Repairing
+  Harm". The reporting route is unchanged — GitHub's private security
+  advisory flow, and no email address anywhere in the tree, which a gate
+  enforces.
+
 - The phase plan in `README.md` claimed `v0.2.0` shipped the write tools
   and `v0.3.0` the workflow tools. Neither did: every tag from `v0.2.0`
   to `v0.3.2` went to release and supply-chain engineering, and the write
