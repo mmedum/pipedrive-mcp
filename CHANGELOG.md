@@ -260,6 +260,16 @@ breaking changes require a MAJOR bump.
 
 ### Fixed
 
+- The dry run under-reports when Pipedrive derives a field. Changing a
+  person's `first_name` reports `["name", "first_name"]`, because the
+  upstream recomputes `name` from the parts, while the rehearsal for the
+  same call predicts `["first_name"]` alone. That direction is the safe
+  one — the rehearsal never promises less will change than does — and the
+  guard is unaffected, but nobody had written it down. Established by a
+  live write probe; `docs/architecture.md` has the reasoning under "The
+  upstream may change more than you asked for", and `manage_person`'s
+  description says it where it bites.
+
 - `README.md` did not follow the shape the sibling servers use, which is
   what a reader comparing them side by side notices first. It now carries
   the same section skeleton as `google-drive-mcp`, `google-sheets-mcp`,
