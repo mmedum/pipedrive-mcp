@@ -196,9 +196,14 @@ var allowedActivityActions = map[string]bool{
 }
 
 // activityFields is the one table of LLM-facing field names a write can
-// touch. marked_as_done_time is absent because Pipedrive stamps it
-// itself when done flips; attendees and conference details are absent
-// because they come from the calendar integration, not from here.
+// touch. Every field UpdateActivityRequest can send must appear here:
+// the table is what the diff and the overwrite guard walk, so a field
+// that is writable but untabled is a field that gets written without
+// being guarded or reported.
+//
+// marked_as_done_time is absent because Pipedrive stamps it itself when
+// done flips; attendees and conference details are absent because they
+// come from the calendar integration and no write here touches them.
 var activityFields = []fieldSpec[pipedrive.Activity]{
 	{"subject", func(a *pipedrive.Activity) string { return projectString(a.Subject) }},
 	{"type", func(a *pipedrive.Activity) string { return projectString(a.Type) }},
@@ -215,6 +220,12 @@ var activityFields = []fieldSpec[pipedrive.Activity]{
 	{"location", func(a *pipedrive.Activity) string { return projectLocation(a.Location) }},
 	{"done", func(a *pipedrive.Activity) string { return projectBool(a.Done) }},
 	{"busy", func(a *pipedrive.Activity) string { return projectBool(a.Busy) }},
+	// participants belongs here because an update REPLACES the
+	// collection. Left out of the table it was written but never
+	// diffed, so the overwrite guard could not refuse over it, a
+	// participants-only update looked like a no-op, and `changed` never
+	// admitted that attendees had been dropped.
+	{"participants", func(a *pipedrive.Activity) string { return projectParticipants(a.Participants) }},
 }
 
 type manageActivityInput struct {

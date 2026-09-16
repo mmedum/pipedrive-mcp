@@ -117,20 +117,46 @@ func projectOptInt(p *int) string {
 	return strconv.Itoa(*p)
 }
 
-// projectContactPoints renders a contact-point collection by its
-// primary value, falling back to the first entry. Pipedrive replaces
-// such a collection wholesale, so the question the guard needs answered
-// is "does this person already have one", not which of several.
+// projectContactPoints renders a contact-point collection as ALL of its
+// values in stored order, not just the primary one.
+//
+// That distinction is the guard. Pipedrive replaces a contact-point
+// collection wholesale rather than merging into it, so the destructive
+// case is not "the primary is being replaced" — it is "the primary
+// survives and the other four are deleted", which is exactly what an
+// update sending back only the entry it edited does. A projection that
+// returned the primary value would compare equal before and after, the
+// field would never enter `changed`, and requireOverwrite would never
+// refuse over it. Joining every value makes a truncation visible.
 func projectContactPoints(cps []pipedrive.ContactPoint) string {
 	if len(cps) == 0 {
 		return ""
 	}
+	values := make([]string, 0, len(cps))
 	for _, cp := range cps {
-		if cp.Primary {
-			return cp.Value
-		}
+		values = append(values, cp.Value)
 	}
-	return cps[0].Value
+	return strings.Join(values, ",")
+}
+
+// projectParticipants renders an activity's participant list the same
+// way and for the same reason: UpdateActivityRequest.Participants
+// replaces the collection, so dropping attendees has to be visible to
+// the diff. The primary flag is included because promoting a different
+// participant is a real change the caller should see reported.
+func projectParticipants(ps []pipedrive.ActivityParticipant) string {
+	if len(ps) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(ps))
+	for _, p := range ps {
+		entry := strconv.FormatInt(p.PersonID, 10)
+		if p.Primary {
+			entry += "*"
+		}
+		parts = append(parts, entry)
+	}
+	return strings.Join(parts, ",")
 }
 
 // projectAddress and projectLocation render the structured records

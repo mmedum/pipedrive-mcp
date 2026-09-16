@@ -100,6 +100,13 @@ breaking changes require a MAJOR bump.
   reversible trash. Nothing in this server sets that flag back, which the
   tool description says outright rather than implying with a flag.
 
+  An operator upgrading with `PIPEDRIVE_ENABLE_DESTRUCTIVE` still set in
+  their MCP client config is not warned: the variable is simply no longer
+  read. It was only ever a registration gate, and nothing it used to
+  withhold is withheld now, so a stale `=false` does not make the server
+  less safe than the flag promised — but it does not do anything either,
+  and can be deleted.
+
   `PIPEDRIVE_DRY_RUN` is **not** retired, and is now documented as what
   it has to be: a floor. Every write tool ORs it with the per-call input,
   so a call can turn a rehearsal on and nothing on the wire can turn one
@@ -186,6 +193,18 @@ breaking changes require a MAJOR bump.
   stored value; that single table drives the `changed` report, the
   `overwrite` refusal and the dry-run prediction, so the three cannot
   disagree about what a write would do. Adding a field is one edit.
+
+  **Collections are guarded on their whole contents, not on whether they
+  are occupied.** Pipedrive replaces a person's emails and phones, and an
+  activity's participants, wholesale rather than merging into them, so
+  the destructive case is not "the primary is being replaced" but "the
+  primary survives and the other four are deleted" — which is exactly
+  what an update sending back only the entry it edited does. Those
+  fields project to every value in stored order, so a truncation is
+  visible to the diff, refused without `overwrite`, and named in
+  `changed`. A test asserts that every field an `Update*Request` can send
+  has a table entry, because a writable-but-untabled field is one that
+  gets written without being guarded or reported.
 
 - `whoami` reports which account the token acts as and which workspace
   it points at. Its `user_id` is the `owner_id` a record gets when you
