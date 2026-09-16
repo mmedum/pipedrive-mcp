@@ -15,14 +15,34 @@ import (
 	"github.com/mmedum/pipedrive-mcp/internal/tools"
 )
 
+// instructions is the server-level guidance an MCP client receives at
+// initialize. Every shipped Google Workspace MCP server carries one,
+// and it is where the things no single tool description owns belong:
+// which tool to start from, what each costs, the traps that return a
+// wrong answer rather than an error, and what is out of scope.
+const instructions = `Pipedrive CRM tools, against one workspace's API token.
+
+Start with search. It is the natural-language gateway: it turns a name into the numeric id every other tool needs, and it covers deals, persons, organizations, products, files and leads in one call. The list_ tools are the precision filters for when you already hold the ids. list_pipelines and list_stages name the pipeline and stage a deal is filed under, and take no paging, because a workspace rarely has more than twenty pipelines.
+
+Read one record with get_deal, get_person, get_organization, get_activity or get_note, and many with the matching list_ tool. A get_ is one call and a list_ is one call, but a list_ you then page through is as many calls as you ask for, so filter rather than sweeping. Custom fields come back resolved to the names they carry in the workspace rather than the 40-character hashes Pipedrive stores them under, so you can read them and quote them directly; refresh_field_cache re-reads those names after somebody adds or renames a field in the Pipedrive UI.
+
+Every mutation goes through a manage_ tool — manage_deal, manage_person, manage_organization, manage_activity, manage_note — with an action saying which.
+
+Writing is guarded. A manage_ tool reads its target before it writes and refuses to replace ANY field that already holds a value unless you pass overwrite, naming each field it is protecting; filling a field that is empty destroys nothing and needs no permission. expect_version refuses a write whose record moved since you read it. Pipedrive has no undo, so take a refusal as information rather than an obstacle, and reach for dry_run when you are not sure what is there. The named transitions — mark_won, mark_lost, move_stage, reopen, complete — take no overwrite, because the field they change is the field you named.
+
+IMPORTANT: a list_ page holding fewer rows than the limit is NOT the end. Keep going while next_cursor comes back non-empty.
+
+Two things the API cannot do, which retrying will not fix. Activity type (call, email, meeting and so on) cannot be filtered server-side, so ask for the rows and filter them on their own type field. And activities are not indexed by search: reach them through list_activities, filtered by the deal or person they hang off.
+
+Everything here is Pipedrive v2 except notes, which v2 does not expose at all; those come from v1 and behave the same way, except that deleting one is soft — it clears active_flag, and nothing here sets it back. Custom fields are readable everywhere and not yet writable. Products, leads, files, projects and goals are not here.`
+
 // New constructs an MCP server with every tool package wired up. The
 // client may be nil (used by the --dump-schemas path, where tool
 // handlers never execute — only their schemas are dumped). domain is
 // used for URL injection in tool outputs.
 //
-// opts.DryRun mirrors PIPEDRIVE_DRY_RUN; opts.EnableDestructive
-// mirrors PIPEDRIVE_ENABLE_DESTRUCTIVE — see the RegisterOptions
-// godoc for details.
+// opts.DryRun mirrors PIPEDRIVE_DRY_RUN and is a server-wide dry-run
+// floor every write tool honours — see the RegisterOptions godoc.
 //
 // The parent ctx governs the cache-warm goroutine's lifetime. When
 // it cancels (e.g. SIGTERM), the warm-up's in-flight HTTP requests
@@ -31,7 +51,7 @@ func New(ctx context.Context, name, version string, client *pipedrive.Client, do
 	srv := mcp.NewServer(&mcp.Implementation{
 		Name:    name,
 		Version: version,
-	}, nil)
+	}, &mcp.ServerOptions{Instructions: instructions})
 
 	tools.RegisterPipelines(srv, client, domain)
 	tools.RegisterDeals(srv, client, domain, opts)
@@ -41,6 +61,8 @@ func New(ctx context.Context, name, version string, client *pipedrive.Client, do
 	tools.RegisterNotes(srv, client, opts)
 	tools.RegisterCache(srv, client)
 	tools.RegisterSearch(srv, client)
+	tools.RegisterWhoAmI(srv, client)
+	tools.RegisterResources(srv, client, domain)
 
 	if client != nil {
 		// Warm the field caches off the critical path so the first

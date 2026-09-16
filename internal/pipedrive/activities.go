@@ -88,6 +88,42 @@ type CreateActivityRequest struct {
 	Busy              bool                  `json:"busy,omitempty"`
 }
 
+// UpdateActivityRequest is the JSON body for
+// PATCH /api/v2/activities/{id}. Pointers so nil omits the field and it
+// keeps its stored value. Done in particular needs to be a pointer: a
+// bare bool could never express "reopen this activity", since false and
+// absent would be the same wire value. Clearing a field is not
+// supported — see UpdateDealRequest.
+type UpdateActivityRequest struct {
+	Subject           *string               `json:"subject,omitempty"`
+	Type              *string               `json:"type,omitempty"`
+	DueDate           *string               `json:"due_date,omitempty"`
+	DueTime           *string               `json:"due_time,omitempty"`
+	Duration          *string               `json:"duration,omitempty"`
+	DealID            *int64                `json:"deal_id,omitempty"`
+	PersonID          *int64                `json:"person_id,omitempty"`
+	OrgID             *int64                `json:"org_id,omitempty"`
+	LeadID            *string               `json:"lead_id,omitempty"`
+	OwnerID           *int64                `json:"owner_id,omitempty"`
+	Note              *string               `json:"note,omitempty"`
+	PublicDescription *string               `json:"public_description,omitempty"`
+	Location          *string               `json:"location,omitempty"`
+	Participants      []ActivityParticipant `json:"participants,omitempty"`
+	Done              *bool                 `json:"done,omitempty"`
+	Busy              *bool                 `json:"busy,omitempty"`
+}
+
+// UpdateActivity edits an activity via PATCH /api/v2/activities/{id}
+// and returns the record Pipedrive echoes back.
+func (c *Client) UpdateActivity(ctx context.Context, id int64, req UpdateActivityRequest) (*Activity, error) {
+	var resp itemEnvelope[Activity]
+	if err := c.patchV2(ctx, "/activities/"+strconv.FormatInt(id, 10), req, &resp); err != nil {
+		return nil, err
+	}
+	a := resp.Data
+	return &a, nil
+}
+
 // GetActivity fetches a single activity by ID.
 func (c *Client) GetActivity(ctx context.Context, id int64, opts GetActivityOptions) (*Activity, error) {
 	q := url.Values{}

@@ -120,6 +120,40 @@ func (c *Client) CreateNote(ctx context.Context, req CreateNoteRequest) (*Note, 
 	return &n, nil
 }
 
+// UpdateNoteRequest is the JSON body for PUT /api/v1/notes/{id}.
+// Every field is omitempty: v1 treats the notes PUT as a partial
+// update, so an omitted field keeps its stored value. That is what
+// lets the tool layer send only the fields the caller asked to change
+// instead of read-modify-writing the whole record.
+type UpdateNoteRequest struct {
+	Content   string `json:"content,omitempty"`
+	DealID    int64  `json:"deal_id,omitempty"`
+	PersonID  int64  `json:"person_id,omitempty"`
+	OrgID     int64  `json:"org_id,omitempty"`
+	LeadID    string `json:"lead_id,omitempty"`
+	ProjectID int64  `json:"project_id,omitempty"`
+}
+
+// UpdateNote edits a note via PUT /api/v1/notes/{id}. Returns the note
+// as Pipedrive echoes it back, so the caller can report which stored
+// values actually changed. v2 has no equivalent endpoint; see types.go
+// for the carve-out rationale.
+//
+// "Did the caller ask for anything?" is deliberately not checked here.
+// The tools layer already knows, because it diffs the request against
+// the stored record to build its `changed` report, and that gives a
+// better message than this layer could. It also cannot be written
+// uniformly across resources: a struct equality check compiles for
+// notes and not for persons, whose update request carries slices.
+func (c *Client) UpdateNote(ctx context.Context, id int64, req UpdateNoteRequest) (*Note, error) {
+	var resp itemEnvelope[Note]
+	if err := c.putV1(ctx, "/notes/"+strconv.FormatInt(id, 10), req, &resp); err != nil {
+		return nil, err
+	}
+	n := resp.Data
+	return &n, nil
+}
+
 // DeleteNote removes a note via DELETE /api/v1/notes/{id}. v1 deletes
 // are SOFT — the record persists with active_flag=false and is still
 // readable via GetNote, but list_notes filters it out by default.

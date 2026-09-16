@@ -68,7 +68,7 @@ pipedrive-mcp/
 │       ├── persons.go         # get_person + list_persons
 │       ├── organizations.go   # get_organization + list_organizations
 │       ├── activities.go      # get_activity + list_activities
-│       ├── notes.go           # get_note + list_notes + create_note + delete_note (gated)
+│       ├── notes.go           # get_note + list_notes + manage_note
 │       ├── cache.go           # refresh_field_cache (operator escape hatch)
 │       └── search.go          # search (unified itemSearch wrapper)
 ├── docs/                      # operator docs (this tree)
@@ -169,25 +169,66 @@ In v2, custom fields nest under a `custom_fields` object on both
 request and response bodies. The cache is responsible for translating
 that nested map's keys (hashes) into human-readable names on output.
 
-## Dry-run mechanism
+## Guarded writes
 
-Two layers, in effect on every write tool:
+Pipedrive has no undo, so a refusal is the only guard there is. Every
+reshaped write reads its target before writing and refuses what the
+write would destroy that the caller cannot see. The contract follows
+`google-sheets`' `write_values`, and each refusal names two things: what
+it is protecting, and the argument that permits the write.
 
-1. Per-call: each write tool accepts an optional `dry_run: bool`
-   (default `false`).
-2. Server-wide: `PIPEDRIVE_DRY_RUN=true` forces every write to dry-run
-   regardless of per-call input. The env var always wins.
+- `dry_run` — a per-call input on every write. Reports what the write
+  would find and change, sends nothing. Validation still runs, so a
+  rehearsal catches the same input errors a real call would.
+- `overwrite` — required before an update may replace a populated field.
+  Filling an empty field destroys nothing and needs no flag.
+- `expect_version` — carries the `update_time` from the read that
+  informed the write, and refuses if the record moved since. Best effort:
+  Pipedrive has no compare-and-set, so this catches a concurrent edit,
+  not a determined race.
 
-When dry-run is active, the tool short-circuits before the HTTP call
-and returns a structured "would have done X" response (including a
-synthetic `id=0`, `dry_run=true` flag, and the would-have-been body).
-Validation still runs (size limits, custom-field name resolution,
-required-anchor checks) so the rehearsal catches the same input
-errors a real call would.
+A refusal comes back as a tool-execution error (`isError: true`) tagged
+`[refused]`, which is its own class precisely so a model can tell it
+apart from a validation failure and from an upstream error. Retrying is
+useless for one and correct for another.
 
-`create_note` and `delete_note` are the v0.1.0 write tools that
-implement this contract; future write tools will follow the same
-pattern.
+After a write the tool returns the record the upstream echoed back and a
+`changed` list naming every field that actually moved — diffed against
+the pre-write read, not against the request, because Pipedrive
+normalises some of what it stores.
+
+### Clearing a field
+
+**You cannot, and the tools say so.** Established live against
+`PATCH /api/v2/deals/{id}` on 2026-09-16:
+
+- `{"expected_close_date": null}` is **rejected**:
+  `Validation failed: expected_close_date: The value is not a valid 'string'.`
+- `{"expected_close_date": ""}` is **accepted** and returns
+  `success: true`, but the stored value becomes `0000-00-00` — MySQL's
+  zero date — rather than the field being removed. A deal that never had
+  a date omits the field entirely, so the two are distinguishable on a
+  read.
+
+So neither spelling empties a field, and a tool that advertised one
+would be lying to the model. Every `manage_*` input says "omit to leave
+it as it is" instead, and the request structs stay `*T` with `omitempty`
+— nil omits, non-nil sends — with no third state, because there is no
+third behaviour to reach for.
+
+This was found by a live probe, not by reading the docs, and it cost a
+deal one modified field. If someone later establishes what v2 actually
+wants per field, the place to change is the `Update*Request` types and
+the input descriptions together, never one without the other.
+
+`PIPEDRIVE_DRY_RUN` sits under all of it as a server-wide floor: every
+write honours it, and a per-call `dry_run` can only turn a rehearsal on.
+
+`manage_note` implements the full contract today — per-call `dry_run`,
+`overwrite` and `expect_version`. The `create_*` tools predate it: they
+honour the floor but take no per-call `dry_run` of their own, and they
+have nothing to guard anyway, since a create clobbers nothing. They gain
+the per-call input when they move to `manage_*`.
 
 ## Parallel tool registry
 

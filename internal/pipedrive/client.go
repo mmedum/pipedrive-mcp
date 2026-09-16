@@ -143,6 +143,27 @@ func (c *Client) postV2(ctx context.Context, path string, body, out any) error {
 	return c.exec(ctx, http.MethodPost, apiV2, path, body, out)
 }
 
+// patchV2 is the v2 partial-update helper (PATCH /api/v2/<resource>/{id}).
+// Fields the body omits keep their stored value, so callers send only
+// what they intend to change — which is why every Update*Request field
+// is a pointer with omitempty: nil omits, and a pointer to the zero
+// value clears. Retry policy follows shouldRetry: 429 only, never 5xx,
+// since a PATCH may have committed before responding.
+func (c *Client) patchV2(ctx context.Context, path string, body, out any) error {
+	return c.exec(ctx, http.MethodPatch, apiV2, path, body, out)
+}
+
+// putV1 is the v1-only PUT helper used by the notes carve-out update
+// path (`PUT /api/v1/notes/{id}`). Pipedrive v1 treats a notes PUT as
+// a partial update: fields the body omits keep their stored value, so
+// callers send only what they intend to change. Retry policy follows
+// shouldRetry — PUT is idempotent by HTTP semantics, but Pipedrive
+// gives no such guarantee, so it stays on the conservative non-GET
+// branch (429 only, never 5xx).
+func (c *Client) putV1(ctx context.Context, path string, body, out any) error {
+	return c.exec(ctx, http.MethodPut, apiV1, path, body, out)
+}
+
 // deleteV1 is the v1-only DELETE helper used by the notes carve-out
 // destructive tool. Same retry policy as postV1: only 429 is
 // retried, 5xx is not (the resource may already be gone, retrying

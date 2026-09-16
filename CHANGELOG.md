@@ -45,6 +45,178 @@ breaking changes require a MAJOR bump.
   else, and `mcp-publisher` verified with cosign before it is unpacked.
   A prerelease tag skips it: an entry cannot be taken back.
 
+### Changed
+
+- **BREAKING.** The tool surface follows the shipped Google Workspace MCP
+  servers — `google-drive`, `google-sheets`, `google-docs`, `google-chat` —
+  instead of a house style of its own. Those four are the MCP servers a
+  model has most likely already seen, so matching their conventions is
+  what makes this one legible without being explained. `CLAUDE.md` records
+  the standard, and what was dropped to reach it.
+
+  Reads stay discrete, because that is what Google actually does:
+  `get_file`, `list_folder` and `search_files` are three tools, not one
+  with a mode switch. Mutations of a single noun collapse behind one
+  `manage_` tool taking an `action`, which is `manage_sheet`,
+  `manage_labels` and `manage_revision`.
+
+  So the five `create_*` tools and `delete_note` are gone, replaced by
+  five `manage_` tools:
+
+  | Tool | Actions |
+  | --- | --- |
+  | `manage_deal` | `create`, `update`, `move_stage`, `mark_won`, `mark_lost`, `reopen` |
+  | `manage_person` | `create`, `update` |
+  | `manage_organization` | `create`, `update` |
+  | `manage_activity` | `create`, `update`, `complete`, `reopen` |
+  | `manage_note` | `create`, `update`, `delete` |
+
+  Nothing is a one-way door that did not have to be. `reopen` undoes
+  both `mark_lost` and `complete`, which is why `done` and the deal
+  status are pointers on the request: a bare `bool` cannot tell "reopen
+  this" from "say nothing about done", and the tool that could close a
+  record but not open it would be the worst of both.
+
+- **BREAKING.** `PIPEDRIVE_ENABLE_DESTRUCTIVE` is retired, and the
+  registration-time gate it drove with it. Registration was never the
+  right enforcement point: a tool that does not exist cannot explain
+  itself, so an operator who left the flag off handed the model a missing
+  capability to guess at rather than a refusal telling it why. The Google
+  servers register `trash_file` and `delete_message` unconditionally and
+  guard the call instead.
+
+  What replaces it is per-call, and narrower. `dry_run` is an input on
+  every reshaped write and reports what the write would find and change
+  without sending anything — the server-wide `PIPEDRIVE_DRY_RUN` it
+  supersedes decided for the whole process, which is the wrong grain,
+  since the caller is who knows whether a given write is a rehearsal.
+  `overwrite` is required before an update may replace content that is
+  already there. `expect_version` carries the `update_time` from the read
+  that informed the write, and refuses if the record moved since.
+
+  A guard is only added where the caller cannot already see what they
+  would lose. A v1 note delete just clears `active_flag`, so it takes
+  `dry_run` and nothing more — the same call `trash_file` makes for a
+  reversible trash. Nothing in this server sets that flag back, which the
+  tool description says outright rather than implying with a flag.
+
+  `PIPEDRIVE_DRY_RUN` is **not** retired, and is now documented as what
+  it has to be: a floor. Every write tool ORs it with the per-call input,
+  so a call can turn a rehearsal on and nothing on the wire can turn one
+  off. `docs/security.md` answers the "malicious tool selection" threat
+  with "use `PIPEDRIVE_DRY_RUN` for speculative LLM work", and a flag the
+  one delete-capable tool could override would have made that promise
+  false.
+
+### Added
+
+- `manage_note` can edit a note. There was no update path anywhere in the
+  client before this — `postV1`, `postV2` and `deleteV1` existed and no
+  PUT did — so `Client.putV1` and `Client.UpdateNote` add one. This stays
+  inside the existing notes carve-out rather than opening a new one: v2
+  still exposes no `/notes` endpoint to move to, which is the standing
+  exception in hard rule 1, not a new dependency on v1. Pipedrive treats
+  the v1 notes PUT as a partial update, so the request body carries only
+  the fields the caller asked to change.
+
+- Writes report a `changed` list naming every field the write actually
+  altered, diffed against the record read immediately before it rather
+  than against the request. Pipedrive normalises some of what it stores,
+  and the caller should see what landed rather than what was asked for.
+  On a dry run the same field names what *would* change, predicted by
+  overlaying the request onto the stored record — one diff function
+  serving both paths, so the rehearsal cannot disagree with the real
+  write.
+
+- The `overwrite` guard covers every populated field a write would
+  replace, not just `content`. It is derived from the same diff that
+  produces `changed`, so the guard and the report cannot drift apart,
+  and the refusal names each field it is protecting. Moving a note off
+  the deal it is filed under is now refused the same way replacing its
+  text is — the schema warned that an update "moves the note" while
+  nothing actually stopped it.
+
+- `[refused]` joins the error classes a tool result can carry. A guarded
+  write that stops is neither a validation failure nor an upstream error,
+  and a model that cannot tell the three apart will retry the one thing
+  that can never work. Every refusal names what it is protecting and the
+  argument that permits the write, because a refusal the caller cannot
+  act on is a bug.
+
+- **BREAKING.** Optional scalars on an update are pointers, so nil means
+  "leave this alone" and a value means "set it". A bare `int64` collapses
+  those two, and an update that could not tell them apart would overwrite
+  every field the caller did not mention.
+
+  **Clearing a field is documented as unsupported**, which is a change
+  from what an earlier draft of this work claimed. A live probe against
+  `PATCH /api/v2/deals/{id}` established that Pipedrive v2 rejects a null
+  outright (`The value is not a valid 'string'`) and stores an empty
+  string as the zero date `0000-00-00` rather than removing the value.
+  Neither spelling empties a field. Every optional input now reads "omit
+  to leave it as it is" rather than promising an unlink the API will not
+  perform, and `docs/architecture.md` keeps the evidence under "Clearing
+  a field" so the next person does not rediscover it the same way.
+
+### Added
+
+- Every mutation now runs the guarded-write contract, not just notes.
+  `manage_deal`, `manage_person`, `manage_organization` and
+  `manage_activity` read their target before writing and refuse to
+  replace any field already holding a value unless `overwrite` says so.
+  The client gained `PATCH /api/v2/<resource>/{id}` (`Client.patchV2`)
+  and an `Update*` method per resource; there was no update path
+  anywhere in it before — `postV1`, `postV2` and `deleteV1` existed and
+  no PATCH or PUT did.
+
+  The named transitions take no `overwrite`. `mark_won` names both the
+  change and the field it lands on, so the caller already sees the whole
+  blast radius, and a flag there would be friction rather than safety.
+  They also ignore the descriptive fields entirely: a caller who passes
+  a title to `mark_won` does not silently get it written.
+
+- The guard machinery is one mechanism rather than five. Each resource
+  supplies a table of its LLM-facing field names and how to read each
+  stored value; that single table drives the `changed` report, the
+  `overwrite` refusal and the dry-run prediction, so the three cannot
+  disagree about what a write would do. Adding a field is one edit.
+
+- `whoami` reports which account the token acts as and which workspace
+  it points at. Its `user_id` is the `owner_id` a record gets when you
+  create one without naming an owner, which is what turns "my open
+  deals" into a filter instead of a guess, and it reports the timezone
+  an activity's `due_time` is written in — getting that wrong schedules
+  a meeting on the wrong day.
+
+  **This is the second v1 carve-out**, added with an explicit user
+  go-ahead per hard rule 1. Pipedrive v2 exposes no users resource at
+  all — `/api/v2/users` does not exist, which is also why the startup
+  auth probe reads `/dealFields` — so `GET /api/v1/users/me` is the only
+  endpoint that answers this. A `whoami` tool either lives on v1 or does
+  not exist. The call site says so, and `docs/architecture.md` records
+  what has to change when v1 sunsets on 2026-07-31.
+
+- A server-level `instructions` block, which every shipped Google
+  Workspace MCP server carries and this one had none of. It is where the
+  things no single tool description owns belong: start from `search`,
+  what each call costs, that a short page is not the last page, that
+  activity type cannot be filtered server-side, and what is simply not
+  here.
+
+- Five MCP resource templates mirroring the `get_` tools, for clients
+  that attach records rather than calling tools:
+  `pipedrive://deals/{id}` and the same for persons, organizations,
+  activities and notes. They call the same `summarize*` functions the
+  tools do, so a resource read and a tool call cannot drift into
+  describing one record two ways.
+
+### Fixed
+
+- `tools.SDKVersion` said `v1.5.0` while `go.mod` pinned `v1.6.0`. That
+  constant is stamped into the schema dump so a surface diff caused by an
+  SDK upgrade can be classified as PATCH rather than as a breaking change;
+  left stale, it would have misattributed the next one.
+
 ## [0.3.2] - 2026-09-15
 
 ### Fixed

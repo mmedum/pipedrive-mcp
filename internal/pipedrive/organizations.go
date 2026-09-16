@@ -31,6 +31,28 @@ type CreateOrganizationRequest struct {
 	Address string `json:"address,omitempty"` // single-line; server-parsed
 }
 
+// UpdateOrganizationRequest is the JSON body for
+// PATCH /api/v2/organizations/{id}. Pointers so nil omits the field and
+// it keeps its stored value. Clearing a field is not supported — see
+// UpdateDealRequest.
+type UpdateOrganizationRequest struct {
+	Name    *string `json:"name,omitempty"`
+	OwnerID *int64  `json:"owner_id,omitempty"`
+	Address *string `json:"address,omitempty"` // single-line; server-parsed
+}
+
+// UpdateOrganization edits an organization via
+// PATCH /api/v2/organizations/{id} and returns the record Pipedrive
+// echoes back, with Address re-parsed server-side.
+func (c *Client) UpdateOrganization(ctx context.Context, id int64, req UpdateOrganizationRequest) (*Organization, error) {
+	var resp itemEnvelope[Organization]
+	if err := c.patchV2(ctx, "/organizations/"+strconv.FormatInt(id, 10), req, &resp); err != nil {
+		return nil, err
+	}
+	o := resp.Data
+	return &o, nil
+}
+
 // GetOrganization fetches a single organization by ID. custom_fields
 // are nested under the org's `custom_fields` object per Pipedrive v2 —
 // caller resolves hash keys to names via the per-Client FieldCache.
