@@ -51,7 +51,6 @@ type searchOutput struct {
 
 // RegisterSearch wires the search tool into the MCP server.
 func RegisterSearch(s *mcp.Server, c searchClient) {
-	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 
 	AddTool(s, &mcp.Tool{
 		Name: "search",
@@ -63,7 +62,7 @@ func RegisterSearch(s *mcp.Server, c searchClient) {
 			"When `truncated` is true, more results exist — paginate via `next_cursor` or refine the term; do not treat the page as exhaustive. " +
 			"Limitations: Pipedrive's search covers built-in fields and only varchar / monetary / phone / address custom-field types. " +
 			"For filters by stage, owner, value, dates, or other custom-field types, use list_deals with structured parameters instead.",
-		Annotations: &readOnly,
+		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in searchInput) (*mcp.CallToolResult, searchOutput, error) {
 		minLen := searchMinTermLen
 		if in.ExactMatch {

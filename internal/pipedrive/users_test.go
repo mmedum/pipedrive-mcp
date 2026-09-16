@@ -60,3 +60,55 @@ func TestClient_WhoAmI_MapsUnauthorized(t *testing.T) {
 		t.Errorf("err = %v; want ErrUnauthorized", err)
 	}
 }
+
+func TestClient_WhoAmI_IsMemoised(t *testing.T) {
+	// The tool description tells the model the answer does not change
+	// during a session, which invites a call per turn. Each one used to
+	// be a full v1 round trip.
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"success":true,"data":{"id":13,"name":"A User","company_domain":"acme"}}`)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv)
+	first, err := c.WhoAmI(context.Background())
+	if err != nil {
+		t.Fatalf("WhoAmI: %v", err)
+	}
+	for range 4 {
+		again, err := c.WhoAmI(context.Background())
+		if err != nil {
+			t.Fatalf("WhoAmI (repeat): %v", err)
+		}
+		if again != first {
+			t.Error("a repeat call returned a different record; the memo is not being used")
+		}
+	}
+	if hits != 1 {
+		t.Errorf("upstream hits = %d; want 1 — the answer cannot change for a fixed token", hits)
+	}
+}
+
+func TestClient_WhoAmI_MemoisesTheFailureToo(t *testing.T) {
+	// A failing probe must not turn into a retry on every later call.
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"success":false,"error":"invalid token"}`)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv)
+	for range 3 {
+		if _, err := c.WhoAmI(context.Background()); !errors.Is(err, ErrUnauthorized) {
+			t.Fatalf("err = %v; want ErrUnauthorized on every call", err)
+		}
+	}
+	if hits != 1 {
+		t.Errorf("upstream hits = %d; want 1", hits)
+	}
+}

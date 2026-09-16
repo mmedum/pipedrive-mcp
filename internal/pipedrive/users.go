@@ -1,6 +1,8 @@
 package pipedrive
 
-import "context"
+import (
+	"context"
+)
 
 // User is the authenticated account behind the API token, as
 // /api/v1/users/me reports it. Subset: enough to answer "who am I and
@@ -32,11 +34,28 @@ type User struct {
 //
 // Note the shape difference from v2: v1 wraps single records in the
 // same {success, data} envelope, so itemEnvelope still applies.
+//
+// MEMOISED for the process lifetime, behind the same sync.Once shape the
+// field caches use. A token authenticates as exactly one user, and the
+// whoami tool's own description tells the model the answer does not
+// change during a session — which is an invitation to call it every turn.
+// Without this, each of those was a full round trip for a value that
+// cannot move. The trade: a token rotation or a rename mid-process goes
+// unseen, and unlike the field caches there is no refresh tool. That is
+// acceptable for a per-workspace stdio server whose token is fixed at
+// startup, and a restart is the escape hatch.
+//
+// The first call's error is memoised too, so a failing probe does not
+// turn into a retry on every subsequent call.
 func (c *Client) WhoAmI(ctx context.Context) (*User, error) {
-	var resp itemEnvelope[User]
-	if err := c.doV1(ctx, "/users/me", &resp); err != nil {
-		return nil, err
-	}
-	u := resp.Data
-	return &u, nil
+	c.meOnce.Do(func() {
+		var resp itemEnvelope[User]
+		if err := c.doV1(ctx, "/users/me", &resp); err != nil {
+			c.meErr = err
+			return
+		}
+		u := resp.Data
+		c.me = &u
+	})
+	return c.me, c.meErr
 }

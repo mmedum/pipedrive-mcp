@@ -117,46 +117,58 @@ func projectOptInt(p *int) string {
 	return strconv.Itoa(*p)
 }
 
-// projectContactPoints renders a contact-point collection as ALL of its
-// values in stored order, not just the primary one.
+// projectCollection renders a collection as every element's full
+// contribution, joined in stored order.
 //
-// That distinction is the guard. Pipedrive replaces a contact-point
-// collection wholesale rather than merging into it, so the destructive
-// case is not "the primary is being replaced" — it is "the primary
-// survives and the other four are deleted", which is exactly what an
-// update sending back only the entry it edited does. A projection that
-// returned the primary value would compare equal before and after, the
-// field would never enter `changed`, and requireOverwrite would never
-// refuse over it. Joining every value makes a truncation visible.
-func projectContactPoints(cps []pipedrive.ContactPoint) string {
-	if len(cps) == 0 {
+// THE RULE, and the reason this helper exists rather than two
+// hand-written projections: `render` must cover EVERY field of E that a
+// write can set. Anything it leaves out is a field the caller can change
+// while the diff sees nothing — the write is then skipped as a no-op and
+// the caller is told the record already looks that way.
+//
+// That failure has now happened three times in this package: participants
+// missing from the table entirely, contact points projected to the
+// primary value alone (truncation invisible), and then contact points
+// projected to their values alone (re-flagging the primary and
+// relabelling invisible). Each fix chased the symptom. Stating the rule
+// in one place, with both collections written against it, is the thing
+// that stops a fourth.
+func projectCollection[E any](es []E, render func(E) string) string {
+	if len(es) == 0 {
 		return ""
 	}
-	values := make([]string, 0, len(cps))
-	for _, cp := range cps {
-		values = append(values, cp.Value)
-	}
-	return strings.Join(values, ",")
-}
-
-// projectParticipants renders an activity's participant list the same
-// way and for the same reason: UpdateActivityRequest.Participants
-// replaces the collection, so dropping attendees has to be visible to
-// the diff. The primary flag is included because promoting a different
-// participant is a real change the caller should see reported.
-func projectParticipants(ps []pipedrive.ActivityParticipant) string {
-	if len(ps) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(ps))
-	for _, p := range ps {
-		entry := strconv.FormatInt(p.PersonID, 10)
-		if p.Primary {
-			entry += "*"
-		}
-		parts = append(parts, entry)
+	parts := make([]string, 0, len(es))
+	for _, e := range es {
+		parts = append(parts, render(e))
 	}
 	return strings.Join(parts, ",")
+}
+
+// projectContactPoints covers all three fields of ContactPoint, because
+// manage_person's schema advertises all three as writable: {value,
+// primary, label}. Dropping the primary flag made "make her work address
+// the primary" read as a no-op.
+func projectContactPoints(cps []pipedrive.ContactPoint) string {
+	return projectCollection(cps, func(cp pipedrive.ContactPoint) string {
+		out := cp.Value + "|" + cp.Label
+		if cp.Primary {
+			out += "|*"
+		}
+		return out
+	})
+}
+
+// projectParticipants covers both fields of ActivityParticipant.
+// Promoting a different participant is a real change the caller should
+// see reported, so the primary flag is part of the projection.
+func projectParticipants(ps []pipedrive.ActivityParticipant) string {
+	return projectCollection(ps, func(p pipedrive.ActivityParticipant) string {
+		out := strconv.FormatInt(p.PersonID, 10)
+		if p.Primary {
+			out += "|*"
+		}
+		return out
+	})
 }
 
 // projectAddress and projectLocation render the structured records
@@ -176,6 +188,12 @@ func projectLocation(l *pipedrive.ActivityLocation) string {
 	return l.Value
 }
 
+// projectBool renders false as empty, which makes a false flag
+// structurally un-refusable: the overwrite guard can never see `done` or
+// `busy` as populated. That is deliberate — flipping a flag that is
+// already false destroys nothing, so demanding permission for it would
+// be friction. It is stated here because it is a policy, not an
+// accident of the zero value.
 func projectBool(b bool) string {
 	if !b {
 		return ""
@@ -183,33 +201,31 @@ func projectBool(b bool) string {
 	return "true"
 }
 
-// The helpers below unwrap the pointer inputs a manage_* tool takes.
-// Creates need plain values, because a create has nothing to clear —
-// only an update needs to tell "leave it alone" from "set it to zero".
-
-func derefString(p *string) string {
+// deref unwraps an optional tool input. Creates need plain values,
+// because a create has nothing to clear — only an update needs to tell
+// "leave it alone" from "set it to zero".
+func deref[T any](p *T) T {
 	if p == nil {
-		return ""
+		var zero T
+		return zero
 	}
 	return *p
 }
 
-func derefID(p *int64) int64 {
-	if p == nil {
-		return 0
-	}
-	return *p
-}
+// ptr is for the literal values a transition writes: status "won", the
+// blank that reopen puts over a lost reason, done true and false.
+func ptr[T any](v T) *T { return &v }
 
-func derefFloat(p *float64) float64 {
+// clone returns a pointer to a fresh copy, so an LLM-facing summary or a
+// predicted record never aliases the upstream struct's pointer. Keeps
+// the parallel-shadow boundary intact even if a later caller mutates the
+// upstream value.
+func clone[T any](p *T) *T {
 	if p == nil {
-		return 0
+		return nil
 	}
-	return *p
-}
-
-func derefBool(p *bool) bool {
-	return p != nil && *p
+	v := *p
+	return &v
 }
 
 // setIf assigns *src to *dst when src is non-nil. A manage_* overlay is
@@ -222,10 +238,3 @@ func setIf[T any](dst, src *T) {
 		*dst = *src
 	}
 }
-
-// strPtr is for the literal values a transition writes — status "won",
-// and the empty string that clears a lost reason.
-func strPtr(s string) *string { return &s }
-
-// boolPtr is for the literal values an activity transition writes.
-func boolPtr(b bool) *bool { return &b }

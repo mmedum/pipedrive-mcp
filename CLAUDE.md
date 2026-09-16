@@ -78,9 +78,13 @@ in the user's plan file under
   shared `client.go`, `errors.go`, `types.go`. No MCP imports here.
 - `internal/server/` — MCP SDK wiring. Calls each tool package's
   `Register(...)` function.
-- `internal/tools/` — MCP tool registrations. One file per resource type.
-  Each `Register(...)` adds tools to both `mcp.AddTool` and the parallel
-  registry in `registry.go` (so `--dump-schemas` can walk them).
+- `internal/tools/` — MCP tool registrations, one file per resource
+  type, plus the machinery they share. Each `Register(...)` adds tools to
+  both `mcp.AddTool` and the parallel registry in `registry.go` (so
+  `--dump-schemas` can walk them). Also here: `guard.go` (the
+  guarded-write mechanism — field tables, projections, the overwrite
+  refusal), `resources.go` (the MCP *resource* templates mirroring the
+  `get_` tools), `errors.go`, `pagination.go`, `sort.go`.
 - `docs/` — user-facing documentation (configuration, operations, security, architecture overview, development, release runbook).
 - `audit/security-reviews/` — committed `/security-review` outputs from each release boundary.
 - `audit/release-smoke/` — committed Claude Desktop release smoke transcripts.
