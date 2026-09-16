@@ -149,14 +149,20 @@ breaking changes require a MAJOR bump.
   every field the caller did not mention.
 
   **Clearing a field is documented as unsupported**, which is a change
-  from what an earlier draft of this work claimed. A live probe against
-  `PATCH /api/v2/deals/{id}` established that Pipedrive v2 rejects a null
-  outright (`The value is not a valid 'string'`) and stores an empty
-  string as the zero date `0000-00-00` rather than removing the value.
-  Neither spelling empties a field. Every optional input now reads "omit
-  to leave it as it is" rather than promising an unlink the API will not
-  perform, and `docs/architecture.md` keeps the evidence under "Clearing
-  a field" so the next person does not rediscover it the same way.
+  from what an earlier draft of this work claimed. A live probe found
+  that `PATCH /api/v2/deals/{id}` rejects a null outright (`The value is
+  not a valid 'string'`) and stores an empty string as the zero date
+  `0000-00-00` rather than removing the value — so v2 has no spelling
+  that empties a field. `PUT /api/v1/deals/{id}` with a null does clear
+  it, which is how we know this is a v2 gap rather than a Pipedrive-wide
+  one; the server deliberately does not reach for that, since it would
+  be a third v1 carve-out on an API that sunsets 2026-07-31, for a
+  capability nobody has asked for.
+
+  Every optional input now reads "omit to leave it as it is" rather than
+  promising an unlink the API will not perform, and
+  `docs/architecture.md` keeps the request-by-request evidence under
+  "Clearing a field".
 
 ### Added
 
