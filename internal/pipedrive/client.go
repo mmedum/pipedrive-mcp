@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -50,6 +51,10 @@ type Client struct {
 	logger      *slog.Logger
 	maxAttempts int           // retry attempts for 429 and 5xx; default 3
 	baseDelay   time.Duration // base for jittered exponential backoff; default 1s
+
+	me     *User     // memoised whoami; see WhoAmI
+	meOnce sync.Once // guards me
+	meErr  error     // the first WhoAmI's error, replayed to later callers
 
 	dealFields         *FieldCache // lazy-loaded; first ListDeals/GetDeal triggers fetch
 	personFields       *FieldCache // lazy-loaded; first GetPerson triggers fetch

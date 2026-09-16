@@ -75,12 +75,11 @@ type listOrganizationsOutput struct {
 // every mutation goes through manage_organization. opts.DryRun is the
 // server-wide dry-run floor.
 func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain string, opts RegisterOptions) {
-	readOnly := mcp.ToolAnnotations{ReadOnlyHint: true}
 
 	AddTool(s, &mcp.Tool{
 		Name:        "get_organization",
 		Description: "Fetch a single Pipedrive organization by org_id. Returns id, name, formatted address, owner_id, people_count (linked persons), add/update timestamps, and any custom fields resolved by name. Unknown org_id returns a [not_found] error. To find an organization by name, call `search` first to resolve the id.",
-		Annotations: &readOnly,
+		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getOrganizationInput) (*mcp.CallToolResult, getOrganizationOutput, error) {
 		if err := validatePositiveID(in.OrgID, "org_id"); err != nil {
 			return errorResult(err), getOrganizationOutput{}, nil
@@ -89,14 +88,13 @@ func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain s
 		if err != nil {
 			return errorResult(err), getOrganizationOutput{}, nil
 		}
-		resolved := c.ResolveOrganizationCustomFields(ctx, o.CustomFields)
-		return nil, getOrganizationOutput{Organization: summarizeOrganization(companyDomain, o, resolved)}, nil
+		return nil, getOrganizationOutput{Organization: resolvedOrganization(ctx, c, companyDomain, o)}, nil
 	})
 
 	AddTool(s, &mcp.Tool{
 		Name:        "list_organizations",
 		Description: "List Pipedrive organizations filtered by owner or update window. Returns id, name, formatted address (with parsed country/locality/postal_code when present), owner_id, people_count, add/update timestamps, and any custom fields resolved by name. Default sort is update_time desc — most-recently-touched first, ideal for 'which accounts have we been working on lately'. Default limit is 25, max 100. For more results, pass the next_cursor from the previous response. To find an organization by name (rather than ID), call `search` with type=organization — search is the natural-language gateway, list_organizations is the precision filter when the IDs are already known.",
-		Annotations: &readOnly,
+		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listOrganizationsInput) (*mcp.CallToolResult, listOrganizationsOutput, error) {
 		if err := validateEnum(in.SortBy, "sort_by", allowedOrgSortFields); err != nil {
 			return errorResult(err), listOrganizationsOutput{}, nil
@@ -124,8 +122,7 @@ func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain s
 			NextCursor:    next,
 		}
 		for i := range orgs {
-			resolved := c.ResolveOrganizationCustomFields(ctx, orgs[i].CustomFields)
-			out.Organizations = append(out.Organizations, summarizeOrganization(companyDomain, &orgs[i], resolved))
+			out.Organizations = append(out.Organizations, resolvedOrganization(ctx, c, companyDomain, &orgs[i]))
 		}
 		return nil, out, nil
 	})
@@ -163,13 +160,11 @@ type manageOrganizationOutput struct {
 }
 
 func registerManageOrganization(s *mcp.Server, c organizationsClient, companyDomain string, opts RegisterOptions) {
-	destructiveTrue := true
-	mutating := mcp.ToolAnnotations{DestructiveHint: &destructiveTrue, IdempotentHint: false}
 
 	AddTool(s, &mcp.Tool{
 		Name:        "manage_organization",
-		Description: "Create an organization — the account or company a deal and its people hang off — or edit one. One call, either action: create takes name, update takes org_id. Writing is guarded. An update reads the organization first and refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. IMPORTANT: send address as ONE LINE the way a person would say it and let Pipedrive parse it — the structured country, locality and postal_code you see on a read are its output, not its input, and pre-splitting them loses the parse. Custom fields are readable through get_organization and list_organizations but are not writable here yet. Use search to find an org_id from a name.",
-		Annotations: &mutating,
+		Description: "Create an organization — the account or company a deal and its people hang off — or edit one. One call, either action: create takes name, update takes org_id. Writing is guarded, and update reads the organization before it writes, so a write is two API calls. It refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. IMPORTANT: send address as ONE LINE the way a person would say it and let Pipedrive parse it — the structured country, locality and postal_code you see on a read are its output, not its input, and pre-splitting them loses the parse. Custom fields are readable through get_organization and list_organizations but are not writable here yet. Use search to find an org_id from a name.",
+		Annotations: mutatingAnnotations(),
 	}, manageOrganizationHandler(c, companyDomain, opts.DryRun))
 }
 
@@ -203,21 +198,22 @@ func createOrganizationAction(ctx context.Context, c organizationsClient, compan
 	}
 	req := pipedrive.CreateOrganizationRequest{
 		Name:    *in.Name,
-		Address: derefString(in.Address),
-		OwnerID: derefID(in.OwnerID),
+		Address: deref(in.Address),
+		OwnerID: deref(in.OwnerID),
 	}
 	created := syntheticOrgFromRequest(req)
-	var resolved map[string]any
 	if !in.DryRun {
 		o, err := c.CreateOrganization(ctx, req)
 		if err != nil {
 			return errorResult(err), manageOrganizationOutput{}
 		}
 		created = o
-		resolved = c.ResolveOrganizationCustomFields(ctx, o.CustomFields)
 	}
+	// resolvedOrganization on both paths, so a dry-run preview and a real
+	// create describe their custom fields the same way. The synthetic
+	// record carries none, so this resolves an empty map.
 	return nil, manageOrganizationOutput{
-		Organization: summarizeOrganization(companyDomain, created, resolved),
+		Organization: resolvedOrganization(ctx, c, companyDomain, created),
 		Changed:      changedFields(organizationFields, &pipedrive.Organization{}, created),
 	}
 }
@@ -243,14 +239,14 @@ func updateOrganizationAction(ctx context.Context, c organizationsClient, compan
 	predicted := organizationAfterUpdate(*before, req)
 	changed := changedFields(organizationFields, before, &predicted)
 	if len(changed) == 0 {
-		return nil, manageOrganizationOutput{Organization: summarizeOrganization(companyDomain, before, c.ResolveOrganizationCustomFields(ctx, before.CustomFields))}
+		return nil, manageOrganizationOutput{Organization: resolvedOrganization(ctx, c, companyDomain, before)}
 	}
 	if err = requireOverwrite(organizationFields, fmt.Sprintf("organization %d", in.OrgID), before, changed, in.Overwrite); err != nil {
 		return errorResult(err), manageOrganizationOutput{}
 	}
 	if in.DryRun {
 		return nil, manageOrganizationOutput{
-			Organization: summarizeOrganization(companyDomain, before, c.ResolveOrganizationCustomFields(ctx, before.CustomFields)),
+			Organization: resolvedOrganization(ctx, c, companyDomain, before),
 			Changed:      changed,
 		}
 	}
@@ -260,7 +256,7 @@ func updateOrganizationAction(ctx context.Context, c organizationsClient, compan
 		return errorResult(err), manageOrganizationOutput{}
 	}
 	return nil, manageOrganizationOutput{
-		Organization: summarizeOrganization(companyDomain, after, c.ResolveOrganizationCustomFields(ctx, after.CustomFields)),
+		Organization: resolvedOrganization(ctx, c, companyDomain, after),
 		Changed:      changedFields(organizationFields, before, after),
 	}
 }
@@ -292,6 +288,20 @@ func syntheticOrgFromRequest(req pipedrive.CreateOrganizationRequest) *pipedrive
 		o.Address = &pipedrive.Address{Value: req.Address}
 	}
 	return o
+}
+
+// organizationFieldResolver is the narrow slice of a client that resolvedOrganization needs, so the
+// resource templates can share the composition rather than repeating it.
+type organizationFieldResolver interface {
+	ResolveOrganizationCustomFields(ctx context.Context, raw map[string]any) map[string]any
+}
+
+// resolvedOrganization resolves custom-field hashes to workspace names and summarizes
+// in one step. Written out separately at six sites per resource, a
+// forgotten resolve silently shipped 40-char field hashes to the LLM
+// instead of the names it can actually cite.
+func resolvedOrganization(ctx context.Context, c organizationFieldResolver, domain string, r *pipedrive.Organization) organizationSummary {
+	return summarizeOrganization(domain, r, c.ResolveOrganizationCustomFields(ctx, r.CustomFields))
 }
 
 func summarizeOrganization(domain string, o *pipedrive.Organization, customFields map[string]any) organizationSummary {

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -66,17 +67,77 @@ func TestEveryWritableFieldHasAFieldSpec(t *testing.T) {
 	}
 }
 
-// Collections must project their whole contents. A projection that
-// returned one representative value would compare equal across a
-// truncation that deleted every other entry, which is what made the
-// contact-point guard ineffective before 2026-09-16.
+// Every field of a collection element must be rendered by its
+// projection. This is projectCollection's stated rule, asserted rather
+// than trusted.
+//
+// The per-field walk matters: TestEverySettableFieldReachesTheDiff sets
+// one request field against a ZERO record, so any non-empty collection
+// registers as a change there whatever the projection drops. The bug
+// that shipped needed same values and a different primary flag — only a
+// per-sub-field comparison sees it.
+func TestCollectionProjectionsRenderEverySubField(t *testing.T) {
+	t.Run("ContactPoint", func(t *testing.T) {
+		assertRendersEverySubField(t,
+			pipedrive.ContactPoint{Value: "a@example.com", Primary: true, Label: "work"},
+			func(cp pipedrive.ContactPoint) string {
+				return projectContactPoints([]pipedrive.ContactPoint{cp})
+			})
+	})
+	t.Run("ActivityParticipant", func(t *testing.T) {
+		assertRendersEverySubField(t,
+			pipedrive.ActivityParticipant{PersonID: 1, Primary: true},
+			func(p pipedrive.ActivityParticipant) string {
+				return projectParticipants([]pipedrive.ActivityParticipant{p})
+			})
+	})
+}
+
+func assertRendersEverySubField[E any](t *testing.T, base E, project func(E) string) {
+	t.Helper()
+	rv := reflect.ValueOf(base)
+	rt := rv.Type()
+	for i := range rt.NumField() {
+		name := rt.Field(i).Name
+		mutated := reflect.New(rt).Elem()
+		mutated.Set(rv)
+		if !flipField(mutated.Field(i)) {
+			t.Skipf("no flip for %s.%s (%s)", rt.Name(), name, rt.Field(i).Type)
+			continue
+		}
+		if project(base) == project(mutated.Interface().(E)) {
+			t.Errorf("%s.%s is not rendered: a write changing only that field is invisible to the guard, so it is skipped as a no-op and reported as already applied",
+				rt.Name(), name)
+		}
+	}
+}
+
+// flipField changes a value to something distinguishable from itself.
+func flipField(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.String:
+		v.SetString(v.String() + "-flipped")
+		return true
+	case reflect.Bool:
+		v.SetBool(!v.Bool())
+		return true
+	case reflect.Int, reflect.Int64:
+		v.SetInt(v.Int() + 1)
+		return true
+	case reflect.Float64:
+		v.SetFloat(v.Float() + 1)
+		return true
+	}
+	return false
+}
+
+// Truncation must stay visible too: the collection shrinking while its
+// first entry survives is what the original contact-point guard missed.
 func TestCollectionProjectionsSeeATruncation(t *testing.T) {
 	full := []pipedrive.ContactPoint{
-		{Value: "a@example.com", Primary: true},
-		{Value: "b@example.com"},
+		{Value: "a@example.com", Primary: true}, {Value: "b@example.com"},
 	}
-	truncated := []pipedrive.ContactPoint{{Value: "a@example.com", Primary: true}}
-	if projectContactPoints(full) == projectContactPoints(truncated) {
+	if projectContactPoints(full) == projectContactPoints(full[:1]) {
 		t.Error("dropping a secondary contact point is invisible to the guard")
 	}
 	if projectContactPoints(nil) != "" {
@@ -84,14 +145,8 @@ func TestCollectionProjectionsSeeATruncation(t *testing.T) {
 	}
 
 	people := []pipedrive.ActivityParticipant{{PersonID: 1, Primary: true}, {PersonID: 2}}
-	fewer := []pipedrive.ActivityParticipant{{PersonID: 1, Primary: true}}
-	if projectParticipants(people) == projectParticipants(fewer) {
+	if projectParticipants(people) == projectParticipants(people[:1]) {
 		t.Error("dropping a participant is invisible to the guard")
-	}
-	// Promoting a different primary is a real change the caller should see.
-	repromoted := []pipedrive.ActivityParticipant{{PersonID: 1}, {PersonID: 2, Primary: true}}
-	if projectParticipants(people) == projectParticipants(repromoted) {
-		t.Error("changing which participant is primary is invisible to the guard")
 	}
 	if projectParticipants(nil) != "" {
 		t.Error("an empty participant list must project empty")
@@ -104,4 +159,97 @@ func names[T any](spec []fieldSpec[T]) []string {
 		out = append(out, f.Name)
 	}
 	return out
+}
+
+// Setting any single field on an update request must reach `changed`.
+//
+// This is the assertion that would have caught all three of the bugs
+// this package has had in its guard. It pins the whole chain at once:
+// the request field must exist in the overlay (or `predicted` never
+// moves), in the fieldSpec table (or changedFields never looks), and in
+// a projection that renders it (or before and after compare equal).
+//
+// The overlay is the link nothing else covers — TestEveryWritableFieldHasAFieldSpec
+// ties the request to the table, but a field present in both and missing
+// from xAfterUpdate makes the dry run predict nothing while the real
+// write changes it anyway: unguarded and unreported, the exact shape of
+// the participants bug one layer up.
+func TestEverySettableFieldReachesTheDiff(t *testing.T) {
+	assertFieldsDiff(t, "deal", dealFields, dealAfterUpdate)
+	assertFieldsDiff(t, "person", personFields, personAfterUpdate)
+	assertFieldsDiff(t, "organization", organizationFields, organizationAfterUpdate)
+	assertFieldsDiff(t, "activity", activityFields, activityAfterUpdate)
+	assertFieldsDiff(t, "note", noteFields, noteAfterUpdate)
+}
+
+func assertFieldsDiff[Rec, Req any](t *testing.T, resource string, spec []fieldSpec[Rec], overlay func(Rec, Req) Rec) {
+	t.Helper()
+	var zeroReq Req
+	rt := reflect.TypeOf(zeroReq)
+	for i := range rt.NumField() {
+		field := rt.Field(i)
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		t.Run(resource+"/"+name, func(t *testing.T) {
+			req := reflect.New(rt).Elem()
+			if !setProbeValue(req.Field(i)) {
+				t.Skipf("no probe value for %s", field.Type)
+			}
+			var before Rec
+			after := overlay(before, req.Interface().(Req))
+			changed := changedFields(spec, &before, &after)
+			if !slices.Contains(changed, name) {
+				t.Errorf("setting %q on Update%sRequest does not reach `changed` (got %v) — the overlay, the table entry or the projection is missing it, so the write would be unguarded and unreported",
+					name, strings.ToUpper(resource[:1])+resource[1:], changed)
+			}
+		})
+	}
+}
+
+// setProbeValue writes a distinctive non-zero value, recursing through
+// pointers and into the first scalar of a slice element so a collection
+// projects non-empty. Reports false for a shape it cannot populate, so a
+// new field type surfaces as a skip rather than a silent pass.
+func setProbeValue(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.Pointer:
+		p := reflect.New(v.Type().Elem())
+		if !setProbeValue(p.Elem()) {
+			return false
+		}
+		v.Set(p)
+		return true
+	case reflect.String:
+		v.SetString("probe")
+		return true
+	case reflect.Int, reflect.Int64:
+		v.SetInt(42)
+		return true
+	case reflect.Float64:
+		v.SetFloat(1.5)
+		return true
+	case reflect.Bool:
+		v.SetBool(true)
+		return true
+	case reflect.Slice:
+		elem := reflect.New(v.Type().Elem()).Elem()
+		if elem.Kind() != reflect.Struct {
+			return false
+		}
+		filled := false
+		for i := range elem.NumField() {
+			if setProbeValue(elem.Field(i)) {
+				filled = true
+				break
+			}
+		}
+		if !filled {
+			return false
+		}
+		v.Set(reflect.Append(reflect.MakeSlice(v.Type(), 0, 1), elem))
+		return true
+	}
+	return false
 }
