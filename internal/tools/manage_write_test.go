@@ -647,3 +647,153 @@ func TestManagePerson_UpdateOverlayCoversEveryField(t *testing.T) {
 		}
 	}
 }
+
+// ---- regressions from the /security-review of 2026-09-16 ----
+//
+// Both were the same shape: a field that an update WRITES but that the
+// resource's fieldSpec table did not describe. Untabled, it is invisible
+// to changedFields, so requireOverwrite cannot refuse over it and the
+// `changed` report never admits it moved — while the tool description
+// promises to refuse over ANY populated field and name each one.
+
+func TestManageActivity_ParticipantsAreGuarded(t *testing.T) {
+	// An update REPLACES the participant collection. Riding along on an
+	// unrelated edit, it silently deleted every existing attendee.
+	fake := &fakeActivitiesClient{
+		activity: &pipedrive.Activity{
+			ID: 5, Subject: "Kickoff", Note: "", UpdateTime: "t0",
+			Participants: []pipedrive.ActivityParticipant{
+				{PersonID: 1, Primary: true}, {PersonID: 2},
+			},
+		},
+	}
+	res := callTool(t, activitiesReg(fake), "manage_activity", map[string]any{
+		"action": "update", "activity_id": 5,
+		"note":         "x", // empty upstream, so it needs no permission
+		"participants": []map[string]any{{"person_id": 99, "primary": true}},
+	}, nil)
+	if !res.IsError {
+		t.Fatal("replacing a populated participant list must be refused without overwrite")
+	}
+	txt := contentText(res)
+	if !strings.HasPrefix(txt, "[refused]") {
+		t.Errorf("error = %q; want [refused]", txt)
+	}
+	if !strings.Contains(txt, "participants") {
+		t.Errorf("refusal %q does not name participants", txt)
+	}
+	if fake.updateCalls != 0 {
+		t.Error("attendees were dropped upstream despite the refusal")
+	}
+}
+
+func TestManageActivity_ParticipantsOnlyUpdateIsNotASilentNoOp(t *testing.T) {
+	// Untabled, a participants-only change produced len(changed)==0, so
+	// the early return reported "already in that state" and wrote
+	// nothing — while echoing the OLD list back as if it were current.
+	fake := &fakeActivitiesClient{
+		activity: &pipedrive.Activity{
+			ID: 5, Subject: "Kickoff", UpdateTime: "t0",
+			Participants: []pipedrive.ActivityParticipant{{PersonID: 1, Primary: true}},
+		},
+		updateActivity: &pipedrive.Activity{
+			ID: 5, Subject: "Kickoff", UpdateTime: "t1",
+			Participants: []pipedrive.ActivityParticipant{{PersonID: 99, Primary: true}},
+		},
+	}
+	var out writeOut
+	res := callTool(t, activitiesReg(fake), "manage_activity", map[string]any{
+		"action": "update", "activity_id": 5, "overwrite": true,
+		"participants": []map[string]any{{"person_id": 99, "primary": true}},
+	}, &out)
+	if res.IsError {
+		t.Fatalf("with overwrite the write should proceed: %s", contentText(res))
+	}
+	if !changedSet(out.Changed)["participants"] {
+		t.Errorf("changed = %v; want participants named", out.Changed)
+	}
+	if fake.updateCalls != 1 {
+		t.Errorf("update calls = %d; want 1 — a real change must not be swallowed as a no-op", fake.updateCalls)
+	}
+}
+
+func TestManageActivity_PromotingADifferentPrimaryIsReported(t *testing.T) {
+	// Same people, different primary. The projection carries the flag,
+	// so this counts as a change rather than passing as identical.
+	fake := &fakeActivitiesClient{
+		activity: &pipedrive.Activity{
+			ID: 5, UpdateTime: "t0",
+			Participants: []pipedrive.ActivityParticipant{
+				{PersonID: 1, Primary: true}, {PersonID: 2},
+			},
+		},
+	}
+	res := callTool(t, activitiesReg(fake), "manage_activity", map[string]any{
+		"action": "update", "activity_id": 5,
+		"participants": []map[string]any{
+			{"person_id": 1}, {"person_id": 2, "primary": true},
+		},
+	}, nil)
+	if !res.IsError || !strings.Contains(contentText(res), "participants") {
+		t.Errorf("promoting a different primary should be seen and refused; got %q", contentText(res))
+	}
+}
+
+func TestManagePerson_TruncatingContactPointsIsGuarded(t *testing.T) {
+	// The primary survives and the rest are deleted. A projection that
+	// returned only the primary compared equal before and after, so this
+	// destroyed the secondary addresses unguarded and unreported.
+	fake := &fakePersonsClient{
+		person: &pipedrive.Person{
+			ID: 7, Name: "A Contact", FirstName: "", UpdateTime: "t0",
+			Emails: []pipedrive.ContactPoint{
+				{Value: "a@example.com", Primary: true},
+				{Value: "b@example.com"},
+				{Value: "c@example.com"},
+			},
+		},
+	}
+	reg := func(s *mcp.Server) { tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{}) }
+	res := callTool(t, reg, "manage_person", map[string]any{
+		"action": "update", "person_id": 7,
+		"first_name": "Ada", // empty upstream, so it needs no permission
+		"emails":     []map[string]any{{"value": "a@example.com", "primary": true}},
+	}, nil)
+	if !res.IsError {
+		t.Fatal("dropping the secondary emails must be refused without overwrite")
+	}
+	txt := contentText(res)
+	if !strings.Contains(txt, "emails") {
+		t.Errorf("refusal %q does not name emails", txt)
+	}
+	if fake.updateCalls != 0 {
+		t.Error("emails were destroyed upstream despite the refusal")
+	}
+}
+
+func TestManagePerson_TruncationIsReportedWhenPermitted(t *testing.T) {
+	fake := &fakePersonsClient{
+		person: &pipedrive.Person{
+			ID: 7, Name: "A Contact", UpdateTime: "t0",
+			Emails: []pipedrive.ContactPoint{
+				{Value: "a@example.com", Primary: true}, {Value: "b@example.com"},
+			},
+		},
+		updatePerson: &pipedrive.Person{
+			ID: 7, Name: "A Contact", UpdateTime: "t1",
+			Emails: []pipedrive.ContactPoint{{Value: "a@example.com", Primary: true}},
+		},
+	}
+	reg := func(s *mcp.Server) { tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{}) }
+	var out writeOut
+	res := callTool(t, reg, "manage_person", map[string]any{
+		"action": "update", "person_id": 7, "overwrite": true,
+		"emails": []map[string]any{{"value": "a@example.com", "primary": true}},
+	}, &out)
+	if res.IsError {
+		t.Fatalf("with overwrite the write should proceed: %s", contentText(res))
+	}
+	if !changedSet(out.Changed)["emails"] {
+		t.Errorf("changed = %v; a truncation must be named", out.Changed)
+	}
+}
