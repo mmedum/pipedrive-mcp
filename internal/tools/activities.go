@@ -335,40 +335,29 @@ func writeActivityAction(ctx context.Context, c activitiesClient, companyDomain 
 	}
 	req := activityRequestFor(in)
 
-	before, err := c.GetActivity(ctx, in.ActivityID, pipedrive.GetActivityOptions{})
-	if err != nil {
-		return errorResult(err), manageActivityOutput{}
+	activity, changed, res := guardedWrite[pipedrive.Activity]{
+		Spec:          activityFields,
+		Resource:      fmt.Sprintf("activity %d", in.ActivityID),
+		ExpectVersion: in.ExpectVersion,
+		Version:       func(a *pipedrive.Activity) string { return a.UpdateTime },
+		// complete and reopen name the field they land on, so they
+		// authorise themselves the way a deal transition does.
+		Overwrite: in.Overwrite || in.Action != "update",
+		DryRun:    in.DryRun,
+		Get: func(ctx context.Context) (*pipedrive.Activity, error) {
+			// The guard read deliberately does not ask for attendees:
+			// nothing here writes them, and they are the expensive part.
+			return c.GetActivity(ctx, in.ActivityID, pipedrive.GetActivityOptions{})
+		},
+		Predict: func(a *pipedrive.Activity) pipedrive.Activity { return activityAfterUpdate(*a, req) },
+		Put: func(ctx context.Context) (*pipedrive.Activity, error) {
+			return c.UpdateActivity(ctx, in.ActivityID, req)
+		},
+	}.run(ctx)
+	if res != nil {
+		return res, manageActivityOutput{}
 	}
-	if err = checkExpectVersion(in.ExpectVersion, before.UpdateTime, fmt.Sprintf("activity %d", in.ActivityID)); err != nil {
-		return errorResult(err), manageActivityOutput{}
-	}
-
-	predicted := activityAfterUpdate(*before, req)
-	changed := changedFields(activityFields, before, &predicted)
-	if len(changed) == 0 {
-		return nil, manageActivityOutput{Activity: summarizeActivity(companyDomain, before)}
-	}
-	// A transition names both the change and the field it lands on, so
-	// it authorises itself — the caller can already see the whole blast
-	// radius. Only a free-form update needs permission. Expressed as a
-	// property of the action rather than control flow, so every resource
-	// reaches requireOverwrite by the same path.
-	selfAuthorising := in.Action != "update"
-	if err = requireOverwrite(activityFields, fmt.Sprintf("activity %d", in.ActivityID), before, changed, in.Overwrite || selfAuthorising); err != nil {
-		return errorResult(err), manageActivityOutput{}
-	}
-	if in.DryRun {
-		return nil, manageActivityOutput{Activity: summarizeActivity(companyDomain, before), Changed: changed}
-	}
-
-	after, err := c.UpdateActivity(ctx, in.ActivityID, req)
-	if err != nil {
-		return errorResult(err), manageActivityOutput{}
-	}
-	return nil, manageActivityOutput{
-		Activity: summarizeActivity(companyDomain, after),
-		Changed:  changedFields(activityFields, before, after),
-	}
+	return nil, manageActivityOutput{Activity: summarizeActivity(companyDomain, activity), Changed: changed}
 }
 
 // activityRequestFor turns an action plus its inputs into the PATCH

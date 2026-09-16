@@ -285,12 +285,9 @@ func updateNoteAction(ctx context.Context, c notesClient, in manageNoteInput) (*
 	if in.Content == "" && !hasNoteAnchor(in) {
 		return errorResult(fmt.Errorf("%w: update needs at least one field to change: content, or one of the anchor ids", pipedrive.ErrValidation)), manageNoteOutput{}
 	}
-
-	before, res := readNoteForWrite(ctx, c, in)
-	if res != nil {
-		return res, manageNoteOutput{}
+	if err := validatePositiveID(in.NoteID, "note_id"); err != nil {
+		return errorResult(err), manageNoteOutput{}
 	}
-
 	req := pipedrive.UpdateNoteRequest{
 		Content:   in.Content,
 		DealID:    in.DealID,
@@ -299,29 +296,22 @@ func updateNoteAction(ctx context.Context, c notesClient, in manageNoteInput) (*
 		LeadID:    in.LeadID,
 		ProjectID: in.ProjectID,
 	}
-	predicted := noteAfterUpdate(*before, req)
-	changed := changedFields(noteFields, before, &predicted)
 
-	if len(changed) == 0 {
-		// Everything the request asks for is already stored. Saying so
-		// beats a round trip that would report the same thing.
-		return nil, manageNoteOutput{Note: summarizeNote(before)}
+	note, changed, res := guardedWrite[pipedrive.Note]{
+		Spec:          noteFields,
+		Resource:      fmt.Sprintf("note %d", in.NoteID),
+		ExpectVersion: in.ExpectVersion,
+		Version:       func(n *pipedrive.Note) string { return n.UpdateTime },
+		Overwrite:     in.Overwrite,
+		DryRun:        in.DryRun,
+		Get:           func(ctx context.Context) (*pipedrive.Note, error) { return c.GetNote(ctx, in.NoteID) },
+		Predict:       func(n *pipedrive.Note) pipedrive.Note { return noteAfterUpdate(*n, req) },
+		Put:           func(ctx context.Context) (*pipedrive.Note, error) { return c.UpdateNote(ctx, in.NoteID, req) },
+	}.run(ctx)
+	if res != nil {
+		return res, manageNoteOutput{}
 	}
-	if err := requireOverwrite(noteFields, fmt.Sprintf("note %d", in.NoteID), before, changed, in.Overwrite); err != nil {
-		return errorResult(err), manageNoteOutput{}
-	}
-	if in.DryRun {
-		return nil, manageNoteOutput{Note: summarizeNote(before), Changed: changed}
-	}
-
-	after, err := c.UpdateNote(ctx, in.NoteID, req)
-	if err != nil {
-		return errorResult(err), manageNoteOutput{}
-	}
-	// Diff against what Pipedrive echoed rather than against the
-	// request: it normalises some of what it stores, and the caller
-	// should see what landed.
-	return nil, manageNoteOutput{Note: summarizeNote(after), Changed: changedFields(noteFields, before, after)}
+	return nil, manageNoteOutput{Note: summarizeNote(note), Changed: changed}
 }
 
 // deleteNoteAction reads the note before removing it so the result can

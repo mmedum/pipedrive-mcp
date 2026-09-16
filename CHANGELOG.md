@@ -188,7 +188,21 @@ breaking changes require a MAJOR bump.
   They also ignore the descriptive fields entirely: a caller who passes
   a title to `mark_won` does not silently get it written.
 
-- The guard machinery is one mechanism rather than five. Each resource
+- The read-guard-write sequence is one mechanism rather than five.
+  `guardedWrite` in `internal/tools/guard.go` owns the ordering — read,
+  check the version, predict, refuse over what would be clobbered, honour
+  the rehearsal, write, re-diff against the echo — and each resource
+  supplies only what differs: its field table, its record label, and how
+  to fetch, predict and write.
+
+  This was the top finding of two independent review passes, and it had
+  already cost something: with the sequence written out per resource, the
+  overwrite check drifted, gated behind the action in deals and
+  activities and unconditional in persons and organizations, with nothing
+  making the five agree. Ordering that matters this much belongs in one
+  place.
+
+- The field machinery is likewise one mechanism rather than five. Each resource
   supplies a table of its LLM-facing field names and how to read each
   stored value; that single table drives the `changed` report, the
   `overwrite` refusal and the dry-run prediction, so the three cannot
