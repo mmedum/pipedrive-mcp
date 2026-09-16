@@ -151,11 +151,20 @@ func projectCollection[E any](es []E, render func(E) string) string {
 // manage_person's schema advertises all three as writable: {value,
 // primary, label}. Dropping the primary flag made "make her work address
 // the primary" read as a no-op.
+//
+// Value and Label are quoted rather than concatenated with a separator.
+// Both are free text the caller supplies, so an unquoted join lets two
+// different collections render identically — a label containing the
+// separator can absorb the next entry. That only ever fails closed (the
+// write is skipped rather than waved through), but "two different
+// collections that look the same to the diff" is the exact shape of the
+// three bugs this guard has already had, and quoting removes the
+// category rather than arguing about its reachability.
 func projectContactPoints(cps []pipedrive.ContactPoint) string {
 	return projectCollection(cps, func(cp pipedrive.ContactPoint) string {
-		out := cp.Value + "|" + cp.Label
+		out := strconv.Quote(cp.Value) + strconv.Quote(cp.Label)
 		if cp.Primary {
-			out += "|*"
+			out += "*"
 		}
 		return out
 	})
@@ -164,6 +173,10 @@ func projectContactPoints(cps []pipedrive.ContactPoint) string {
 // projectParticipants covers both fields of ActivityParticipant.
 // Promoting a different participant is a real change the caller should
 // see reported, so the primary flag is part of the projection.
+//
+// No quoting needed here, unlike projectContactPoints: an id renders as
+// digits and the flag as a fixed marker, so neither can contain the
+// separator and no two distinct lists can collide.
 func projectParticipants(ps []pipedrive.ActivityParticipant) string {
 	return projectCollection(ps, func(p pipedrive.ActivityParticipant) string {
 		out := strconv.FormatInt(p.PersonID, 10)
