@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"time"
+	"strings"
 
+	"github.com/mmedum/pipedrive-mcp/internal/app"
+	"github.com/mmedum/pipedrive-mcp/internal/config"
 	"github.com/mmedum/pipedrive-mcp/internal/credentials"
 	"github.com/mmedum/pipedrive-mcp/internal/userconfig"
 	"github.com/mmedum/pipedrive-mcp/internal/version"
@@ -71,13 +73,26 @@ func newStatusReport(noProbe bool) (report statusReport, exitCode int) {
 	}
 	ucPath, _ := userconfig.DefaultPath()
 
-	domain, src, err := resolveDomainAtStartup()
+	domain, src, err := app.ResolveDomainAtStartup()
 	if err != nil {
 		report.Reason = orNil(err.Error())
 		return report, 1
 	}
 	report.Domain = orNil(domain)
 	report.DomainSource = orNil(src.Label(ucPath))
+
+	// The same config load the server performs. Without it `status`
+	// answers "can this start" green on an environment the server
+	// refuses to start in — a typo in LOG_LEVEL or PIPEDRIVE_DRY_RUN
+	// is a startup failure, and this is the command that exists to
+	// find those before Claude Desktop does. It is staged rather than
+	// app.Resolve because the report names the domain it did resolve
+	// even when a later stage fails.
+	cfg, err := config.LoadFor(domain)
+	if err != nil {
+		report.Reason = orNil(err.Error())
+		return report, 1
+	}
 
 	token, tokenSrc, err := credentials.Resolve(credentials.Default(), domain)
 	if err != nil {
@@ -95,7 +110,7 @@ func newStatusReport(noProbe bool) (report statusReport, exitCode int) {
 		return report, 0
 	}
 	report.Probe.Ran = true
-	client := newPipedriveClient(domain, token, 30*time.Second, nil)
+	client := app.NewProbeClient(domain, token, cfg.HTTPTimeout)
 	if err := client.ProbeAuth(context.Background()); err != nil {
 		report.Probe.Reason = orNil(err.Error())
 		return report, 1
@@ -117,9 +132,16 @@ func (r statusReport) writeText(w io.Writer) {
 
 	if !r.Credentials.Resolved {
 		reason := deref(r.Reason)
-		if len(reason) > 9 && reason[:9] == "no token:" {
+		// Three ways to stop here, and saying "token" for all of them
+		// sends the reader after the wrong thing. The prefixes are our
+		// own — config.LoadFor prefixes every message "config: " — so
+		// this matches on strings we write, not on somebody else's.
+		switch {
+		case strings.HasPrefix(reason, "config: "):
+			printf("config:    %s\n", strings.TrimPrefix(reason, "config: "))
+		case strings.HasPrefix(reason, "no token:"):
 			printf("token:     (not set)\nhint:      run `pipedrive-mcp login`, or set %s\n", credentials.EnvVar)
-		} else {
+		default:
 			printf("token:     unavailable (%s)\n", reason)
 		}
 		return

@@ -193,6 +193,50 @@ claude mcp add pipedrive /absolute/path/to/pipedrive-mcp \
 Then `claude` to start a session. Tools become available in the
 `/tools` listing.
 
+## Integration suite
+
+`internal/integration/` drives the MCP server against a live Pipedrive
+workspace. Every file in it carries `//go:build integration`, so a
+plain `go test ./...` never touches the network.
+
+```sh
+make integration          # reads, resources, guard refusals, dry runs
+make integration-writes   # the above plus the reversible write probes
+```
+
+It exists because the unit tests assert against fakes, and a fake
+agrees with whatever we believed when we wrote it. What lives in the
+suite is only what a fake cannot answer: the wire format the two
+endpoint families actually return, custom fields resolving against the
+workspace's own field definitions, cursor paging, the guards reading
+records somebody really filled in, and the error class a real 404 maps
+to.
+
+The suite resolves the workspace through `internal/app`, the same
+startup assembly the binary runs — the domain from
+`PIPEDRIVE_COMPANY_DOMAIN` or the userconfig pointer, the token from
+`PIPEDRIVE_API_TOKEN` or the keyring — so `pipedrive-mcp login` is
+enough setup. With neither, every test skips with the reason instead of
+failing.
+
+Writes need `PIPEDRIVE_INTEGRATION_WRITES=1` on top of the tag, because
+the workspace on the other end is a real CRM and Pipedrive has no undo.
+`PIPEDRIVE_DRY_RUN` overrides that: the suite honours the dry-run floor
+the way the server does, so under it the write probes skip. The safety
+contract each probe keeps — capture, restore from `t.Cleanup`, verify
+with a fresh read, never write a field that was empty — is written once,
+at the top of `internal/integration/write_test.go`, next to the code it
+binds. A restore that did not take fails the test with `LEFT CHANGED`,
+naming the record.
+
+Two residues are unavoidable and known. The note probe leaves a
+soft-deleted note, because a v1 delete clears `active_flag` and nothing
+purges the record. And a run is a run against one workspace: a
+different custom-field or permission setup is still untested.
+
+There is no CI job for this. The suite needs a live token, and its
+natural cadence is the phase boundary below rather than every PR.
+
 ## Phase boundary verification
 
 When tagging a release the maintainer runs the per-phase gates from
@@ -201,7 +245,7 @@ When tagging a release the maintainer runs the per-phase gates from
 ```sh
 make check                                    # all per-PR gates
 go test -race -count=3 ./...                  # 3 shuffled runs
-go test -tags=integration -race ./...         # against sandbox (Phase 1+)
+make integration-writes                       # against the sandbox workspace
 make build && cosign verify-blob ...          # only in CI; verify locally if you build a personal release
 
 # Then manually exercise at least one tool of each category in Claude

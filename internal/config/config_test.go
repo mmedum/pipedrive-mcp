@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -26,7 +27,7 @@ func TestLoad_Required(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			setEnv(t, tc.env)
-			_, err := Load()
+			_, err := LoadFor(os.Getenv(DomainEnv))
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}
@@ -41,7 +42,7 @@ func TestLoad_Defaults(t *testing.T) {
 	setEnv(t, map[string]string{
 		"PIPEDRIVE_COMPANY_DOMAIN": "acme",
 	})
-	c, err := Load()
+	c, err := LoadFor(os.Getenv(DomainEnv))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -51,8 +52,8 @@ func TestLoad_Defaults(t *testing.T) {
 	if c.LogFormat != LogText {
 		t.Errorf("LogFormat default = %q, want text", c.LogFormat)
 	}
-	if c.HTTPTimeout != 30*time.Second {
-		t.Errorf("HTTPTimeout default = %s, want 30s", c.HTTPTimeout)
+	if c.HTTPTimeout != DefaultHTTPTimeout {
+		t.Errorf("HTTPTimeout default = %s, want %s", c.HTTPTimeout, DefaultHTTPTimeout)
 	}
 	if c.DryRun {
 		t.Error("DryRun default should be false")
@@ -67,7 +68,7 @@ func TestLoad_AllOverrides(t *testing.T) {
 		"PIPEDRIVE_DRY_RUN":        "1",
 		"PIPEDRIVE_HTTP_TIMEOUT":   "5s",
 	})
-	c, err := Load()
+	c, err := LoadFor(os.Getenv(DomainEnv))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -138,7 +139,7 @@ func TestLoad_Invalid(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			setEnv(t, tc.env)
-			_, err := Load()
+			_, err := LoadFor(os.Getenv(DomainEnv))
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}

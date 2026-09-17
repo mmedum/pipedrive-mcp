@@ -65,6 +65,17 @@ type Config struct {
 	HTTPTimeout   time.Duration
 }
 
+// DomainEnv names the workspace. Resolution of which value wins — env
+// over the userconfig pointer — belongs to internal/app; this is only
+// the variable's name, kept beside ValidateDomain so the two spellings
+// cannot drift.
+const DomainEnv = "PIPEDRIVE_COMPANY_DOMAIN"
+
+// DefaultHTTPTimeout is the per-request timeout when
+// PIPEDRIVE_HTTP_TIMEOUT says nothing. Named so the one-shot probe
+// paths, which load no Config, can use the same number.
+const DefaultHTTPTimeout = 30 * time.Second
+
 var (
 	domainPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$`)
 	logLevels     = map[LogLevel]bool{LogDebug: true, LogInfo: true, LogWarn: true, LogError: true}
@@ -85,22 +96,19 @@ func ValidateDomain(s string) (string, error) {
 	return d, nil
 }
 
-// Load reads configuration from the process environment and validates it.
-// PIPEDRIVE_COMPANY_DOMAIN is required; for callers that resolve the
-// domain themselves (e.g., from a userconfig file fallback), use LoadFor.
-func Load() (Config, error) {
-	return LoadFor(os.Getenv("PIPEDRIVE_COMPANY_DOMAIN"))
-}
-
-// LoadFor reads configuration with a pre-resolved company domain. The
+// LoadFor reads configuration for a pre-resolved company domain. The
 // domain is validated through ValidateDomain; an empty or malformed
-// value returns an error. All other config still comes from the
-// environment.
+// value returns an error. All other config comes from the environment.
+//
+// There is deliberately no env-only Load() beside this. Resolving which
+// domain applies — env over the userconfig pointer — belongs to
+// internal/app, and a second resolver here would be one a caller could
+// reach for to bypass the pointer without noticing.
 func LoadFor(rawDomain string) (Config, error) {
 	c := Config{
 		LogLevel:    LogInfo,
 		LogFormat:   LogText,
-		HTTPTimeout: 30 * time.Second,
+		HTTPTimeout: DefaultHTTPTimeout,
 	}
 
 	domain, err := ValidateDomain(rawDomain)
