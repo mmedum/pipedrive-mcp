@@ -72,14 +72,32 @@ is why it now lives somewhere a contributor can actually read.
 ## Where things go
 
 - `cmd/pipedrive-mcp/` — main entrypoint. Subcommand dispatch (login/logout/server), flag parsing, thin wiring.
+- `internal/app/` — the startup assembly every entry point shares:
+  domain → `config.LoadFor` → token → client → server. `Settings.NewServer`
+  is the only place a **serving** process builds `tools.RegisterOptions`,
+  so the `PIPEDRIVE_DRY_RUN` floor cannot be dropped by a caller
+  assembling the arguments by hand — which is exactly how it was dropped
+  once. (`--dump-schemas` builds a clientless server to walk the registry;
+  no handler runs there, so it has no floor to drop.) Nothing here logs,
+  exits or hits the network; the caller decides what a missing token
+  means.
 - `internal/config/` — env-var loading and validation. Does NOT handle the API token — that lives in `internal/credentials/`.
 - `internal/credentials/` — OS keyring-based token storage (`pipedrive-mcp login` writes here). Falls back to `PIPEDRIVE_API_TOKEN` env for CI.
-- `internal/userconfig/` — non-secret JSON pointer file at `os.UserConfigDir()/pipedrive-mcp/config.json`. Records the active workspace domain so subsequent runs don't need `PIPEDRIVE_COMPANY_DOMAIN` re-supplied. Resolution: env > userconfig > error.
+- `internal/userconfig/` — non-secret JSON pointer file at `os.UserConfigDir()/pipedrive-mcp/config.json`. Records the active workspace domain so subsequent runs don't need `PIPEDRIVE_COMPANY_DOMAIN` re-supplied. The env > userconfig > error resolution itself lives in `internal/app`.
 - `internal/version/` — build-time version string.
 - `internal/pipedrive/` — HTTP client. One file per resource type, plus
   shared `client.go`, `errors.go`, `types.go`. No MCP imports here.
 - `internal/server/` — MCP SDK wiring. Calls each tool package's
   `Register(...)` function.
+- `internal/integration/` — the live suite, every file behind
+  `//go:build integration`. It drives the server `internal/app` builds,
+  over an in-memory transport against a real workspace, so it tests the
+  wiring the binary ships rather than a re-registration of it. Put a test here only when
+  a fake cannot answer the question — wire format, field resolution,
+  paging, the guards over real records. Writes need
+  `PIPEDRIVE_INTEGRATION_WRITES=1` and must restore from `t.Cleanup`
+  and verify the restore with a fresh read; see the contract at the top
+  of `write_test.go`.
 - `internal/tools/` — MCP tool registrations, one file per resource
   type, plus the machinery they share. Each `Register(...)` adds tools to
   both `mcp.AddTool` and the parallel registry in `registry.go` (so
@@ -111,8 +129,9 @@ make check   # verify-tool-versions fmt vet lint test vuln licenses
 
 Individually, when you need to isolate one: `make fmt` (gofmt, must be
 empty), `make vet`, `make lint` (golangci-lint), `make test` (`-race`,
-with coverage ≥ 80% on `internal/pipedrive`, `internal/tools` and
-`internal/credentials` — the same threshold the CI gate enforces),
+with coverage ≥ 80% on `internal/pipedrive`, `internal/tools`,
+`internal/credentials` and `internal/app` — the same threshold the CI
+gate enforces),
 `make vuln` (govulncheck), `make licenses` (allow-list), `make staleness`,
 `make leaks`, `make pins`, `make smoke` (drives the built binary over
 stdio). The CHANGELOG gate is not in `make check` because it needs a
@@ -157,11 +176,13 @@ when the time comes.
 Per-phase release gates are in addition to the per-PR gates above:
 
 - `go test -race -count=3 ./...` (three shuffled runs).
-- `go test -tags=integration -race ./...` against the sandbox once
-  the integration suite exists (no `//go:build integration` files
-  ship today; live verification is done by manually driving the
-  binary through Claude Code against the sandbox until that suite
-  lands).
+- `make integration-writes` against the sandbox — the suite in
+  `internal/integration/`, behind `//go:build integration`. Reads,
+  resource reads, guard refusals and dry runs run on the tag alone;
+  the reversible write probes also need
+  `PIPEDRIVE_INTEGRATION_WRITES=1`. It does not replace the manual
+  Claude Desktop smoke below, which exercises a client this suite
+  cannot.
 - Eval suite three runs (Phase 4+).
 - `/simplify` and `/security-review` over the cumulative diff since the
   prior tag; outputs committed under `audit/security-reviews/v<tag>.md`.
