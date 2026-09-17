@@ -13,6 +13,25 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Fixed
+
+- The CHANGELOG and schema-diff CI gates measure against the base branch
+  as it is now, rather than against `github.event.pull_request.base.sha`.
+  That value is a snapshot taken when the event fired and does not follow
+  the base branch afterwards, so in a stack of pull requests — the normal
+  case here, not an edge one — merging the PR underneath leaves the one
+  above comparing a diff that contains its own dependency. The changelog
+  gate reads that as "no new lines under [Unreleased]" and the schema gate
+  reads it as a breaking tool-surface change, both on branches where
+  neither is true.
+
+  Reopening a PR does not refresh it; only a push to the head branch does,
+  and a push is the one thing that cannot be done here without displacing
+  the `BREAKING CHANGE:` footer the schema gate greps for on the head
+  commit. Both gates now take the merge-base of the current base branch
+  and the head, via `.github/merge-base.sh`, which is what they both meant
+  by "what this PR adds" all along.
+
 ### Added
 
 - A **Claude Desktop bundle** (`.mcpb`) on every release, and the MCP
