@@ -164,25 +164,18 @@ announces itself, so an LLM client never sees a half-initialized server.
 - **Notes**: `json` produces structured `slog.Record`s suitable for
   ingestion into log pipelines.
 
-### `PIPEDRIVE_ENABLE_DESTRUCTIVE`
-
-- **Required**: no.
-- **Default**: `false`.
-- **Type**: boolean (`true`/`false`, case-insensitive; `1`/`0` also
-  accepted).
-- **Effect**: when `true`, registers the destructive tools listed in
-  [`security.md`](security.md). The default install registers no tools
-  that issue HTTP `DELETE` against Pipedrive.
-
 ### `PIPEDRIVE_DRY_RUN`
 
 - **Required**: no.
 - **Default**: `false`.
 - **Type**: boolean.
-- **Effect**: when `true`, every write/destructive tool short-circuits
-  before the HTTP call and returns a structured "would have done X"
-  response. Always wins over the per-call `dry_run` input. Read tools
-  ignore this variable.
+- **Effect**: when `true`, every write tool short-circuits before the
+  HTTP call and returns a structured "would have done X" response. Read
+  tools ignore it.
+- **Precedence**: it is a floor, not a default. A per-call `dry_run:
+  true` can turn a rehearsal on for a single write; nothing on the wire
+  can turn one off while this is set. Set it when you want a server that
+  cannot write, whatever a model asks for.
 - **Logging**: dry-run invocations are logged at `info` level with the
   `dry_run=true` field set, regardless of `LOG_LEVEL`.
 
@@ -228,3 +221,11 @@ export PIPEDRIVE_DRY_RUN='true'
 Use this to rehearse multi-step LLM workflows against a production token
 without firing any writes.
 
+## Reading the setup from a script
+
+`pipedrive-mcp status --json` prints the same state as one JSON object on
+stdout. `credentials.resolved` is the field to branch on, `probe.ran`
+distinguishes a skipped check from a failed one, and the command still
+exits non-zero on every refusal, so a caller may read either. A label in
+the human output is free to be reworded in any release; the object is
+not.
