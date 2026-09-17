@@ -56,15 +56,22 @@ GitHub Release.
 
 ### Phase 0 spike checklist
 
-Three questions are pending until they are exercised against the
-Pipedrive sandbox. They block Phase 2 (write tools) and must be
-resolved with the rationale captured in the relevant code or doc:
+Two questions remain pending until they are exercised against the
+Pipedrive sandbox, and must be resolved with the rationale captured in
+the relevant code or doc:
 
-1. **Field-clearing mechanism on PATCH.** Does Pipedrive v2 accept
-   `null` to clear a field? `value: ""` to clear a string? Does the
-   MCP Go SDK's `jsonschema:` tag grammar express the chosen
-   mechanism? Outcome lands in `internal/pipedrive/types.go` and the
-   tool descriptions on every `update_*` tool.
+1. ~~**Field-clearing mechanism on PATCH.**~~ **ANSWERED 2026-09-16.**
+   v2 accepts neither: `{"expected_close_date": null}` is rejected
+   outright (`The value is not a valid 'string'`) and `""` is stored as
+   the zero date `0000-00-00` rather than removing the value. v1's
+   `PUT /api/v1/deals/{id}` does clear it with a null, so this is a v2
+   gap rather than a Pipedrive-wide one — but reaching for v1 would be a
+   third carve-out on an API that sunsets 2026-07-31. **Decision: this
+   server does not clear fields.** Every optional `manage_*` input reads
+   "omit to leave it as it is" and the `Update*Request` types stay `*T`
+   with `omitempty`. Evidence and the request-by-request table are in
+   `docs/architecture.md`, "Clearing a field" — do not re-derive this
+   against live data.
 2. **403 disambiguation heuristic.** Trigger a permission-denied 403
    (token user lacks resource access) and a business-rule 403 (locked
    deal, gated stage). Tighten the `businessRule403Signals` list in

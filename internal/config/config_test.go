@@ -54,9 +54,6 @@ func TestLoad_Defaults(t *testing.T) {
 	if c.HTTPTimeout != 30*time.Second {
 		t.Errorf("HTTPTimeout default = %s, want 30s", c.HTTPTimeout)
 	}
-	if c.EnableDestructive {
-		t.Error("EnableDestructive default should be false")
-	}
 	if c.DryRun {
 		t.Error("DryRun default should be false")
 	}
@@ -64,12 +61,11 @@ func TestLoad_Defaults(t *testing.T) {
 
 func TestLoad_AllOverrides(t *testing.T) {
 	setEnv(t, map[string]string{
-		"PIPEDRIVE_COMPANY_DOMAIN":     "Acme",
-		"LOG_LEVEL":                    "debug",
-		"LOG_FORMAT":                   "json",
-		"PIPEDRIVE_ENABLE_DESTRUCTIVE": "true",
-		"PIPEDRIVE_DRY_RUN":            "1",
-		"PIPEDRIVE_HTTP_TIMEOUT":       "5s",
+		"PIPEDRIVE_COMPANY_DOMAIN": "Acme",
+		"LOG_LEVEL":                "debug",
+		"LOG_FORMAT":               "json",
+		"PIPEDRIVE_DRY_RUN":        "1",
+		"PIPEDRIVE_HTTP_TIMEOUT":   "5s",
 	})
 	c, err := Load()
 	if err != nil {
@@ -83,9 +79,6 @@ func TestLoad_AllOverrides(t *testing.T) {
 	}
 	if c.LogFormat != LogJSON {
 		t.Errorf("LogFormat = %q, want json", c.LogFormat)
-	}
-	if !c.EnableDestructive {
-		t.Error("EnableDestructive should be true")
 	}
 	if !c.DryRun {
 		t.Error("DryRun should be true")
@@ -120,10 +113,10 @@ func TestLoad_Invalid(t *testing.T) {
 		{
 			name: "bad bool",
 			env: map[string]string{
-				"PIPEDRIVE_COMPANY_DOMAIN":     "acme",
-				"PIPEDRIVE_ENABLE_DESTRUCTIVE": "maybe",
+				"PIPEDRIVE_COMPANY_DOMAIN": "acme",
+				"PIPEDRIVE_DRY_RUN":        "maybe",
 			},
-			want: "PIPEDRIVE_ENABLE_DESTRUCTIVE",
+			want: "PIPEDRIVE_DRY_RUN",
 		},
 		{
 			name: "bad duration",
@@ -183,7 +176,6 @@ func setEnv(t *testing.T, env map[string]string) {
 		"PIPEDRIVE_COMPANY_DOMAIN",
 		"LOG_LEVEL",
 		"LOG_FORMAT",
-		"PIPEDRIVE_ENABLE_DESTRUCTIVE",
 		"PIPEDRIVE_DRY_RUN",
 		"PIPEDRIVE_HTTP_TIMEOUT",
 	} {

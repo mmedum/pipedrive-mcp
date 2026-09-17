@@ -25,10 +25,25 @@ type fakeActivitiesClient struct {
 	lastGetOpts    pipedrive.GetActivityOptions
 	lastCreateReq  pipedrive.CreateActivityRequest
 	createCallSeen bool
+
+	updateActivity *pipedrive.Activity
+	updateErr      error
+	lastUpdateReq  pipedrive.UpdateActivityRequest
+	lastUpdateID   int64
+	updateCalls    int
+	getCalls       int
+}
+
+func (f *fakeActivitiesClient) UpdateActivity(_ context.Context, id int64, req pipedrive.UpdateActivityRequest) (*pipedrive.Activity, error) {
+	f.lastUpdateID = id
+	f.lastUpdateReq = req
+	f.updateCalls++
+	return f.updateActivity, f.updateErr
 }
 
 func (f *fakeActivitiesClient) GetActivity(_ context.Context, _ int64, opts pipedrive.GetActivityOptions) (*pipedrive.Activity, error) {
 	f.lastGetOpts = opts
+	f.getCalls++
 	return f.activity, f.activityErr
 }
 
@@ -515,7 +530,7 @@ func TestRegisterActivities_RegistersInDumpRegistry(t *testing.T) {
 		t.Fatalf("DumpJSON: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{`"get_activity"`, `"list_activities"`, `"create_activity"`} {
+	for _, want := range []string{`"get_activity"`, `"list_activities"`, `"manage_activity"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dump missing %s", want)
 		}
@@ -543,8 +558,9 @@ func TestCreateActivity_HappyPath(t *testing.T) {
 	defer h.Close()
 
 	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "create_activity",
+		Name: "manage_activity",
 		Arguments: map[string]any{
+			"action":    "create",
 			"subject":   "VisitorPass demo follow-up",
 			"type":      "meeting",
 			"due_date":  "2026-05-06",
@@ -602,8 +618,9 @@ func TestCreateActivity_RejectsEmptySubject(t *testing.T) {
 	defer h.Close()
 
 	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "create_activity",
-		Arguments: map[string]any{"subject": ""},
+		Name: "manage_activity",
+		Arguments: map[string]any{
+			"action": "create", "subject": ""},
 	})
 	if !res.IsError {
 		t.Fatal("expected isError on empty subject")
@@ -624,8 +641,9 @@ func TestCreateActivity_DryRunSkipsUpstream(t *testing.T) {
 	defer h.Close()
 
 	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "create_activity",
+		Name: "manage_activity",
 		Arguments: map[string]any{
+			"action":   "create",
 			"subject":  "Dry run probe",
 			"type":     "call",
 			"done":     true,
@@ -675,8 +693,9 @@ func TestCreateActivity_PropagatesUpstreamError(t *testing.T) {
 	defer h.Close()
 
 	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "create_activity",
+		Name: "manage_activity",
 		Arguments: map[string]any{
+			"action":  "create",
 			"subject": "Bad type",
 			"type":    "meetingg",
 		},

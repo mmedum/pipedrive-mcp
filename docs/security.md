@@ -54,10 +54,14 @@ What the keyring does **not** protect against:
 Threats this server defends against:
 
 - **Accidental destructive action by the LLM.** Mitigated by:
-  - No `DELETE` tools registered by default. `PIPEDRIVE_ENABLE_DESTRUCTIVE`
-    must be explicitly set.
-  - `PIPEDRIVE_DRY_RUN=true` for rehearsal mode.
-  - Per-tool `dry_run: true` input.
+  - A per-call `dry_run` input on every reshaped write, which reports
+    what the write would change and sends nothing.
+  - `overwrite`, required before an update may replace content that is
+    already there, and `expect_version`, which refuses a write whose
+    record moved since it was read.
+  - `PIPEDRIVE_DRY_RUN=true` as a server-wide floor: every write tool
+    honours it, a per-call `dry_run` can only turn a rehearsal on, and
+    nothing on the wire can turn one off.
   - Tool descriptions that explicitly tell the LLM not to confabulate
     values (e.g. `mark_deal_lost`'s `lost_reason`).
   - Default tool-side `limit=25` on list operations to prevent runaway
@@ -69,8 +73,7 @@ Threats this server **does not** defend against:
 
 - **Malicious LLM tool selection.** If you give the server a token with
   write permissions, an LLM with that server in its toolset can
-  legitimately create, update, and (if `PIPEDRIVE_ENABLE_DESTRUCTIVE`)
-  delete data. The MCP transport does not carry the user's prompt to
+  legitimately create, update and delete data. The MCP transport does not carry the user's prompt to
   the server, so the server cannot tell whether a tool call is
   user-intended. Run with the smallest token scope that gets your job
   done, and use `PIPEDRIVE_DRY_RUN` for any speculative LLM work.
@@ -101,33 +104,50 @@ itself cannot do better.
 
 ## Destructive operations
 
-Destructive tools (those that issue HTTP `DELETE` against Pipedrive) are
-**not registered by default**. The omission is at the registration
-layer, not behind an error — the LLM cannot discover or invoke these
-tools at all unless the operator has set `PIPEDRIVE_ENABLE_DESTRUCTIVE=true`.
+Destructive tools register unconditionally, and guard the call instead.
+Registration was never the right enforcement point: a tool that does not
+exist cannot explain itself, so an operator who withheld it handed the
+model a missing capability to guess at rather than a refusal telling it
+why. This matches the Google Workspace MCP servers, which register
+`trash_file` and `delete_message` and guard at call time.
 
-When enabled, each destructive tool carries the MCP `destructiveHint:
-true` annotation and an explicit warning in its description. The
-v0.1.0 destructive surface is:
+Each destructive path carries the MCP `destructiveHint: true` annotation
+— advisory metadata for client UX, never the enforcement — and says in
+its description exactly what it removes and whether that is reversible.
 
-- `delete_note` — soft-deletes a Pipedrive note. Pipedrive v1
-  implements DELETE as a soft delete, so the record persists with
-  `active_flag=false` and is filtered out of `list_notes` by default
-  but `get_note` still returns it. Honours `PIPEDRIVE_DRY_RUN=true`
-  by suppressing the upstream DELETE and returning `dry_run=true`.
+The destructive surface today:
 
-Other destructive tools (`detach_product_from_deal`, `delete_deal`,
-etc.) are not on the v1.0 roadmap. Adding any will require an ADR
-and an explicit user decision captured in the release that
-introduces them.
+- `manage_note` with `action: delete` — soft-deletes a note. Pipedrive
+  v1 implements DELETE as a soft delete, so the record persists with
+  `active_flag=false`, `list_notes` filters it out, and `get_note` still
+  returns it. It reads the note first so the result can show what went,
+  and re-deleting an already-inactive note is a no-op rather than a
+  second pointless `DELETE`.
+
+  It takes `dry_run` and no permitting argument beyond it. That is
+  deliberate: a guard is only added where the caller cannot already see
+  what they would lose, and a soft delete is the reversible case
+  `trash_file` handles the same way. What the description does say
+  plainly is that **nothing in this server sets `active_flag` back**, so
+  it should be treated as one-way.
+
+Other destructive tools (`delete_deal`, `detach_product_from_deal`) are
+not on the v1.0 roadmap. Adding any needs an explicit user decision
+captured in the release that introduces them.
 
 ## Dry-run
 
-`PIPEDRIVE_DRY_RUN=true` forces every write to short-circuit and return
-a structured "would have done X" response. This is the right setting for
-testing the server end-to-end against a production token without firing
-writes. Per-call `dry_run: true` is also available for individual
-mutations.
+Two layers, and the relationship between them matters.
+
+Per-call `dry_run: true` is the everyday mechanism: every write takes
+it, reports what it would find and change, and sends nothing.
+
+`PIPEDRIVE_DRY_RUN=true` is the operator's floor. Every write tool
+honours it, so a call may turn a rehearsal *on* but nothing on the wire
+can turn one *off*. That is what makes it safe to answer "use
+`PIPEDRIVE_DRY_RUN` for speculative LLM work" — a flag a tool could
+override would be a false promise, and the tool that can delete is
+exactly the one that would override it.
 
 Validation still runs in dry-run mode, so a rehearsal catches the same
 input errors a real call would.

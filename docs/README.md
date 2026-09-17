@@ -10,7 +10,7 @@ server or using its tools from an MCP client, this is for you.
 | [`development.md`](development.md) | Local-run guide: prerequisites, one-time setup, `make check`, sandbox-based end-to-end verification, Claude Desktop wiring. |
 | [`release.md`](release.md) | Release runbook: pre-tag checklist, the `git tag` step, post-release verification (cosign, attestations, smoke). |
 | [`operations.md`](operations.md) | Run book: log shape, token rotation, how 401/429 surface, performance expectations, how to file a bug. |
-| [`security.md`](security.md) | Operator security guidance: token handling, threat model, scope of `PIPEDRIVE_ENABLE_DESTRUCTIVE` and `PIPEDRIVE_DRY_RUN`, the LLM audit-trail caveat. |
+| [`security.md`](security.md) | Operator security guidance: token handling, threat model, the guarded-write contract (`dry_run`, `overwrite`, `expect_version`), the LLM audit-trail caveat. |
 
 For the reporting policy (vulnerabilities, supported versions, response
 targets) see [`../SECURITY.md`](../SECURITY.md). For the project's

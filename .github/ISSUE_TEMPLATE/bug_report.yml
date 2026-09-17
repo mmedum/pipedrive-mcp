@@ -53,6 +53,6 @@ body:
       description: >
         Any `PIPEDRIVE_*` variables you have set, with values only where
         they are not secret — `PIPEDRIVE_DRY_RUN`,
-        `PIPEDRIVE_ENABLE_DESTRUCTIVE`, `PIPEDRIVE_HTTP_TIMEOUT`. Say that
+        `PIPEDRIVE_HTTP_TIMEOUT`. Say that
         `PIPEDRIVE_COMPANY_DOMAIN` is set rather than what it is.
       render: text
