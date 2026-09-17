@@ -13,6 +13,9 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-17
+
+
 ### Changed
 
 - The bundle manifest is brought to the shape four of the seven sibling
