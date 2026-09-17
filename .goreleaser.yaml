@@ -40,8 +40,29 @@ builds:
       - goos: windows
         goarch: arm64
 
+# The macOS universal binary exists for the Claude Desktop bundle alone.
+# A manifest names a command per PLATFORM and has no key for the
+# architecture, so the macOS entry has to work on both. `ids` on the
+# archives keeps it out of them: a fourth macOS download on the release
+# page is a choice nobody should have to make.
+universal_binaries:
+  - id: pipedrive-mcp-universal
+    ids: [pipedrive-mcp]
+    replace: false
+    hooks:
+      # The one point in the pipeline where every binary exists and the
+      # checksum file has not been written, which is what MAKES it
+      # possible for the bundle to be in that file and therefore under
+      # the signature. It is not what puts it there: goreleaser hashes
+      # the artifacts IT built, and a file a hook drops into dist/ is not
+      # one. `checksum.extra_files` covers it and `release.extra_files`
+      # uploads it — both, or the bundle ships unsigned, or is hashed and
+      # never published, looking no different either way.
+      post: go run ./scripts/gates mcpb-pack dist {{ .Version }} dist/pipedrive-mcp-{{ .Version }}.mcpb
+
 archives:
   - id: default
+    ids: [pipedrive-mcp]
     formats: [tar.gz]
     format_overrides:
       - goos: windows
@@ -56,6 +77,13 @@ archives:
 checksum:
   name_template: SHA256SUMS
   algorithm: sha256
+  # The bundle is not an archive goreleaser built, so packing it in the
+  # post hook is only half of what puts it here — the checksum step
+  # covers its own artifacts, and a file a hook dropped into dist/ is not
+  # one. Naming it is the other half, and being in SHA256SUMS is what
+  # gets it signed, because the signature is over that file.
+  extra_files:
+    - glob: ./dist/*.mcpb
 
 signs:
   # One signature, over the checksum file, in cosign's bundle format —
@@ -122,6 +150,11 @@ release:
   draft: false
   prerelease: auto
   mode: replace
+  # Checksummed is not uploaded. Without this the bundle is named in
+  # SHA256SUMS and absent from the release, which is a hash of something
+  # nobody can download.
+  extra_files:
+    - glob: ./dist/*.mcpb
   # The notes come first and the verification block after, matching the
   # sibling servers: a reader wants to know what changed before being
   # told how to check the signature. This was a `header:` while the

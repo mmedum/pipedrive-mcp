@@ -223,6 +223,7 @@ jobs:
           check-latest: false
           cache: true
       - run: go run ./scripts/gates pins
+      - run: go run ./scripts/gates mcpb
 
   secret-scan:
     name: gitleaks

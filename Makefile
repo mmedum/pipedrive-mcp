@@ -77,7 +77,7 @@ staleness: ## gates deps
 	go run ./scripts/gates deps
 
 .PHONY: check
-check: verify-tool-versions fmt vet lint test vuln licenses staleness leaks pins smoke ## Run every per-PR CI gate locally
+check: verify-tool-versions fmt vet lint test vuln licenses staleness leaks pins mcpb smoke ## Run every per-PR CI gate locally
 
 .PHONY: leaks
 leaks: ## Nothing from a real Pipedrive account is in the tree
@@ -86,6 +86,18 @@ leaks: ## Nothing from a real Pipedrive account is in the tree
 .PHONY: pins
 pins: ## Every action is a commit and every tool version is exact
 	go run ./scripts/gates pins
+
+.PHONY: mcpb
+mcpb: ## The bundle manifest describes the bundle the packer stages
+	@$(GO) run ./scripts/gates mcpb
+
+# The other half of the bundle: the gate above needs only the staged
+# NAMES, which are static, so it runs on every commit. This needs the
+# binaries, so it runs at release time from the universal binary's post
+# hook in .goreleaser.yaml. Deliberately not in `check`.
+.PHONY: mcpb-pack
+mcpb-pack: ## Pack the .mcpb from a built dist tree (release; manual)
+	@$(GO) run ./scripts/gates mcpb-pack $(DIST) $(VERSION) $(MCPB_OUT)
 
 .PHONY: smoke
 smoke: build ## Drive the binary over stdio and read the reply

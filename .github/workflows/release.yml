@@ -109,3 +109,17 @@ jobs:
             dist/pipedrive-mcp-*.tar.gz
             dist/pipedrive-mcp-*.zip
             dist/SHA256SUMS
+
+  # The registry entry, in its own workflow so it can also be run by hand
+  # against a tag that already shipped. publish-mcp.yml says why.
+  registry:
+    needs: archives
+    # A prerelease rehearses the pipeline and must NOT rehearse the
+    # registry: an entry cannot be taken back.
+    if: ${{ !contains(github.ref_name, '-') }}
+    uses: ./.github/workflows/publish-mcp.yml
+    with:
+      tag: ${{ github.ref_name }}
+    permissions:
+      id-token: write
+      contents: read
