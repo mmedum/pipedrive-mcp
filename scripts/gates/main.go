@@ -38,6 +38,18 @@ func init() {
 			run: changelogGate, args: "BASE HEAD",
 			doc: "a change to watched source needs an entry under [Unreleased]",
 		},
+		"mcpb": {
+			run: mcpbCmd, args: "",
+			doc: "the bundle manifest describes the bundle the packer stages",
+		},
+		"mcpb-pack": {
+			run: mcpbPackCmd, args: "DIST VERSION OUT",
+			doc: "pack the .mcpb from a built dist tree; runs at release time",
+		},
+		"registry-publish": {
+			run: registryPublishCmd, args: "VERSION CHECKSUMS",
+			doc: "the MCP registry entry, with the bundle's hash from the published checksums",
+		},
 		"leaks": {
 			run: leaks, args: "",
 			doc: "nothing from a real Pipedrive account is in the tree",
