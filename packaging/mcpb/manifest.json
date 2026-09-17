@@ -1,0 +1,76 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/mcpb/main/dist/mcpb-manifest.schema.json",
+  "manifest_version": "0.2",
+  "name": "pipedrive-mcp",
+  "display_name": "Pipedrive",
+  "version": "0.0.0-dev",
+  "description": "Pipedrive CRM as MCP tools: find deals, people and companies, and move deals through a pipeline.",
+  "long_description": "Pipedrive CRM over MCP: find deals, people, organizations and activities, write to them, and move deals through a pipeline. Custom fields are resolved by name rather than by the hashed keys the API uses, so a filter reads the way the CRM does.\n\nTHIS BUNDLE NEEDS YOUR OWN API TOKEN. Pipedrive issues one per user under Personal preferences \u2192 API; paste it below along with your company domain. The token is stored by Claude Desktop as a sensitive value and is never written to this server's logs.",
+  "author": {
+    "name": "Mark Medum Bundgaard"
+  },
+  "homepage": "https://github.com/mmedum/pipedrive-mcp",
+  "documentation": "https://github.com/mmedum/pipedrive-mcp/blob/main/README.md",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mmedum/pipedrive-mcp"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "pipedrive",
+    "crm",
+    "deals",
+    "sales"
+  ],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/pipedrive-mcp-darwin",
+    "mcp_config": {
+      "command": "${__dirname}/server/pipedrive-mcp-darwin",
+      "args": [],
+      "env": {
+        "PIPEDRIVE_API_TOKEN": "${user_config.api_token}",
+        "PIPEDRIVE_COMPANY_DOMAIN": "${user_config.company_domain}",
+        "PIPEDRIVE_DRY_RUN": "${user_config.dry_run}"
+      },
+      "platform_overrides": {
+        "win32": {
+          "command": "${__dirname}/server/pipedrive-mcp.exe"
+        },
+        "linux": {
+          "command": "${__dirname}/server/launch-linux.sh"
+        }
+      }
+    }
+  },
+  "user_config": {
+    "api_token": {
+      "type": "string",
+      "title": "API token",
+      "description": "Your Pipedrive API token, from Personal preferences \u2192 API. Stored as a sensitive value.",
+      "sensitive": true,
+      "required": true
+    },
+    "company_domain": {
+      "type": "string",
+      "title": "Company domain",
+      "description": "The subdomain your Pipedrive lives on, as in <company>.pipedrive.com.",
+      "required": true
+    },
+    "dry_run": {
+      "type": "boolean",
+      "title": "Dry run",
+      "description": "Report what a write would do without sending it.",
+      "default": false,
+      "required": false
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ]
+  }
+}
