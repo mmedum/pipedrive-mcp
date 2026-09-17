@@ -114,7 +114,7 @@ func TestThePackerStampsTheVersionThroughJSON(t *testing.T) {
 		t.Errorf("the packed manifest says version %v; want 1.2.3", document["version"])
 	}
 	// The committed file is untouched: the stamp happens in memory.
-	if v := good(t).Version; v != placeholderVersion {
+	if v := good(t).Version; v != "0.0.0-dev" {
 		t.Errorf("packing rewrote the committed manifest to %q", v)
 	}
 }

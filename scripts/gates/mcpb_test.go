@@ -218,8 +218,17 @@ func TestTheGeneratedLauncherRefusesToStdout(t *testing.T) {
 }
 
 func TestTheCommittedManifestCarriesThePlaceholder(t *testing.T) {
-	if v := good(t).Version; v != placeholderVersion {
-		t.Fatalf("the committed manifest says version %q; it must say %q", v, placeholderVersion)
+	// Written out rather than compared to placeholderVersion. The point
+	// is that no real version is ever committed, and moving both the
+	// constant and the manifest to a real one together would satisfy a
+	// comparison between them while doing precisely that.
+	const want = "0.0.0-dev"
+	if v := good(t).Version; v != want {
+		t.Fatalf("the committed manifest says version %q; it must say %q", v, want)
+	}
+	if placeholderVersion != want {
+		t.Errorf("placeholderVersion is %q; the packer would accept %q as a version to ship",
+			placeholderVersion, want)
 	}
 }
 
