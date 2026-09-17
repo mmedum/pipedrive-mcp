@@ -26,8 +26,9 @@ A release lands a verified state of `main`. Don't tag from a branch.
       maintainer is working from).
 - [ ] `make check` passes locally on the commit you're about to tag.
 - [ ] `make smoke` passes locally.
-- [ ] Sandbox integration tests green (Phase 1+):
-      `go test -tags=integration -race -count=3 -shuffle=on ./...`
+- [ ] Sandbox integration tests green (Phase 1+): `make integration-writes`.
+      Not `make integration` — that skips every write probe, so the box
+      gets ticked by a run that wrote nothing.
 - [ ] `CHANGELOG.md` `[Unreleased]` section reflects exactly the
       shipped surface — no stragglers, no missing entries.
 - [ ] `make dump-schemas` output diffed against the previous tag.
