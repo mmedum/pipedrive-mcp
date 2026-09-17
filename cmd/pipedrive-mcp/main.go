@@ -23,11 +23,11 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/term"
 
+	"github.com/mmedum/pipedrive-mcp/internal/app"
 	"github.com/mmedum/pipedrive-mcp/internal/config"
 	"github.com/mmedum/pipedrive-mcp/internal/credentials"
 	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
@@ -36,8 +36,6 @@ import (
 	"github.com/mmedum/pipedrive-mcp/internal/userconfig"
 	"github.com/mmedum/pipedrive-mcp/internal/version"
 )
-
-const serverName = "pipedrive-mcp"
 
 // everything below takes them as io.Writer, so nothing else reaches stdout.
 //
@@ -100,56 +98,40 @@ func runServer(stdout io.Writer) {
 	if dumpSchemas {
 		// Every tool registers unconditionally now, so the dump always
 		// carries the full surface the schema-diff CI gate compares.
-		_ = server.New(context.Background(), serverName, version.Version, nil, "", tools.RegisterOptions{})
+		_ = server.NewForSchemaDump()
 		if err := tools.DumpJSON(stdout, version.Version); err != nil {
 			fail("dump schemas: %v", err)
 		}
 		return
 	}
 
-	domain, domainSource, err := resolveDomainAtStartup()
-	if err != nil {
-		fail("%v", err)
-	}
-
-	cfg, err := config.LoadFor(domain)
-	if err != nil {
-		fail("%v", err)
-	}
-
-	logger := newLogger(cfg)
-	slog.SetDefault(logger)
-
-	token, source, err := credentials.Resolve(credentials.Default(), cfg.CompanyDomain)
+	settings, err := app.Resolve()
 	if err != nil {
 		if errors.Is(err, credentials.ErrNotFound) {
 			fail("no API token found. Run `pipedrive-mcp login` to store one in the OS keyring, or set %s in the environment.", credentials.EnvVar)
 		}
 		fail("%v", err)
 	}
-	logger.Info("credentials resolved",
-		slog.String("source", string(source)),
-		slog.String("workspace", cfg.CompanyDomain),
-		slog.String("domain_source", string(domainSource)),
-	)
 
-	client := newPipedriveClient(cfg.CompanyDomain, token, cfg.HTTPTimeout, logger)
+	logger := newLogger(settings.Config)
+	slog.SetDefault(logger)
+	logger.Info("credentials resolved", slog.Any("settings", settings))
+
+	rt := settings.Connect(logger)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	if !skipProbe {
-		if err := client.ProbeAuth(ctx); err != nil {
+		if err := rt.Client.ProbeAuth(ctx); err != nil {
 			failProbe(err)
 		}
 		logger.InfoContext(ctx, "auth probe ok",
-			slog.String("workspace", cfg.CompanyDomain),
+			slog.String("workspace", settings.Domain()),
 		)
 	}
 
-	srv := server.New(ctx, serverName, version.Version, client, cfg.CompanyDomain, tools.RegisterOptions{
-		DryRun: cfg.DryRun,
-	})
+	srv := rt.NewServer(ctx, version.Version)
 	if err := srv.Run(ctx, &mcp.StdioTransport{}); err != nil && !isCleanShutdown(err) {
 		fail("server: %v", err)
 	}
@@ -182,7 +164,7 @@ func cmdLogin(args []string) int {
 
 	raw := strings.TrimSpace(*domainFlag)
 	if raw == "" {
-		raw = strings.TrimSpace(os.Getenv("PIPEDRIVE_COMPANY_DOMAIN"))
+		raw = strings.TrimSpace(os.Getenv(config.DomainEnv))
 	}
 	if raw == "" {
 		prompted, err := promptDomain(os.Stdin, os.Stderr)
@@ -267,7 +249,7 @@ func cmdLogout(args []string) int {
 		domain = d
 	} else {
 		ucPath, _ := userconfig.DefaultPath()
-		d, _, err := resolveDomain(os.Getenv("PIPEDRIVE_COMPANY_DOMAIN"), ucPath)
+		d, _, err := app.ResolveDomain(os.Getenv(config.DomainEnv), ucPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "logout: %v\n", err)
 			return 2
@@ -326,66 +308,6 @@ func runStatus(out io.Writer, noProbe, asJSON bool) int {
 	return code
 }
 
-// DomainSource names where a resolved domain came from. Surfaced in
-// startup logs and `pipedrive-mcp status` so the operator can see
-// which input mechanism is in effect.
-type DomainSource string
-
-const (
-	DomainFromEnv        DomainSource = "env"
-	DomainFromUserConfig DomainSource = "userconfig"
-)
-
-// Label returns a human-readable description of the source, including
-// the userconfig file path when the source is the userconfig pointer.
-func (s DomainSource) Label(ucPath string) string {
-	if s == DomainFromUserConfig && ucPath != "" {
-		return fmt.Sprintf("userconfig (%s)", ucPath)
-	}
-	return string(s)
-}
-
-// errNoDomain is the user-facing message when neither env nor userconfig
-// supplies a workspace domain. Hoisted to a const so resolveDomain's
-// two terminal branches stay verbatim-equal.
-const errNoDomain = "no domain configured: set PIPEDRIVE_COMPANY_DOMAIN, or run `pipedrive-mcp login` to record one"
-
-// resolveDomain returns the active domain for the current process, in
-// this order: PIPEDRIVE_COMPANY_DOMAIN env > userconfig.DefaultDomain.
-// An empty/missing value in both sources returns a clear error pointing
-// the operator at `pipedrive-mcp login`. Inputs are passed explicitly
-// so tests can drive the resolution without env or filesystem
-// manipulation.
-func resolveDomain(envValue, ucPath string) (string, DomainSource, error) {
-	if raw := strings.TrimSpace(envValue); raw != "" {
-		domain, err := config.ValidateDomain(raw)
-		if err != nil {
-			return "", "", fmt.Errorf("config: PIPEDRIVE_COMPANY_DOMAIN: %w", err)
-		}
-		return domain, DomainFromEnv, nil
-	}
-	if ucPath == "" {
-		return "", "", errors.New(errNoDomain)
-	}
-	uc, err := userconfig.Load(ucPath)
-	if err != nil {
-		return "", "", err
-	}
-	if raw := strings.TrimSpace(uc.DefaultDomain); raw != "" {
-		domain, err := config.ValidateDomain(raw)
-		if err != nil {
-			return "", "", fmt.Errorf("userconfig %s: default_domain: %w", ucPath, err)
-		}
-		return domain, DomainFromUserConfig, nil
-	}
-	return "", "", errors.New(errNoDomain)
-}
-
-func resolveDomainAtStartup() (string, DomainSource, error) {
-	ucPath, _ := userconfig.DefaultPath() // empty path falls through cleanly
-	return resolveDomain(os.Getenv("PIPEDRIVE_COMPANY_DOMAIN"), ucPath)
-}
-
 // promptDomain reads a Pipedrive workspace subdomain from in (with
 // echo — the domain is not a secret), trims whitespace, and returns
 // it. The first non-empty line wins. Empty input returns an error so
@@ -428,20 +350,8 @@ func promptToken(in *os.File, prompt io.Writer, message string) (string, error) 
 // supplied token before we commit it to storage. A bad token surfaces
 // as a 401 here, not on next launch.
 func validateToken(domain, token string) error {
-	client := newPipedriveClient(domain, token, 30*time.Second, nil)
+	client := app.NewProbeClient(domain, token, config.DefaultHTTPTimeout)
 	return client.ProbeAuth(context.Background())
-}
-
-// newPipedriveClient is the single construction site for pipedrive.Client.
-// Both runServer (long-lived) and validateToken (one-shot during login)
-// route through here.
-func newPipedriveClient(domain, token string, timeout time.Duration, logger *slog.Logger) *pipedrive.Client {
-	return pipedrive.New(pipedrive.Options{
-		BaseURL: pipedrive.BaseURL(domain),
-		Token:   token,
-		Timeout: timeout,
-		Logger:  logger,
-	})
 }
 
 // failProbe renders an actionable startup-probe message and exits.

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -149,97 +148,6 @@ func TestPromptDomain_RejectsEmpty(t *testing.T) {
 				t.Errorf("promptDomain(%q): want error, got nil", in)
 			}
 		})
-	}
-}
-
-func TestResolveDomain(t *testing.T) {
-	t.Run("env wins over userconfig", func(t *testing.T) {
-		ucPath := writeUserConfig(t, `{"default_domain":"fromfile"}`)
-		got, src, err := resolveDomain("fromenv", ucPath)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if got != "fromenv" || src != DomainFromEnv {
-			t.Errorf("got (%q, %q), want (fromenv, env)", got, src)
-		}
-	})
-
-	t.Run("falls through to userconfig when env is empty", func(t *testing.T) {
-		ucPath := writeUserConfig(t, `{"default_domain":"fromfile"}`)
-		got, src, err := resolveDomain("", ucPath)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if got != "fromfile" || src != DomainFromUserConfig {
-			t.Errorf("got (%q, %q), want (fromfile, userconfig)", got, src)
-		}
-	})
-
-	t.Run("env whitespace is treated as empty", func(t *testing.T) {
-		ucPath := writeUserConfig(t, `{"default_domain":"fromfile"}`)
-		got, src, err := resolveDomain("   ", ucPath)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if got != "fromfile" || src != DomainFromUserConfig {
-			t.Errorf("whitespace env should fall through; got (%q, %q)", got, src)
-		}
-	})
-
-	t.Run("missing both surfaces actionable error", func(t *testing.T) {
-		// userconfig file does not exist; env is empty
-		ucPath := nonexistentUserConfigPath(t)
-		_, _, err := resolveDomain("", ucPath)
-		if err == nil {
-			t.Fatal("expected error when neither env nor userconfig has a domain")
-		}
-		if !strings.Contains(err.Error(), "pipedrive-mcp login") {
-			t.Errorf("error should hint at `pipedrive-mcp login`; got: %v", err)
-		}
-	})
-
-	t.Run("invalid env domain is rejected before userconfig is consulted", func(t *testing.T) {
-		ucPath := writeUserConfig(t, `{"default_domain":"fromfile"}`)
-		_, _, err := resolveDomain("Acme.Corp", ucPath)
-		if err == nil {
-			t.Fatal("expected validation error for malformed env domain")
-		}
-	})
-
-	t.Run("invalid userconfig domain is rejected", func(t *testing.T) {
-		ucPath := writeUserConfig(t, `{"default_domain":"Bad.Subdomain"}`)
-		_, _, err := resolveDomain("", ucPath)
-		if err == nil {
-			t.Fatal("expected validation error for malformed userconfig domain")
-		}
-	})
-
-	t.Run("empty userconfig path with empty env errors cleanly", func(t *testing.T) {
-		_, _, err := resolveDomain("", "")
-		if err == nil {
-			t.Fatal("expected error when both inputs are empty")
-		}
-	})
-}
-
-func writeUserConfig(t *testing.T, body string) string {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-		t.Fatalf("seed userconfig: %v", err)
-	}
-	return p
-}
-
-func nonexistentUserConfigPath(t *testing.T) string {
-	t.Helper()
-	return filepath.Join(t.TempDir(), "does-not-exist.json")
-}
-
-func TestNewPipedriveClient(t *testing.T) {
-	c := newPipedriveClient("acme", "tok", 0, nil)
-	if c == nil {
-		t.Fatal("newPipedriveClient returned nil")
 	}
 }
 
