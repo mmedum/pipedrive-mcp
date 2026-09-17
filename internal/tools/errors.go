@@ -11,6 +11,53 @@ import (
 	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
 )
 
+// errRefused is the guarded-write refusal sentinel. Refusals are a
+// tools-layer concept — internal/pipedrive knows nothing about
+// overwrite or expect_version — so the sentinel lives here rather than
+// alongside the upstream ones, and errorClass checks it first.
+var errRefused = errors.New("refused")
+
+// refuse builds a guarded-write refusal. Per CLAUDE.md "Guarded
+// writes" a refusal names two things: what it is protecting, and the
+// argument that would permit the write. `unlock` is not optional —
+// a refusal the caller cannot act on is a bug.
+func refuse(protecting, unlock string) error {
+	return fmt.Errorf("%w: %s. Pass %s to allow it", errRefused, protecting, unlock)
+}
+
+// refuseStale is the expect_version refusal. The permitting action
+// here is re-reading rather than an argument: the caller's copy is
+// out of date, so no flag should let them write over the newer one.
+func refuseStale(resource, want, got string) error {
+	return fmt.Errorf("%w: %s changed since you read it (expect_version %q, now %q). Re-read it and retry with the current version",
+		errRefused, resource, want, got)
+}
+
+// validateAction closes a manage_* tool's action enum. The empty case
+// needs its own message because validateEnum treats "" as "not
+// supplied" and passes it; both messages name the enum so the caller
+// can self-correct rather than guess again.
+func validateAction(action string, allowed map[string]bool) error {
+	if action == "" {
+		return fmt.Errorf("%w: action is required: one of %s", pipedrive.ErrValidation, enumValues(allowed))
+	}
+	return validateEnum(action, "action", allowed)
+}
+
+// checkExpectVersion implements the expect_version guard. want is the
+// version the caller read before deciding to write; got is what the
+// record carries now. An empty want means the caller did not ask for
+// the check, which is the common case.
+//
+// This lives here rather than in a resource file because every
+// manage_* tool needs exactly this comparison.
+func checkExpectVersion(want, got, resource string) error {
+	if want == "" || want == got {
+		return nil
+	}
+	return refuseStale(resource, want, got)
+}
+
 // errorResult wraps an internal/pipedrive error into a CallToolResult
 // with isError: true. Per CLAUDE.md (MCP error mapping): upstream API
 // failures become tool execution errors, not JSON-RPC protocol errors,
@@ -57,10 +104,12 @@ func llmMessage(err error) string {
 	return msg
 }
 
-// allSentinels enumerates the pipedrive sentinel errors so llmMessage
-// can strip their "<class>: " prefixes from wrapped fmt.Errorf
-// messages without parsing free text.
+// allSentinels enumerates every sentinel error llmMessage may need to
+// strip a "<class>: " prefix from, so it can do that without parsing
+// free text. errRefused is tools-local and the rest come from
+// internal/pipedrive; the loop treats them identically.
 var allSentinels = []error{
+	errRefused,
 	pipedrive.ErrUnauthorized,
 	pipedrive.ErrForbiddenPermission,
 	pipedrive.ErrForbiddenBusinessRule,
@@ -90,20 +139,27 @@ func validateEnum(value, fieldName string, allowed map[string]bool) error {
 	if value == "" || allowed[value] {
 		return nil
 	}
+	return fmt.Errorf("%w: %s %q is not one of %s", pipedrive.ErrValidation, fieldName, value, enumValues(allowed))
+}
+
+// enumValues renders a closed enum as "a|b|c". Sorted, so an error
+// message is deterministic — tests grep on the formatted string, and a
+// message that reorders between runs is a message nobody can assert on.
+func enumValues(allowed map[string]bool) string {
 	keys := make([]string, 0, len(allowed))
 	for k := range allowed {
 		keys = append(keys, k)
 	}
-	// Sort so the error message is deterministic (matters for tests
-	// that grep on the formatted string).
 	sort.Strings(keys)
-	return fmt.Errorf("%w: %s %q is not one of %s", pipedrive.ErrValidation, fieldName, value, strings.Join(keys, "|"))
+	return strings.Join(keys, "|")
 }
 
 // errorClass returns a short classifier the LLM can branch on,
 // keyed off the typed sentinel pipedrive returned.
 func errorClass(err error) string {
 	switch {
+	case errors.Is(err, errRefused):
+		return "refused"
 	case errors.Is(err, pipedrive.ErrUnauthorized):
 		return "auth"
 	case errors.Is(err, pipedrive.ErrForbiddenPermission):
