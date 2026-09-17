@@ -29,6 +29,19 @@ breaking changes require a MAJOR bump.
   and when `support` is missing. Nothing read either field before, which
   is why three of the seven drifted onto 0.2 and nobody found out.
 
+  Two further pins on the same thought. The schema ref is the tag
+  `v2.1.2` rather than `main`: the version in the PATH pins the format,
+  the ref pins the BYTES, and `main` can change under a path that still
+  reads as pinned — the two are byte-identical today, which is the
+  argument for the tag rather than against it, because nothing would
+  show that changing. And `manifest_version` has a floor, because a
+  check that only asks whether the document agrees with its own schema
+  is satisfied by a stale-but-self-consistent 0.2, which is precisely
+  what three repositories were shipping. 0.3 rather than 0.4 on purpose:
+  upstream serves 0.2, 0.3 and 0.4, and 0.4 differs from 0.3 only by a
+  `uv` value in the `server.type` enum, which a `binary` server cannot
+  use.
+
 - The Linux launcher is generated from `bundleFiles` at pack time instead
   of being committed at `packaging/mcpb/launch-linux.sh`. A committed
   launcher is a second list of the packer's binary names, and a second

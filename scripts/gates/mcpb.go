@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -203,6 +204,29 @@ func validateManifest(m manifest, files []staged, launcher []string) []string {
 	return problems
 }
 
+// schemaRef is the mcpb release whose schema files this manifest is
+// held against.
+//
+// A tag, not main. The version in the PATH pins the format; the ref
+// pins the BYTES, and main's bytes can change under a path that still
+// reads as pinned. v2.1.2's copies are byte-identical to main's today —
+// which is the argument for the tag rather than against it, because
+// nothing would tell us when that stopped being true.
+const schemaRef = "v2.1.2"
+
+// minManifestVersion is the oldest manifest shape this repository will
+// ship.
+//
+// Without a floor, checkManifestShape is satisfied by any version that
+// agrees with its own $schema — which is exactly what a stale but
+// self-consistent 0.2 manifest is, and three of the seven sibling
+// repositories were sitting on one. 0.3 rather than 0.4 on purpose:
+// upstream serves 0.2, 0.3 and 0.4, and the only difference between 0.3
+// and 0.4 is a "uv" value added to the server.type enum. This server is
+// type "binary", so 0.4 buys nothing and claiming it would be a version
+// number chosen for being larger.
+const minManifestVersion = "0.3"
+
 // schemaFor is the pinned schema URL for a manifest version.
 //
 // Pinned, not the /dist/ path that serves whatever is current: this
@@ -212,8 +236,27 @@ func validateManifest(m manifest, files []staged, launcher []string) []string {
 // repositories sat on manifest_version 0.2 while pointing at the
 // unpinned URL, which by then served 0.3, and nothing anywhere said so.
 func schemaFor(manifestVersion string) string {
-	return "https://raw.githubusercontent.com/anthropics/mcpb/main/schemas/mcpb-manifest-v" +
-		manifestVersion + ".schema.json"
+	return "https://raw.githubusercontent.com/anthropics/mcpb/" + schemaRef +
+		"/schemas/mcpb-manifest-v" + manifestVersion + ".schema.json"
+}
+
+// olderThan compares two dotted version strings numerically, so "0.10"
+// is newer than "0.9" rather than sorting before it.
+func olderThan(got, floor string) bool {
+	gotParts, floorParts := strings.Split(got, "."), strings.Split(floor, ".")
+	for i := 0; i < len(gotParts) || i < len(floorParts); i++ {
+		g, f := 0, 0
+		if i < len(gotParts) {
+			g, _ = strconv.Atoi(gotParts[i])
+		}
+		if i < len(floorParts) {
+			f, _ = strconv.Atoi(floorParts[i])
+		}
+		if g != f {
+			return g < f
+		}
+	}
+	return false
 }
 
 // checkManifestShape: the document agrees with the schema it cites, and
@@ -224,6 +267,12 @@ func schemaFor(manifestVersion string) string {
 // only shows up as a validation failure in somebody else's tool.
 func checkManifestShape(m manifest) []string {
 	var problems []string
+	if olderThan(m.ManifestVersion, minManifestVersion) {
+		problems = append(problems, fmt.Sprintf(
+			"manifest_version is %q and this repository ships %q or newer; a manifest that agrees "+
+				"with its own $schema is still stale if both are old",
+			m.ManifestVersion, minManifestVersion))
+	}
 	switch {
 	case m.Schema == "":
 		problems = append(problems, fmt.Sprintf("no $schema; manifest_version %q should cite %s",

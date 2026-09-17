@@ -133,6 +133,17 @@ func TestTheWaysAManifestBreaks(t *testing.T) {
 			breaks: func(m *manifest) { m.Support = "  " },
 			want:   "no support URL",
 		},
+		{
+			// The case the $schema check alone cannot see: both fields
+			// old together, agreeing with each other, which is exactly
+			// what three sibling repositories were shipping.
+			name: "a stale version that agrees with its own schema",
+			breaks: func(m *manifest) {
+				m.ManifestVersion = "0.2"
+				m.Schema = schemaFor("0.2")
+			},
+			want: "or newer",
+		},
 	}
 
 	for _, c := range cases {
@@ -219,5 +230,47 @@ func TestTheCommittedManifestCarriesThePlaceholder(t *testing.T) {
 func TestTheManifestSaysWhereTheTokenComesFrom(t *testing.T) {
 	if !strings.Contains(strings.ToLower(good(t).LongDescription), "api token") {
 		t.Fatal("long_description does not tell the user they need a Pipedrive API token")
+	}
+}
+
+// TestTheSchemaRefIsATagNotABranch: the version in the path pins the
+// FORMAT, the ref pins the BYTES. main's bytes can change under a path
+// that still reads as pinned, which is the same failure the pins gate
+// exists for — and the two were byte-identical when this was written,
+// so nothing would have shown it drifting.
+func TestTheSchemaRefIsATagNotABranch(t *testing.T) {
+	url := schemaFor(minManifestVersion)
+	if strings.Contains(url, "/main/") {
+		t.Errorf("the schema URL tracks a branch: %s", url)
+	}
+	if !strings.Contains(url, "/"+schemaRef+"/") {
+		t.Errorf("the schema URL does not carry the pinned ref %s: %s", schemaRef, url)
+	}
+	// The committed manifest cites the same URL the gate builds.
+	if got := good(t).Schema; got != schemaFor(good(t).ManifestVersion) {
+		t.Errorf("the manifest cites %s; the gate builds %s", got, schemaFor(good(t).ManifestVersion))
+	}
+}
+
+func TestOlderThanComparesNumerically(t *testing.T) {
+	cases := []struct {
+		got, floor string
+		want       bool
+	}{
+		{"0.2", "0.3", true},
+		{"0.3", "0.3", false},
+		{"0.4", "0.3", false},
+		// The reason this is not a string comparison: "0.10" sorts
+		// before "0.9" as text and is newer as a version.
+		{"0.10", "0.9", false},
+		{"0.9", "0.10", true},
+		{"1.0", "0.3", false},
+		{"0.3.1", "0.3", false},
+		{"0.3", "0.3.1", true},
+	}
+	for _, c := range cases {
+		if got := olderThan(c.got, c.floor); got != c.want {
+			t.Errorf("olderThan(%q, %q) = %v; want %v", c.got, c.floor, got, c.want)
+		}
 	}
 }
