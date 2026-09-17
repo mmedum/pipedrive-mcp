@@ -234,10 +234,5 @@ func TestListPipelines_RegistersInDumpRegistry(t *testing.T) {
 }
 
 func contentText(res *mcp.CallToolResult) string {
-	for _, c := range res.Content {
-		if tc, ok := c.(*mcp.TextContent); ok {
-			return tc.Text
-		}
-	}
-	return ""
+	return testutil.TextContent(res)
 }

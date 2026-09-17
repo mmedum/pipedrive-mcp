@@ -11,6 +11,7 @@ package testutil
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -37,7 +38,6 @@ func (h *Harness) Close() {
 // h.Client.CallTool to drive a registered tool.
 func Connect(t *testing.T, register func(*mcp.Server)) *Harness {
 	t.Helper()
-	ctx := context.Background()
 
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "pipedrive-mcp-test",
@@ -45,17 +45,30 @@ func Connect(t *testing.T, register func(*mcp.Server)) *Harness {
 	}, nil)
 	register(server)
 
+	h, err := ConnectTo(context.Background(), server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+// ConnectTo connects an in-memory client to a server the caller has
+// already built, and is what Connect delegates to. It exists for the
+// callers that cannot use Connect: one holding no *testing.T (a
+// TestMain), or one whose server has to be the real thing rather than
+// a bare mcp.NewServer with a tool registered on it.
+func ConnectTo(ctx context.Context, server *mcp.Server) (*Harness, error) {
 	clientTransport, serverTransport := mcp.NewInMemoryTransports()
 
 	ss, err := server.Connect(ctx, serverTransport, nil)
 	if err != nil {
-		t.Fatalf("server.Connect: %v", err)
+		return nil, fmt.Errorf("server.Connect: %w", err)
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "test"}, nil)
 	cs, err := client.Connect(ctx, clientTransport, nil)
 	if err != nil {
 		_ = ss.Close()
-		t.Fatalf("client.Connect: %v", err)
+		return nil, fmt.Errorf("client.Connect: %w", err)
 	}
 
 	return &Harness{
@@ -64,5 +77,5 @@ func Connect(t *testing.T, register func(*mcp.Server)) *Harness {
 			_ = cs.Close()
 			_ = ss.Close()
 		},
-	}
+	}, nil
 }
