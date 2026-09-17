@@ -118,3 +118,47 @@ func TestTextKeepsItsLines(t *testing.T) {
 		}
 	}
 }
+
+// TestTextNamesWhatActuallyFailed covers the three ways `status` stops
+// after resolving a domain. Calling all of them a token problem sends
+// the reader after the wrong thing — and the config case only started
+// happening when status began loading the configuration the server
+// loads.
+func TestTextNamesWhatActuallyFailed(t *testing.T) {
+	cases := []struct {
+		name, reason, want, notWant string
+	}{
+		{
+			name:    "invalid config",
+			reason:  `config: LOG_LEVEL "bogus" is not one of debug|info|warn|error`,
+			want:    `config:    LOG_LEVEL "bogus"`,
+			notWant: "token:",
+		},
+		{
+			name:   "no token stored",
+			reason: "no token: run `pipedrive-mcp login`, or set PIPEDRIVE_API_TOKEN",
+			want:   "token:     (not set)",
+		},
+		{
+			name:   "keyring broken",
+			reason: "credentials: keyring unavailable and PIPEDRIVE_API_TOKEN is not set",
+			want:   "token:     unavailable",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := statusReport{
+				Domain: orNil("acme"), DomainSource: orNil("env"),
+				Reason: orNil(tc.reason),
+			}
+			var buf bytes.Buffer
+			r.writeText(&buf)
+			if !strings.Contains(buf.String(), tc.want) {
+				t.Errorf("want %q in:\n%s", tc.want, buf.String())
+			}
+			if tc.notWant != "" && strings.Contains(buf.String(), tc.notWant) {
+				t.Errorf("should not blame %q:\n%s", tc.notWant, buf.String())
+			}
+		})
+	}
+}

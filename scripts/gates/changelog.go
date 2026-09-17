@@ -10,7 +10,7 @@ import (
 // watchedPaths are the trees whose changes a reader of the changelog
 // would expect to see named there. Everything else — docs, workflows,
 // this directory — may change without an entry.
-var watchedPaths = []string{"internal/tools/", "internal/pipedrive/", "cmd/"}
+var watchedPaths = []string{"internal/tools/", "internal/pipedrive/", "internal/app/", "cmd/"}
 
 // changelogGate fails when a pull request touches watched source without
 // adding a line under [Unreleased].
