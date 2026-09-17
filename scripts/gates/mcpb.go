@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -36,9 +37,15 @@ const manifestPath = "packaging/mcpb/manifest.json"
 // decode and encode, never a substitution over text.
 const placeholderVersion = "0.0.0-dev"
 
-// launcherPath is the Linux launcher, which picks a binary by
-// architecture and execs it.
-const launcherPath = "packaging/mcpb/launch-linux.sh"
+// launcherName is the Linux launcher inside the bundle. It picks a
+// binary by architecture and execs it.
+//
+// The script is GENERATED from bundleFiles at pack time rather than
+// committed beside the manifest. A committed launcher is a second list
+// of binary names, and a second list can disagree with the first — so
+// the gate had to read the script back and compare the two. Generating
+// it makes the disagreement unrepresentable instead of detected.
+const launcherName = "server/launch-linux.sh"
 
 // staged is one file the packer puts in the bundle.
 //
@@ -61,6 +68,12 @@ type staged struct {
 	// names appear in a shell script no manifest mentions, so nothing
 	// else can check them.
 	launched bool
+	// uname is the `uname -m` values the launcher maps to this binary.
+	// Only a launched row has them, and they are the launcher's whole
+	// input besides the name.
+	uname []string
+	// generated marks a file this packer writes rather than copies.
+	generated bool
 }
 
 // bundleFiles is what a bundle contains. The macOS slot is goreleaser's
@@ -76,14 +89,18 @@ type staged struct {
 var bundleFiles = []staged{
 	{path: "server/pipedrive-mcp-darwin", glob: "dist/*universal*darwin*/pipedrive-mcp", platform: "darwin"},
 	{path: "server/pipedrive-mcp.exe", glob: "dist/*windows_amd64*/pipedrive-mcp.exe", platform: "win32"},
-	{path: "server/launch-linux.sh", source: launcherPath, platform: "linux"},
-	{path: "server/pipedrive-mcp-linux-x64", glob: "dist/*linux_amd64*/pipedrive-mcp", launched: true},
-	{path: "server/pipedrive-mcp-linux-arm64", glob: "dist/*linux_arm64*/pipedrive-mcp", launched: true},
+	{path: launcherName, platform: "linux", generated: true},
+	{path: "server/pipedrive-mcp-linux-x64", glob: "dist/*linux_amd64*/pipedrive-mcp",
+		launched: true, uname: []string{"x86_64", "amd64"}},
+	{path: "server/pipedrive-mcp-linux-arm64", glob: "dist/*linux_arm64*/pipedrive-mcp",
+		launched: true, uname: []string{"aarch64", "arm64"}},
 }
 
 // manifest is the part of the document these checks are about.
 type manifest struct {
+	Schema          string `json:"$schema"`
 	ManifestVersion string `json:"manifest_version"`
+	Support         string `json:"support"`
 	Name            string `json:"name"`
 	Version         string `json:"version"`
 	License         string `json:"license"`
@@ -159,7 +176,7 @@ func mcpbGate() error {
 // unsubstituted.
 var userConfigRef = regexp.MustCompile(`\$\{user_config\.([A-Za-z0-9_]+)\}`)
 
-// validateManifest is the six checks, as one function so a test can run
+// validateManifest is the checks, as one function so a test can run
 // them against a broken manifest without touching the repository.
 //
 // It takes the staged list and the launcher's names as arguments for the
@@ -183,6 +200,91 @@ func validateManifest(m manifest, files []staged, launcher []string) []string {
 	problems = append(problems, checkUserConfigRefs(m)...)
 	problems = append(problems, checkPlatforms(m, stagedPaths, commands)...)
 	problems = append(problems, checkLauncherNames(files, launcher)...)
+	problems = append(problems, checkManifestShape(m)...)
+	return problems
+}
+
+// schemaRef is the mcpb release whose schema files this manifest is
+// held against.
+//
+// A tag, not main. The version in the PATH pins the format; the ref
+// pins the BYTES, and main's bytes can change under a path that still
+// reads as pinned. v2.1.2's copies are byte-identical to main's today —
+// which is the argument for the tag rather than against it, because
+// nothing would tell us when that stopped being true.
+const schemaRef = "v2.1.2"
+
+// minManifestVersion is the oldest manifest shape this repository will
+// ship.
+//
+// Without a floor, checkManifestShape is satisfied by any version that
+// agrees with its own $schema — which is exactly what a stale but
+// self-consistent 0.2 manifest is, and three of the seven sibling
+// repositories were sitting on one. 0.3 rather than 0.4 on purpose:
+// upstream serves 0.2, 0.3 and 0.4, and the only difference between 0.3
+// and 0.4 is a "uv" value added to the server.type enum. This server is
+// type "binary", so 0.4 buys nothing and claiming it would be a version
+// number chosen for being larger.
+const minManifestVersion = "0.3"
+
+// schemaFor is the pinned schema URL for a manifest version.
+//
+// Pinned, not the /dist/ path that serves whatever is current: this
+// repository has a whole gate about "latest" drifting, and a manifest
+// is the one file that states its own version AND validates against a
+// URL, so the two can disagree silently. Three of the seven sibling
+// repositories sat on manifest_version 0.2 while pointing at the
+// unpinned URL, which by then served 0.3, and nothing anywhere said so.
+func schemaFor(manifestVersion string) string {
+	return "https://raw.githubusercontent.com/anthropics/mcpb/" + schemaRef +
+		"/schemas/mcpb-manifest-v" + manifestVersion + ".schema.json"
+}
+
+// olderThan compares two dotted version strings numerically, so "0.10"
+// is newer than "0.9" rather than sorting before it.
+func olderThan(got, floor string) bool {
+	gotParts, floorParts := strings.Split(got, "."), strings.Split(floor, ".")
+	for i := 0; i < len(gotParts) || i < len(floorParts); i++ {
+		g, f := 0, 0
+		if i < len(gotParts) {
+			g, _ = strconv.Atoi(gotParts[i])
+		}
+		if i < len(floorParts) {
+			f, _ = strconv.Atoi(floorParts[i])
+		}
+		if g != f {
+			return g < f
+		}
+	}
+	return false
+}
+
+// checkManifestShape: the document agrees with the schema it cites, and
+// says where to report a problem.
+//
+// Neither field changes what the packer does, which is exactly why they
+// drift — the bundle builds and installs either way, and the mismatch
+// only shows up as a validation failure in somebody else's tool.
+func checkManifestShape(m manifest) []string {
+	var problems []string
+	if olderThan(m.ManifestVersion, minManifestVersion) {
+		problems = append(problems, fmt.Sprintf(
+			"manifest_version is %q and this repository ships %q or newer; a manifest that agrees "+
+				"with its own $schema is still stale if both are old",
+			m.ManifestVersion, minManifestVersion))
+	}
+	switch {
+	case m.Schema == "":
+		problems = append(problems, fmt.Sprintf("no $schema; manifest_version %q should cite %s",
+			m.ManifestVersion, schemaFor(m.ManifestVersion)))
+	case m.Schema != schemaFor(m.ManifestVersion):
+		problems = append(problems, fmt.Sprintf("$schema is %q but manifest_version %q wants %s",
+			m.Schema, m.ManifestVersion, schemaFor(m.ManifestVersion)))
+	}
+	if strings.TrimSpace(m.Support) == "" {
+		problems = append(problems, "no support URL; an installed bundle is the one copy of this "+
+			"server with no repository around it to find one in")
+	}
 	return problems
 }
 
@@ -291,13 +393,56 @@ func checkLauncherNames(files []staged, launcher []string) []string {
 // launcherBinary matches a binary name the launcher execs.
 var launcherBinary = regexp.MustCompile(`exec "\$dir/([A-Za-z0-9._-]+)"`)
 
-// launcherNames reads the binaries the Linux launcher chooses between.
-func launcherNames() []string {
-	data, err := os.ReadFile(launcherPath)
-	if err != nil {
-		return nil
+// launcherScript generates the Linux launcher from bundleFiles.
+//
+// Claude Desktop's manifest names a command per PLATFORM and has no key
+// for the architecture, and Linux ships both x64 and arm64. So this
+// picks the binary and EXECS it: the server talks MCP over this
+// process's stdio, and a shell left in the middle would own the pipes.
+//
+// Generated rather than committed, because the names it dispatches to
+// are the packer's. Held in a file of its own they were a second list
+// that could drift from the first, visible to nothing — a manifest
+// never mentions this script's contents, so a renamed binary packed
+// cleanly, installed cleanly, and failed for every Linux user.
+func launcherScript() string {
+	var b strings.Builder
+	b.WriteString("#!/bin/sh\n" +
+		"# Generated by `gates mcpb-pack` from bundleFiles. Do not edit.\n" +
+		"#\n" +
+		"# A manifest names a command per platform and has no key for the\n" +
+		"# architecture, so the Linux entry would otherwise have to be one\n" +
+		"# binary and be wrong for everyone else. macOS solves this with a\n" +
+		"# universal binary and Windows by running amd64 under emulation;\n" +
+		"# Linux has neither, so the choice is made here.\n" +
+		"set -eu\n\n" +
+		`dir=$(dirname "$0")` + "\n\n" +
+		`case "$(uname -m)" in` + "\n")
+	for _, f := range bundleFiles {
+		if !f.launched {
+			continue
+		}
+		fmt.Fprintf(&b, "  %s)\n    exec \"$dir/%s\" \"$@\"\n    ;;\n",
+			strings.Join(f.uname, " | "), filepath.Base(f.path))
 	}
-	return launcherNamesIn(string(data))
+	b.WriteString("esac\n\n" +
+		"# Never stdout: a line of English there corrupts the JSON-RPC stream\n" +
+		"# before the client's first request completes, and the client reports\n" +
+		"# it as a protocol error rather than as this.\n" +
+		`echo "pipedrive-mcp: no binary in this bundle for $(uname -m); builds for ` +
+		`x86_64 and aarch64 are at https://github.com/mmedum/pipedrive-mcp/releases" >&2` + "\n" +
+		"exit 1\n")
+	return b.String()
+}
+
+// launcherNames reads the binaries the Linux launcher chooses between.
+//
+// It parses the generated script rather than trusting the table it was
+// generated from, so checkLauncherNames still compares two things: a
+// generator that skipped a row fails here rather than shipping a
+// launcher that cannot reach it.
+func launcherNames() []string {
+	return launcherNamesIn(launcherScript())
 }
 
 // launcherNamesIn is the extraction itself, so the test that proves the
