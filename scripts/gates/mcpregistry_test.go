@@ -144,8 +144,12 @@ func TestTheRegistryEntryIsBuiltFromTheRepository(t *testing.T) {
 		t.Fatalf("the entry is not valid JSON: %v\n%s", err, out.String())
 	}
 
-	if entry.Schema != registrySchema {
-		t.Errorf("$schema = %q", entry.Schema)
+	// Stated, not compared to registrySchema: reading the constant the
+	// generator emits asserts that it equals itself, and a wrong URL in
+	// that constant would pass.
+	const wantSchema = "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json"
+	if entry.Schema != wantSchema {
+		t.Errorf("$schema = %q; want %q", entry.Schema, wantSchema)
 	}
 	if entry.Name != "io.github.mmedum/pipedrive-mcp" {
 		t.Errorf("name = %q; it is derived from the module path", entry.Name)
@@ -179,9 +183,15 @@ func TestTheRegistryEntryIsBuiltFromTheRepository(t *testing.T) {
 	// The description is the manifest's, and the registry caps it. A
 	// sibling's was 148 characters and would have failed its first
 	// publish, which cannot be retried against a version that exists.
-	if entry.Description == "" || len(entry.Description) > descriptionMax {
+	//
+	// 100 is written out rather than read from descriptionMax, because
+	// the cap is the registry's and not ours: a wrong value in our
+	// constant is exactly the defect worth catching, and comparing to
+	// it would pass.
+	const registryCap = 100
+	if entry.Description == "" || len(entry.Description) > registryCap {
 		t.Errorf("description is %d characters; the registry allows %d",
-			len(entry.Description), descriptionMax)
+			len(entry.Description), registryCap)
 	}
 }
 
