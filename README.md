@@ -36,14 +36,16 @@ value unless you say so, naming each field it is protecting. A refusal
 you cannot act on is a bug.
 
 Every tool below is driven against a real Pipedrive workspace as well as
-against the fakes the tests use — reads, resources, the guard refusals
-and the rehearsal paths, forty-three assertions in all. Three things are
-not, and it is worth knowing which. The write path is verified by a
-single reversible probe rather than per tool, because the alternative is
-writing to a live CRM. No `//go:build integration` files ship yet, so
-that rundown is manual rather than a CI gate. And it has been exercised
-against one workspace, so a custom-field or permission setup unlike that
-one is untested ground.
+against the fakes the tests use — reads, resources, the guard refusals,
+the rehearsal paths, and a reversible write on each resource that has
+one. That rundown is a Go suite rather than a habit now: it lives in
+`internal/integration/` behind `-tags=integration`, and `make
+integration` runs it. Two things still bound it. The write probes need
+a second opt-in on top of the tag, `PIPEDRIVE_INTEGRATION_WRITES=1`, so
+a run without that proves the read half only — writing to a live CRM is
+a decision, not a default. And it has been exercised against one
+workspace, so a custom-field or permission setup unlike that one is
+untested ground.
 
 ## Install
 

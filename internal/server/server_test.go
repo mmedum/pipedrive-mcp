@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mmedum/pipedrive-mcp/internal/config"
 	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
-	"github.com/mmedum/pipedrive-mcp/internal/tools"
 )
 
 func TestNew_ReturnsServer(t *testing.T) {
-	srv := New(context.Background(), "pipedrive-mcp", "test", nil, "", tools.RegisterOptions{})
+	srv := NewForSchemaDump()
 	if srv == nil {
 		t.Fatal("New returned nil server")
 	}
@@ -43,7 +43,7 @@ func TestNew_WarmsAllFieldCaches(t *testing.T) {
 		Token:   "test",
 	})
 
-	srv := New(context.Background(), "pipedrive-mcp", "test", client, "acme", tools.RegisterOptions{})
+	srv := New(context.Background(), "test", client, config.Config{CompanyDomain: "acme"})
 	if srv == nil {
 		t.Fatal("New returned nil server")
 	}
@@ -99,7 +99,7 @@ func TestNew_WarmGoroutineCancelsWithParentContext(t *testing.T) {
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	srv := New(ctx, "pipedrive-mcp", "test", client, "acme", tools.RegisterOptions{})
+	srv := New(ctx, "test", client, config.Config{CompanyDomain: "acme"})
 	if srv == nil {
 		t.Fatal("New returned nil server")
 	}

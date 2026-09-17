@@ -69,7 +69,7 @@ jobs:
           # statement coverage = sum(numStatements where count > 0) /
           # sum(numStatements). Matches what `go test` prints.
           fail=0
-          for pkg in internal/pipedrive internal/tools internal/credentials; do
+          for pkg in internal/pipedrive internal/tools internal/credentials internal/app; do
             total=$(awk -v p="$pkg" 'NR > 1 && index($1, p) { s += $2 } END { print s+0 }' cov.out)
             if [ "$total" = "0" ]; then
               echo "$pkg not present yet — skipped"

@@ -188,6 +188,22 @@ announces itself, so an LLM client never sees a half-initialized server.
   Applies to each retry attempt independently. Total wall-clock time for
   a single tool call is roughly `timeout * (1 + retries) + backoff`.
 
+### `PIPEDRIVE_INTEGRATION_WRITES`
+
+- **Required**: no, and the server never reads it.
+- **Read by**: the integration test suite only
+  (`internal/integration/`, `//go:build integration`). It wears the
+  `PIPEDRIVE_` prefix because it decides what happens to a Pipedrive
+  workspace, and it is listed here so nobody has to discover that from
+  the source.
+- **Effect**: `=1` lets the suite's reversible write probes run against
+  the live workspace. Without it they skip. Setting it in an MCP
+  client's environment does nothing.
+- **Interaction**: `PIPEDRIVE_DRY_RUN` wins. The suite honours the
+  dry-run floor the way the server does, so under it the write probes
+  skip whatever this is set to. See
+  [`development.md`](development.md#integration-suite).
+
 ## Examples
 
 ### Minimal

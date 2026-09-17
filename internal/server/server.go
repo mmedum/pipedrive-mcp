@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/mmedum/pipedrive-mcp/internal/config"
 	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
 	"github.com/mmedum/pipedrive-mcp/internal/tools"
 )
@@ -40,20 +41,40 @@ Resources pipedrive://deals/{id}, and the same for persons, organizations, activ
 
 Everything here is Pipedrive v2 except notes, which v2 does not expose at all; those come from v1 and behave the same way, except that deleting one is soft — it clears active_flag, and nothing here sets it back. Custom fields are readable everywhere and not yet writable. Products, leads, files, projects and goals are not here.`
 
-// New constructs an MCP server with every tool package wired up. The
-// client may be nil (used by the --dump-schemas path, where tool
-// handlers never execute — only their schemas are dumped). domain is
-// used for URL injection in tool outputs.
+// Name is the server's MCP implementation name, and the binary's.
+const Name = "pipedrive-mcp"
+
+// New constructs an MCP server with every tool package wired up.
 //
-// opts.DryRun mirrors PIPEDRIVE_DRY_RUN and is a server-wide dry-run
-// floor every write tool honours — see the RegisterOptions godoc.
+// It takes the whole config.Config rather than a domain and a
+// RegisterOptions, because those two are derived from it and a caller
+// assembling them by hand can make them disagree — which is how the
+// PIPEDRIVE_DRY_RUN floor, a promise docs/security.md makes to an
+// operator, was once dropped for a whole process. cfg.CompanyDomain
+// drives URL injection in tool outputs and cfg.DryRun is the
+// server-wide rehearsal floor; see the RegisterOptions godoc.
 //
 // The parent ctx governs the cache-warm goroutine's lifetime. When
 // it cancels (e.g. SIGTERM), the warm-up's in-flight HTTP requests
 // cancel cleanly instead of running orphaned to completion.
-func New(ctx context.Context, name, version string, client *pipedrive.Client, domain string, opts tools.RegisterOptions) *mcp.Server {
+func New(ctx context.Context, version string, client *pipedrive.Client, cfg config.Config) *mcp.Server {
+	return newServer(ctx, version, client, cfg.CompanyDomain, tools.RegisterOptions{
+		DryRun: cfg.DryRun,
+	})
+}
+
+// NewForSchemaDump constructs a clientless server purely so
+// --dump-schemas can walk the registry. No handler ever runs, so there
+// is no workspace to name and no dry-run floor to honour — which is
+// why this is a separate constructor rather than New with zero
+// arguments a reader might copy.
+func NewForSchemaDump() *mcp.Server {
+	return newServer(context.Background(), "", nil, "", tools.RegisterOptions{})
+}
+
+func newServer(ctx context.Context, version string, client *pipedrive.Client, domain string, opts tools.RegisterOptions) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{
-		Name:    name,
+		Name:    Name,
 		Version: version,
 	}, &mcp.ServerOptions{Instructions: instructions})
 

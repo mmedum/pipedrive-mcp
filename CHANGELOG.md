@@ -13,6 +13,81 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Added
+
+- An integration suite in `internal/integration/`, every file behind
+  `//go:build integration`. It connects an in-memory MCP client to the
+  server `server.New` builds — the wiring the binary ships, cache warm-up
+  and server instructions included — and points it at a live workspace.
+  What it covers is only what a fake cannot answer: the JSON a real
+  `list_` and a real `get_` each return, custom fields resolving against
+  the workspace's own field definitions rather than fixture names, cursor
+  paging, the guards reading records somebody really filled in, and the
+  error class a real 404 maps to. Every serious defect found while
+  building 0.4.0 was found this way, and none of them was visible to the
+  tests that mock the API.
+
+  Reads, resource reads, guard refusals and dry runs run on the build tag
+  alone, because none of them writes. The reversible write probes need
+  `PIPEDRIVE_INTEGRATION_WRITES=1` as well: the workspace on the other end
+  is a real CRM and Pipedrive has no undo. Each captures the original
+  value, restores it from `t.Cleanup` so a failure mid-test still puts it
+  back, and verifies the restore with a fresh read rather than the write's
+  echo. `make integration` and `make integration-writes` run the two
+  halves; without credentials every test skips with the reason, so the tag
+  is safe to carry in a job that holds no secret.
+
+  The suite goes through `internal/app` (below), so
+  `PIPEDRIVE_HTTP_TIMEOUT` and the `PIPEDRIVE_DRY_RUN` floor mean here what
+  they mean in the binary — under the floor the write probes skip rather
+  than rehearse against assertions that expect a record to have moved.
+  `docs/configuration.md` now lists `PIPEDRIVE_INTEGRATION_WRITES`, which
+  the server never reads, so the one `PIPEDRIVE_`-prefixed variable that
+  decides whether a live CRM is written to is in the env-var reference
+  rather than only in the source.
+
+- `internal/app`, the startup assembly every entry point shares: resolve
+  the workspace domain, load the configuration for it, resolve the API
+  token, build the client, wire the server. It used to live unexported
+  inside `package main`, so nothing but `main` could perform it and every
+  other caller re-derived it — and the first one to try dropped the
+  `PIPEDRIVE_DRY_RUN` floor, which `docs/security.md` promises an operator
+  holds everywhere.
+
+  Two shapes make that recurrence unavailable rather than merely
+  discouraged. `server.New` now takes the whole `config.Config` instead of
+  a `domain string` and a `tools.RegisterOptions`, so there is no
+  zero-options literal for a future entry point to copy, and the workspace
+  a tool labels its output with cannot disagree with the floor it honours;
+  `--dump-schemas` calls `server.NewForSchemaDump`, whose name says no
+  handler runs. And `Settings.Connect` returns a `Runtime` carrying the
+  client beside the settings it was built from, so `Runtime.NewServer`
+  cannot be handed a client for another workspace. The API token is
+  unexported on `Settings` and `LogValue` redacts it, so neither `%+v` nor
+  `slog.Any` can put a keyring token in a log line.
+
+  No behaviour change to the binary: same resolution order, same messages,
+  same exit codes. `config.Load()` is gone — it was a second, env-only
+  domain resolver with no callers, and leaving it there invited exactly
+  the bypass this change exists to remove. `config.DomainEnv` and
+  `config.DefaultHTTPTimeout` replace the literals that had been spelled
+  out in three files.
+
+### Fixed
+
+- `pipedrive-mcp status` now loads the configuration the server loads. It
+  had resolved the domain and the token and stopped, so a typo in
+  `LOG_LEVEL`, `LOG_FORMAT`, `PIPEDRIVE_DRY_RUN` or `PIPEDRIVE_HTTP_TIMEOUT`
+  reported green from the one command whose job is answering "can this
+  start" — and the server then refused to start on it. Its auth probe also
+  honours `PIPEDRIVE_HTTP_TIMEOUT` now instead of a hard-coded 30s.
+
+- The CHANGELOG gate watches `internal/app/`, and the 80% coverage gate
+  covers it. The startup assembly moved out of `cmd/`, which the gate
+  watched, into a package it did not — so the next change to it, including
+  one that dropped the dry-run floor again, would have shipped with no
+  entry and nothing firing.
+
 ## [0.4.0] - 2026-09-17
 
 
