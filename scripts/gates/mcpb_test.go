@@ -1,0 +1,223 @@
+package main
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// Break the manifest every way it breaks and watch each be refused
+// before believing the check. A check nobody has watched fail is a
+// check nobody knows the shape of — doing this in a sibling repository
+// found a packer that verified the entry point and the Linux files and
+// never the win32 override's command, so a typo in the .exe path packed
+// cleanly, installed cleanly, and was caught by nothing.
+//
+// Each case below breaks exactly one thing in a manifest that is
+// otherwise correct, and asserts the sentence that names it.
+
+// repoPath resolves a repository-relative path from wherever the test is
+// running. The gates chdir to the root themselves; a test runs from its
+// own package directory.
+func repoPath(t *testing.T, path string) string {
+	t.Helper()
+	if _, err := os.Stat("../../" + path); err == nil {
+		return "../../" + path
+	}
+	return path
+}
+
+func repoFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(repoPath(t, path))
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return data
+}
+
+// good is the committed manifest, which every case starts from.
+func good(t *testing.T) manifest {
+	t.Helper()
+	var m manifest
+	if err := json.Unmarshal(repoFile(t, manifestPath), &m); err != nil {
+		t.Fatalf("the committed manifest is not valid JSON: %v", err)
+	}
+	return m
+}
+
+func mentions(problems []string, want string) bool {
+	for _, p := range problems {
+		if strings.Contains(p, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestTheCommittedManifestIsValid(t *testing.T) {
+	if problems := validateManifest(good(t), bundleFiles, launcherNames()); len(problems) > 0 {
+		t.Fatalf("the committed manifest does not describe the bundle:\n%s",
+			strings.Join(problems, "\n"))
+	}
+}
+
+func TestTheWaysAManifestBreaks(t *testing.T) {
+	cases := []struct {
+		name   string
+		breaks func(m *manifest)
+		want   string
+	}{
+		{
+			name:   "an entry point nobody stages",
+			breaks: func(m *manifest) { m.Server.EntryPoint = "server/pipedrive-mcp-mac" },
+			want:   "entry_point",
+		},
+		{
+			name: "a platform command nobody stages",
+			breaks: func(m *manifest) {
+				over := m.Server.MCPConfig.PlatformOverrides["win32"]
+				over.Command = "${__dirname}/server/pipedrive-mcp-windows.exe"
+				m.Server.MCPConfig.PlatformOverrides["win32"] = over
+			},
+			want: "platform_overrides.win32.command",
+		},
+		{
+			name: "an env value spending a key nobody declared",
+			breaks: func(m *manifest) {
+				// Composed, not the whole value: a check that only looked
+				// at values that ARE a reference would miss this one, and
+				// the server would start with the text unsubstituted.
+				m.Server.MCPConfig.Env["PIPEDRIVE_COMPANY_DOMAIN"] = "${user_config.workspace}.example"
+			},
+			want: "user_config does not declare",
+		},
+		{
+			name: "an override for a platform the bundle does not claim",
+			breaks: func(m *manifest) {
+				m.Server.MCPConfig.PlatformOverrides["freebsd"] = m.Server.MCPConfig.PlatformOverrides["linux"]
+			},
+			want: "compatibility.platforms does not claim",
+		},
+		{
+			name: "a platform running another platform's binary",
+			breaks: func(m *manifest) {
+				// Deleting the override passes every check above: win32
+				// then runs the default command, which is the macOS
+				// universal binary, and that file really is in the bundle.
+				delete(m.Server.MCPConfig.PlatformOverrides, "win32")
+			},
+			want: `platform "win32" runs`,
+		},
+		{
+			name:   "a $schema that disagrees with the declared version",
+			breaks: func(m *manifest) { m.ManifestVersion = "0.2" },
+			want:   "manifest_version",
+		},
+		{
+			name:   "no $schema at all",
+			breaks: func(m *manifest) { m.Schema = "" },
+			want:   "no $schema",
+		},
+		{
+			name: "the unpinned schema URL",
+			breaks: func(m *manifest) {
+				m.Schema = "https://raw.githubusercontent.com/anthropics/mcpb/main/dist/mcpb-manifest.schema.json"
+			},
+			want: "$schema is",
+		},
+		{
+			name:   "nowhere to report a problem",
+			breaks: func(m *manifest) { m.Support = "  " },
+			want:   "no support URL",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := good(t)
+			c.breaks(&m)
+			problems := validateManifest(m, bundleFiles, launcherNames())
+			if !mentions(problems, c.want) {
+				t.Fatalf("breaking %s was not refused; problems: %v", c.name, problems)
+			}
+		})
+	}
+}
+
+// TestTheLauncherNamesAreThePackers is the way no manifest can see: the
+// names live in a shell script nothing else reads.
+func TestTheLauncherNamesAreThePackers(t *testing.T) {
+	problems := validateManifest(good(t), bundleFiles, []string{"pipedrive-mcp-linux-amd64"})
+	if !mentions(problems, "the launcher runs") {
+		t.Fatalf("a launcher naming a binary nobody stages was not refused; problems: %v", problems)
+	}
+}
+
+// TestTheGeneratedLauncherCoversTheTable is what replaced reading a
+// committed script. The generator is the only thing that can now put a
+// wrong name in the launcher, so this is the check that it cannot.
+func TestTheGeneratedLauncherCoversTheTable(t *testing.T) {
+	script := launcherScript()
+	launched := 0
+	for _, f := range bundleFiles {
+		if !f.launched {
+			continue
+		}
+		launched++
+		if !strings.Contains(script, `exec "$dir/`+filepath.Base(f.path)+`"`) {
+			t.Errorf("the launcher does not dispatch to %s", f.path)
+		}
+		if len(f.uname) == 0 {
+			t.Errorf("%s is launched but names no uname value, so nothing reaches it", f.path)
+		}
+		for _, u := range f.uname {
+			if !strings.Contains(script, u) {
+				t.Errorf("the launcher recognises no machine reporting %s", u)
+			}
+		}
+	}
+	if launched == 0 {
+		t.Fatal("no row is launched; this test is reading nothing")
+	}
+}
+
+// TestTheGeneratedLauncherRefusesToStdout: stdout is the JSON-RPC
+// channel, so the one path that gives up has to write to stderr. A line
+// of English on stdout corrupts the session before the client's first
+// request completes, and the client reports a protocol error rather
+// than this.
+func TestTheGeneratedLauncherRefusesToStdout(t *testing.T) {
+	script := launcherScript()
+	if !strings.Contains(script, ">&2") {
+		t.Error("the launcher's refusal does not go to stderr")
+	}
+	if !strings.Contains(script, "exit 1") {
+		t.Error("the launcher does not exit non-zero when it finds no binary")
+	}
+	for _, line := range strings.Split(script, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "echo ") && !strings.Contains(trimmed, ">&2") {
+			t.Errorf("this line writes to stdout: %s", trimmed)
+		}
+	}
+}
+
+func TestTheCommittedManifestCarriesThePlaceholder(t *testing.T) {
+	if v := good(t).Version; v != placeholderVersion {
+		t.Fatalf("the committed manifest says version %q; it must say %q", v, placeholderVersion)
+	}
+}
+
+// TestTheManifestSaysWhereTheTokenComesFrom pins the deliberate
+// difference from the Google servers. Theirs cannot log anybody in and
+// say so; this one can be configured entirely from the install dialog,
+// so what a user needs is where the token comes from. Copying their
+// sentence across would have been a false statement passing a check.
+func TestTheManifestSaysWhereTheTokenComesFrom(t *testing.T) {
+	if !strings.Contains(strings.ToLower(good(t).LongDescription), "api token") {
+		t.Fatal("long_description does not tell the user they need a Pipedrive API token")
+	}
+}

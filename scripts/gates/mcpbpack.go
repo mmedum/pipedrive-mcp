@@ -40,7 +40,7 @@ func packMCPB(dist, version, out string) error {
 	if err != nil {
 		return err
 	}
-	return writeBundle(out, stamped, sources)
+	return writeBundle(out, stamped, sources, generatedFiles())
 }
 
 // stampedManifest checks the committed manifest and returns it with the
@@ -85,6 +85,9 @@ func stampedManifest(version string) ([]byte, error) {
 func stagedSources(dist string) (map[string]string, error) {
 	sources := map[string]string{}
 	for _, f := range bundleFiles {
+		if f.generated {
+			continue // written from the table, not copied from disk
+		}
 		path, err := sourceFor(dist, f)
 		if err != nil {
 			return nil, err
@@ -94,9 +97,21 @@ func stagedSources(dist string) (map[string]string, error) {
 	return sources, nil
 }
 
+// generatedFiles is what the packer writes rather than copies. Keyed the
+// same way as stagedSources, so writeBundle treats the two alike.
+func generatedFiles() map[string][]byte {
+	out := map[string][]byte{}
+	for _, f := range bundleFiles {
+		if f.generated {
+			out[f.path] = []byte(launcherScript())
+		}
+	}
+	return out
+}
+
 // writeBundle writes the deflate zip: the manifest at the root and the
 // binaries under server/.
-func writeBundle(out string, stamped []byte, sources map[string]string) error {
+func writeBundle(out string, stamped []byte, sources map[string]string, generated map[string][]byte) error {
 	if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
 		return err
 	}
@@ -115,8 +130,19 @@ func writeBundle(out string, stamped []byte, sources map[string]string) error {
 	for p := range sources {
 		paths = append(paths, p)
 	}
+	for p := range generated {
+		paths = append(paths, p)
+	}
 	sort.Strings(paths)
 	for _, p := range paths {
+		if body, ok := generated[p]; ok {
+			// 0755: the launcher is the Linux entry point, and a
+			// bundle that installs it unrunnable fails at first use.
+			if err := addEntry(zw, p, body, 0o755); err != nil {
+				return err
+			}
+			continue
+		}
 		// 0755 on every staged binary. The packer forces the execute bit
 		// on the entry point alone and copies the filesystem mode for the
 		// rest, so the Windows binary arrives unrunnable unless it is
@@ -132,7 +158,7 @@ func writeBundle(out string, stamped []byte, sources map[string]string) error {
 	if err := zw.Close(); err != nil {
 		return err
 	}
-	fmt.Printf("  %s: %d files, version stamped\n", out, len(sources)+1)
+	fmt.Printf("  %s: %d files, version stamped\n", out, len(sources)+len(generated)+1)
 	return nil
 }
 

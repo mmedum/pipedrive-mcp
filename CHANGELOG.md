@@ -13,6 +13,60 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Changed
+
+- The bundle manifest is brought to the shape four of the seven sibling
+  MCP servers already used, and the gate now enforces it. `manifest_version`
+  goes 0.2 → 0.3, `support` is added, and `$schema` is pinned to the
+  versioned `mcpb-manifest-v0.3.schema.json` rather than the `dist/` path
+  that serves whatever is current.
+
+  The pinning is the part that matters. The manifest declared conformance
+  to 0.2 while validating against a URL that by then served 0.3 — a
+  document disagreeing with its own schema, in a repository whose pins
+  gate exists because "latest" drifts. `checkManifestShape` now fails when
+  `$schema` is absent or disagrees with the declared `manifest_version`,
+  and when `support` is missing. Nothing read either field before, which
+  is why three of the seven drifted onto 0.2 and nobody found out.
+
+- The Linux launcher is generated from `bundleFiles` at pack time instead
+  of being committed at `packaging/mcpb/launch-linux.sh`. A committed
+  launcher is a second list of the packer's binary names, and a second
+  list can disagree with the first — so the gate had to read the script
+  back and compare the two. Generating it makes the disagreement
+  unrepresentable rather than detected. The script the packer writes is
+  byte-equivalent to the one deleted.
+
+### Added
+
+- Tests for `scripts/gates/mcpb.go`, `mcpbpack.go` and `mcpregistry.go`,
+  which arrived with none. This was the only one of the seven repositories
+  running all three of those gates and the only one testing any of them,
+  in the repository whose definition of done requires tests for new code.
+  The packer tests pack a real bundle from a fake `dist/` and read the zip
+  back: the version is stamped through a JSON decode and encode, every
+  staged row is present, the generated launcher arrives executable, a
+  `dist/` missing a binary is refused, and the archive is reproducible —
+  which takes two assertions, not one. Comparing two packs catches
+  ordering but cannot catch the clock: zip stores DOS timestamps at
+  two-second granularity, so two packs a millisecond apart are identical
+  whatever `zipTime` says, and that test passes with `time.Now()`
+  substituted. Pinning every entry's timestamp to the expected instant —
+  written out in the test rather than read from `zipTime`, because a
+  test asserting a value equals itself is the shape of the bug — is what
+  fails. `scripts/gates` coverage goes 45.9% → 58.7%.
+
+- `docs/release.md` covers the bundle and the registry. It is the only
+  release runbook among the seven and it described neither, while
+  `release.yml` had gained a job calling `publish-mcp.yml`. It now names
+  the bundle and the registry entry in the post-release checks, and adds
+  the three steps that only ever run on a real tag — cosign, the
+  provenance attestation and the registry publish — with the recovery for
+  each, which differ: cosign failing means no release at all, attestation
+  failing means a published release that is unattested, and the registry
+  failing means a fine release with no entry, recoverable by dispatching
+  `publish-mcp.yml` against the tag that already shipped.
+
 ### Added
 
 - A **Claude Desktop bundle** (`.mcpb`) on every release, and the MCP
