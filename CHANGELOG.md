@@ -15,6 +15,38 @@ breaking changes require a MAJOR bump.
 
 ### Added
 
+- A **Claude Desktop bundle** (`.mcpb`) on every release, and the MCP
+  registry entry that points at it. This server shipped archives and
+  nothing else, so installing it meant hand-editing a config file and it
+  could not appear in the registry at all — the registry's `mcpb`
+  package type needs a bundle.
+
+  The bundle carries a macOS universal binary, a Windows one, both Linux
+  architectures and a launcher that picks between them from `uname -m`
+  and **execs** it — not a call, because the server talks MCP over that
+  process's stdio and a shell left in the middle would own the pipes. On
+  an unknown architecture it writes to stderr, never stdout.
+
+  The API token is a `sensitive` user_config field, so Claude Desktop
+  stores it as a secret and prompts for it on install. Unlike the OAuth
+  servers in this family, this bundle CAN be fully configured from the
+  install dialog — so its manifest is held to naming where the token
+  comes from rather than to saying it cannot log you in.
+
+- `make mcpb`, which holds the manifest against the bundle the packer
+  stages: every path a file going in, every `${user_config.x}` declared,
+  every claimed platform spawning the file staged FOR it, and the Linux
+  launcher choosing between the packer's own names. A schema catches none
+  of those — each produces a bundle that installs and then does nothing.
+
+- `gates registry-publish`, building the entry from the release's own
+  `SHA256SUMS`, so the hash describes the bytes that were published. Its
+  own workflow with `id-token: write` and `contents: read` and nothing
+  else, and `mcp-publisher` verified with cosign before it is unpacked.
+  A prerelease tag skips it: an entry cannot be taken back.
+
+### Added
+
 - An integration suite in `internal/integration/`, every file behind
   `//go:build integration`. It connects an in-memory MCP client to the
   server `server.New` builds — the wiring the binary ships, cache warm-up
