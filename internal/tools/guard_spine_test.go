@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/mmedum/pipedrive-mcp/internal/server/testutil"
 )
 
 // guardedWrite owns the read-guard-write ordering for every manage_*
@@ -181,10 +183,5 @@ func TestGuardedWrite_UpstreamErrorsStopTheSequence(t *testing.T) {
 
 // contentOf pulls the text out of a tool-execution error result.
 func contentOf(res *mcp.CallToolResult) string {
-	for _, c := range res.Content {
-		if tc, ok := c.(*mcp.TextContent); ok {
-			return tc.Text
-		}
-	}
-	return ""
+	return testutil.TextContent(res)
 }
