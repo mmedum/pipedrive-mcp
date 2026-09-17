@@ -90,6 +90,16 @@ The release workflow runs automatically. Watch it at
 
       gh attestation verify pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz \
         --owner mmedum
+- [ ] The Claude Desktop bundle, `pipedrive-mcp_X.Y.Z.mcpb`, is on the
+      release page and has a row in `SHA256SUMS`. The bundle is not an
+      archive goreleaser built — a hook drops it into `dist/` and
+      `checksum.extra_files` names it — so it is the one artefact that
+      can go missing without anything else looking wrong.
+- [ ] The registry entry published. The `registry` job runs after
+      `archives` and is skipped for prereleases on purpose, because an
+      entry cannot be withdrawn. Check the job, not the release page:
+      a green release with no entry looks identical to one with an
+      entry.
 - [ ] Re-run `make smoke` against the just-released binary
       (download → smoke), not the dev binary.
 - [ ] In the next PR, open `CHANGELOG.md` and add a fresh
@@ -112,6 +122,40 @@ The release workflow runs automatically. Watch it at
   `[Unreleased]`. Fix the CHANGELOG on `main`, redo the tag.
 - **Cosign signing failure**: usually a transient Fulcio CA blip;
   re-running the workflow on the same tag works.
+
+### The three steps that only ever run on a real tag
+
+Cosign signing, the build-provenance attestation and the registry
+publish each need an OIDC token that only a workflow run has. So
+`goreleaser check`, `actionlint` and a snapshot build all pass while any
+of the three is wrong, and the first tag is where you find out. Read
+that run rather than watching it go green.
+
+They fail differently, and the difference is what you do next:
+
+| Fails | State afterwards | Recovery |
+| --- | --- | --- |
+| cosign | **No release.** Signing precedes publishing. | Fix, delete the tag, re-tag. |
+| attestation | Release published, unattested. | Re-run the failed job on the same tag. |
+| registry publish | Release fine, no entry. | Dispatch `publish-mcp.yml` against the existing tag. |
+
+The registry publish is its own workflow precisely so the third row is
+possible: re-running `release.yml` would re-run goreleaser against a
+release that already exists, and an entry for a tag that shipped weeks
+ago could not be published at all.
+
+```sh
+gh workflow run publish-mcp.yml --ref main -f tag=vX.Y.Z
+```
+
+It reads the PUBLISHED release's `SHA256SUMS`, so the hash in the entry
+is the number cosign signed rather than one from a local build.
+
+**Exit 0 on empty output is not evidence.** `gh attestation verify` and
+`cosign verify-blob` both say little when they succeed, and a command
+that verified nothing at all also says little. Check one of them against
+a deliberately corrupted copy of the artefact and confirm it exits
+non-zero before believing the run that passed.
 - **Trivy CVE introduced by base-image bump** (in CI on PRs): either
   fix the underlying issue or add a grace-period entry under
   `security/known-cves.yaml` per `docs/security.md`.
