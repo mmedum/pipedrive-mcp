@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
-project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+project adheres to [Semantic Versioning 2.0](https://semver.org/spec/v2.0.0.html).
 
 The public versioning contract is the MCP tool surface — tool names, input
 schemas, output schemas, and documented behavior. Internal package layout,
@@ -89,6 +89,125 @@ breaking changes require a MAJOR bump.
   entry and nothing firing.
 
 ## [0.4.0] - 2026-09-17
+
+
+### Changed
+
+- The bundle manifest is brought to the shape four of the seven sibling
+  MCP servers already used, and the gate now enforces it. `manifest_version`
+  goes 0.2 → 0.3, `support` is added, and `$schema` is pinned to the
+  versioned `mcpb-manifest-v0.3.schema.json` rather than the `dist/` path
+  that serves whatever is current.
+
+  The pinning is the part that matters. The manifest declared conformance
+  to 0.2 while validating against a URL that by then served 0.3 — a
+  document disagreeing with its own schema, in a repository whose pins
+  gate exists because "latest" drifts. `checkManifestShape` now fails when
+  `$schema` is absent or disagrees with the declared `manifest_version`,
+  and when `support` is missing. Nothing read either field before, which
+  is why three of the seven drifted onto 0.2 and nobody found out.
+
+  Two further pins on the same thought. The schema ref is the tag
+  `v2.1.2` rather than `main`: the version in the PATH pins the format,
+  the ref pins the BYTES, and `main` can change under a path that still
+  reads as pinned — the two are byte-identical today, which is the
+  argument for the tag rather than against it, because nothing would
+  show that changing. And `manifest_version` has a floor, because a
+  check that only asks whether the document agrees with its own schema
+  is satisfied by a stale-but-self-consistent 0.2, which is precisely
+  what three repositories were shipping. 0.3 rather than 0.4 on purpose:
+  upstream serves 0.2, 0.3 and 0.4, and 0.4 differs from 0.3 only by a
+  `uv` value in the `server.type` enum, which a `binary` server cannot
+  use.
+
+- The Linux launcher is generated from `bundleFiles` at pack time instead
+  of being committed at `packaging/mcpb/launch-linux.sh`. A committed
+  launcher is a second list of the packer's binary names, and a second
+  list can disagree with the first — so the gate had to read the script
+  back and compare the two. Generating it makes the disagreement
+  unrepresentable rather than detected. The script the packer writes is
+  byte-equivalent to the one deleted.
+
+### Added
+
+- Tests for `scripts/gates/mcpb.go`, `mcpbpack.go` and `mcpregistry.go`,
+  which arrived with none. This was the only one of the seven repositories
+  running all three of those gates and the only one testing any of them,
+  in the repository whose definition of done requires tests for new code.
+  The packer tests pack a real bundle from a fake `dist/` and read the zip
+  back: the version is stamped through a JSON decode and encode, every
+  staged row is present, the generated launcher arrives executable, a
+  `dist/` missing a binary is refused, and the archive is reproducible —
+  which takes two assertions, not one. Comparing two packs catches
+  ordering but cannot catch the clock: zip stores DOS timestamps at
+  two-second granularity, so two packs a millisecond apart are identical
+  whatever `zipTime` says, and that test passes with `time.Now()`
+  substituted. Pinning every entry's timestamp to the expected instant —
+  written out in the test rather than read from `zipTime`, because a
+  test asserting a value equals itself is the shape of the bug — is what
+  fails. `scripts/gates` coverage goes 45.9% → 58.7%.
+
+- `docs/release.md` covers the bundle and the registry. It is the only
+  release runbook among the seven and it described neither, while
+  `release.yml` had gained a job calling `publish-mcp.yml`. It now names
+  the bundle and the registry entry in the post-release checks, and adds
+  the three steps that only ever run on a real tag — cosign, the
+  provenance attestation and the registry publish — with the recovery for
+  each, which differ: cosign failing means no release at all, attestation
+  failing means a published release that is unattested, and the registry
+  failing means a fine release with no entry, recoverable by dispatching
+  `publish-mcp.yml` against the tag that already shipped.
+
+### Added
+
+- A **Claude Desktop bundle** (`.mcpb`) on every release, and the MCP
+  registry entry that points at it. This server shipped archives and
+  nothing else, so installing it meant hand-editing a config file and it
+  could not appear in the registry at all — the registry's `mcpb`
+  package type needs a bundle.
+
+  The bundle carries a macOS universal binary, a Windows one, both Linux
+  architectures and a launcher that picks between them from `uname -m`
+  and **execs** it — not a call, because the server talks MCP over that
+  process's stdio and a shell left in the middle would own the pipes. On
+  an unknown architecture it writes to stderr, never stdout.
+
+  The API token is a `sensitive` user_config field, so Claude Desktop
+  stores it as a secret and prompts for it on install. Unlike the OAuth
+  servers in this family, this bundle CAN be fully configured from the
+  install dialog — so its manifest is held to naming where the token
+  comes from rather than to saying it cannot log you in.
+
+- `make mcpb`, which holds the manifest against the bundle the packer
+  stages: every path a file going in, every `${user_config.x}` declared,
+  every claimed platform spawning the file staged FOR it, and the Linux
+  launcher choosing between the packer's own names. A schema catches none
+  of those — each produces a bundle that installs and then does nothing.
+
+- `gates registry-publish`, building the entry from the release's own
+  `SHA256SUMS`, so the hash describes the bytes that were published. Its
+  own workflow with `id-token: write` and `contents: read` and nothing
+  else, and `mcp-publisher` verified with cosign before it is unpacked.
+  A prerelease tag skips it: an entry cannot be taken back.
+
+### Fixed
+
+- The CHANGELOG and schema-diff CI gates measure against the base branch
+  as it is now, rather than against `github.event.pull_request.base.sha`.
+  That value is a snapshot taken when the event fired and does not follow
+  the base branch afterwards, so in a stack of pull requests — the normal
+  case here, not an edge one — merging the PR underneath leaves the one
+  above comparing a diff that contains its own dependency. The changelog
+  gate reads that as "no new lines under [Unreleased]" and the schema gate
+  reads it as a breaking tool-surface change, both on branches where
+  neither is true.
+
+  Reopening a PR does not refresh it; only a push to the head branch does,
+  and a push is the one thing that cannot be done here without displacing
+  the `BREAKING CHANGE:` footer the schema gate greps for on the head
+  commit. Both gates now take the merge-base of the current base branch
+  and the head, via `.github/merge-base.sh`, which is what they both meant
+  by "what this PR adds" all along.
 
 ### Added
 
