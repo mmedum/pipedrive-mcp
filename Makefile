@@ -29,8 +29,9 @@ fmt: ## Verify gofmt cleanliness (no stdout = pass)
 	@out=$$(gofmt -l .); if [ -n "$$out" ]; then echo "gofmt issues:"; echo "$$out"; exit 1; fi
 
 .PHONY: vet
-vet: ## go vet ./...
+vet: ## go vet ./... (twice: the integration suite is behind a build tag)
 	$(GO) vet ./...
+	$(GO) vet -tags=integration ./...
 
 .PHONY: lint
 lint: ## golangci-lint run
@@ -43,6 +44,14 @@ test: ## go test -race -coverprofile cov.out ./...
 .PHONY: coverage
 coverage: test ## Open coverage report in browser
 	$(GO) tool cover -html=cov.out
+
+.PHONY: integration
+integration: ## Drive the live workspace: reads, resources, guards, dry runs
+	$(GO) test -tags=integration -race -count=1 ./internal/integration/
+
+.PHONY: integration-writes
+integration-writes: ## The above plus the reversible write probes — this MUTATES the workspace
+	PIPEDRIVE_INTEGRATION_WRITES=1 $(MAKE) integration
 
 .PHONY: install-tools
 install-tools: ## Install go-installed tools (govulncheck, go-licenses, golangci-lint) at pinned versions

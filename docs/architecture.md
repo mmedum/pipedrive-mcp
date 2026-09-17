@@ -34,6 +34,7 @@ schedulers.
 pipedrive-mcp/
 ├── cmd/pipedrive-mcp/         # entrypoint: subcommand dispatch (login/logout/status), flag parsing, wiring
 ├── internal/
+│   ├── app/                   # startup assembly: domain -> config -> token -> client -> server
 │   ├── config/                # env loading + validation; LoadFor accepts a domain from any source
 │   ├── credentials/           # OS keyring storage + PIPEDRIVE_API_TOKEN env fallback
 │   ├── userconfig/            # ~/.config/pipedrive-mcp/config.json (default-domain pointer; non-secret)
@@ -55,6 +56,7 @@ pipedrive-mcp/
 │   │   ├── stages.go          # /stages
 │   │   ├── activities.go      # /activities
 │   │   └── notes.go           # /api/v1/notes (carve-out — see CLAUDE.md hard rule #1)
+│   ├── integration/           # live end-to-end suite (//go:build integration)
 │   ├── server/                # MCP SDK wiring + cache warm-up fan-out
 │   │   ├── server.go
 │   │   └── testutil/          # in-memory MCP transport for tool-handler tests
@@ -75,6 +77,27 @@ pipedrive-mcp/
 └── scripts/                   # CI helper scripts
 ```
 
+`internal/app` exists because that assembly used to live unexported
+inside `package main`, so nothing else could perform it and every other
+caller re-derived it. The integration suite re-derived it and dropped
+the `PIPEDRIVE_DRY_RUN` floor on the way, which `docs/security.md`
+promises an operator holds everywhere.
+
+Two shapes keep that from recurring rather than merely discouraging it.
+`server.New` takes the whole `config.Config` instead of a `domain
+string` and a `tools.RegisterOptions`, so there is no zero-options
+literal for the next entry point to copy and no way for the workspace a
+tool labels its output with to disagree with the floor it honours;
+`--dump-schemas` calls `server.NewForSchemaDump`, whose name says no
+handler runs. And `Settings.Connect` returns a `Runtime` that carries
+the client beside the settings it came from, so `Runtime.NewServer`
+cannot be handed a client for a different workspace.
+
+Nothing in the package logs, exits or touches the network: `main` exits
+on a missing token and the integration suite skips, and both decide that
+for themselves. The token is unexported on `Settings` and `LogValue`
+redacts it, so neither `%+v` nor `slog.Any` can put it in a log line.
+
 The `internal/pipedrive` ↔ `internal/tools` split is deliberate: the HTTP
 client is testable and reusable independently of the MCP transport, and
 tool packages contain only the schema definitions, validation, and a thin
@@ -83,10 +106,12 @@ adapter that calls the client. Per-type rendering decisions (e.g. deal
 
 ## Request lifecycle
 
-1. `cmd/pipedrive-mcp/main.go` resolves the workspace domain (env >
-   userconfig > error), loads config, builds the Pipedrive client,
-   runs the auth probe (`GET /api/v2/dealFields?limit=1`), constructs
-   the MCP server, and starts the stdio transport.
+1. `internal/app` resolves the workspace domain (env > userconfig >
+   error), loads config for it, resolves the token, and pairs a
+   Pipedrive client with the settings it was built from.
+   `cmd/pipedrive-mcp/main.go` then runs the auth probe
+   (`GET /api/v2/dealFields?limit=1`), asks that pair for the MCP
+   server, and starts the stdio transport.
 2. `internal/server/server.go` registers every tool package and kicks
    off a single goroutine that warms the deal/person/org field caches
    in parallel, off the critical path.
@@ -339,7 +364,7 @@ table above says what actually happened rather than what was planned.
 
 | Tag | Phase | What it needs |
 | --- | --- | --- |
-| `v0.5.0` | Phase 3.5 | Custom-field **writes** (they are readable everywhere and writable nowhere), and an integration suite — no `//go:build integration` files ship yet, so the sandbox gate is still a manual rundown. |
+| `v0.5.0` | Phase 3.5 | Custom-field **writes** — they are readable everywhere and writable nowhere. The integration suite this phase also wanted has landed; see below. |
 | `v0.9.0` → `v1.0.0-rc.N` | Phase 4 | An eval suite (a release gate from Phase 4 onwards, and it does not exist yet), polish, and validation against a second workspace. |
 | `v1.0.0` | Phase 5 | A stable surface and a supported-version table. |
 
@@ -358,15 +383,16 @@ input, and — per the invariant in `fieldtable_test.go` — the field tables,
 since a field a write can set must be tabled or it is written unguarded
 and unreported.
 
-**2. An integration suite.** No `//go:build integration` files ship, so
-the sandbox gate is satisfied by probes that live in a scratchpad and run
-when somebody remembers. This is the highest-value item on the list and
+**2. An integration suite.** *Landed* — `internal/integration/`, behind
+`//go:build integration`, run with `make integration` and
+`make integration-writes`. It was the highest-value item on the list and
 the ordering above understates it: **every serious defect found during
 the 0.4.0 work was found by driving the live API, and not one of them was
 visible to the unit tests**, which assert against fakes. Three guard bugs,
 a wire-format error, and Pipedrive's derived-`name` behaviour all came
-from real calls. Promoting the two write probes to real tests is what
-makes that repeatable instead of lucky.
+from real calls. The scratchpad probes that found them are tests now, so
+the coverage is repeatable rather than lucky. `docs/development.md` has
+the safety contract the write probes keep.
 
 **3. A second workspace.** Everything so far ran against one. Custom-field
 configurations, pipeline shapes and permission levels vary, and the 403

@@ -2,6 +2,12 @@ version: "2"
 
 run:
   timeout: 5m
+  # Lint the integration suite too. Nothing else compiles it — `go
+  # build ./...` and `go vet ./...` both skip files behind a tag — so
+  # without this the one package that talks to the real API is the one
+  # package no gate type-checks.
+  build-tags:
+    - integration
 
 linters:
   default: none
