@@ -25,7 +25,7 @@ import (
 // SDKVersion is recorded in the schema dump header so a diff caused by an
 // SDK upgrade can be classified as PATCH rather than as a breaking
 // surface change. Update in lockstep with the go.mod pin.
-const SDKVersion = "v1.5.0"
+const SDKVersion = "v1.6.0"
 
 // Registry tracks every tool added via Register/Add for the schema dump.
 // Tests construct a fresh Registry; the process-wide registration uses

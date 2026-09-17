@@ -1,65 +1,77 @@
 # pipedrive-mcp
 
-[![CI](https://github.com/mmedum/pipedrive-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/mmedum/pipedrive-mcp/actions/workflows/ci.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![CI](https://github.com/mmedum/pipedrive-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mmedum/pipedrive-mcp/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/mmedum/pipedrive-mcp?sort=semver)](https://github.com/mmedum/pipedrive-mcp/releases/latest)
+[![Go Reference](https://pkg.go.dev/badge/github.com/mmedum/pipedrive-mcp.svg)](https://pkg.go.dev/github.com/mmedum/pipedrive-mcp)
+[![License: Apache 2.0](https://img.shields.io/github/license/mmedum/pipedrive-mcp)](./LICENSE)
 
-Pipedrive CRM as MCP tools. Read deals, people, organisations and activities, and write notes.
+Pipedrive CRM as MCP tools. Find deals, people and companies, write to them, and move deals through a pipeline.
 
-A single static Go binary that speaks [MCP](https://modelcontextprotocol.io)
-over stdio to Claude Code, Claude Desktop or any other MCP client, against
-your own Pipedrive API token. Signed releases and a semver-disciplined
-tool surface.
+A single Go binary that speaks [Model Context Protocol](https://modelcontextprotocol.io)
+over stdio. It runs as a subprocess of your client, on your own machine,
+against one Pipedrive workspace: search by name and get back the ids
+everything else needs, read deals, people, organisations, activities and
+notes with their custom fields under the names your workspace gives them,
+create and edit any of them, and move a deal through its pipeline — won,
+lost, reopened, or into another stage.
 
-> **Status: Phase 1 shipped.** Fifteen
-> tools are registered by default: eleven v2 reads (`list_pipelines`,
-> `list_stages`, `get_deal`, `list_deals`, `get_person`,
-> `list_persons`, `get_organization`, `list_organizations`,
-> `get_activity`, `list_activities`, `search` — the natural-language
-> gateway), two v1 reads on the notes carve-out (`get_note`,
-> `list_notes`), one v1 write (`create_note`, honours
-> `PIPEDRIVE_DRY_RUN` for rehearsal mode), and one operator tool
-> (`refresh_field_cache`). When the server is started with
-> `PIPEDRIVE_ENABLE_DESTRUCTIVE=true` an additional destructive tool
-> (`delete_note`) is registered. See `CHANGELOG.md` for what's
-> landed; Phase 2 (write tools) is the next milestone.
 ## Why pipedrive-mcp
 
 Pipedrive's own API is two APIs: a v2 that is current and a v1 that
-sunsets on 2026-07-31. This server commits to v2, and carves out only the
-endpoints that exist nowhere else — notes — on v1, so nothing here stops
-working on that date by surprise.
+sunsets on 2026-07-31. This server commits to v2 and carves out only what
+exists nowhere else — notes, and the `whoami` lookup — so nothing here
+stops working on that date by surprise. Both carve-outs are documented at
+their call sites and in [CHANGELOG.md](CHANGELOG.md), because a v1
+dependency nobody wrote down is one nobody migrates.
 
-It runs as a single static binary over stdio, against your own API token.
-No remote transport and no OAuth, which makes what it can reach auditable
-in one sitting.
+Its tool surface follows the shipped Google Workspace MCP servers rather
+than a house style of its own: reads stay discrete, every mutation goes
+through one `manage_` tool with an `action`, and writes explain their
+refusals. Those are the servers a model has most likely already seen, so
+matching them is what makes this one legible without being explained.
 
+**Writing is guarded because Pipedrive has no undo.** Every write reads
+its target first and refuses to replace a field that already holds a
+value unless you say so, naming each field it is protecting. A refusal
+you cannot act on is a bug.
 
-- **No destructive tools by default.** Deletes are gated behind
-  `PIPEDRIVE_ENABLE_DESTRUCTIVE`. A server-wide `PIPEDRIVE_DRY_RUN` makes
-  every write a rehearsal that returns "would have done X" without firing
-  the request.
-- **Tiny static binary** (`CGO_ENABLED=0`, `-trimpath`, `-s -w`).
-- **Reproducible builds** (verified in CI). Releases are signed via
-  [cosign](https://github.com/sigstore/cosign) keyless OIDC and ship with
-  a CycloneDX SBOM.
+Every tool below is driven against a real Pipedrive workspace as well as
+against the fakes the tests use — reads, resources, the guard refusals
+and the rehearsal paths, forty-three assertions in all. Three things are
+not, and it is worth knowing which. The write path is verified by a
+single reversible probe rather than per tool, because the alternative is
+writing to a live CRM. No `//go:build integration` files ship yet, so
+that rundown is manual rather than a CI gate. And it has been exercised
+against one workspace, so a custom-field or permission setup unlike that
+one is untested ground.
 
 ## Install
 
-### From a release binary
+```
+go install github.com/mmedum/pipedrive-mcp/cmd/pipedrive-mcp@latest
+```
 
-Download the latest release binary for your platform from the
-[Releases page](https://github.com/mmedum/pipedrive-mcp/releases). Verify
-the signature (recommended):
+That puts the binary in Go's bin directory, which is often not on your
+`PATH`. If the next command says `command not found`, either use the full
+path or add the directory once:
 
-```sh
-# Replace X.Y.Z with the release version. Note: no `v` prefix in the
-# archive filename — goreleaser strips it.
+```
+"$(go env GOPATH)/bin/pipedrive-mcp" --version    # check it landed
+export PATH="$(go env GOPATH)/bin:$PATH"          # or add it to your shell profile
+```
+
+Or take a signed archive from the
+[latest release](https://github.com/mmedum/pipedrive-mcp/releases/latest)
+— Linux, macOS and Windows, on amd64 and arm64 — and put the binary on
+your `PATH`. Nothing about a release has to be taken on trust:
+
+```bash
+# --ignore-missing, because SHA256SUMS covers every archive and every
+# SBOM, and you will have downloaded one of them.
 sha256sum -c SHA256SUMS --ignore-missing
 
-# SHA256SUMS is signed with a keyless Sigstore certificate tied to the
-# release workflow's identity. The bundle carries the signature and the
-# certificate together, and the checksum file covers every archive and
-# every SBOM.
+# One signature over the checksum file, keyless, tied to the release
+# workflow's own identity.
 cosign verify-blob SHA256SUMS \
   --bundle SHA256SUMS.bundle \
   --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.*' \
@@ -67,17 +79,6 @@ cosign verify-blob SHA256SUMS \
 
 # And the archive itself carries build provenance.
 gh attestation verify pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz --owner mmedum
-
-tar -xzf pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz
-sudo mv pipedrive-mcp /usr/local/bin/pipedrive-mcp
-```
-
-### From source
-
-Requires Go 1.26.2.
-
-```sh
-go install github.com/mmedum/pipedrive-mcp/cmd/pipedrive-mcp@latest
 ```
 
 ## Set up Pipedrive
@@ -85,7 +86,7 @@ go install github.com/mmedum/pipedrive-mcp/cmd/pipedrive-mcp@latest
 The server stores your API token in the **OS keyring** (libsecret on
 Linux, Keychain on macOS, Credential Manager on Windows) rather than
 asking you to paste it into a JSON config. Full reference and
-validation rules: [`docs/configuration.md`](docs/configuration.md).
+validation rules: [docs/configuration.md](docs/configuration.md).
 
 ```sh
 pipedrive-mcp login
@@ -110,15 +111,6 @@ env wins over the userconfig pointer. For CI, automation, or one-off
 use of a different token, set `PIPEDRIVE_API_TOKEN`. Env takes
 precedence over the keyring, matching the `gh` and `aws` CLIs.
 
-| Env var | Required | Default | Purpose |
-| --- | --- | --- | --- |
-| `PIPEDRIVE_COMPANY_DOMAIN` | only without `login` | — | Subdomain (e.g. `acme` for `acme.pipedrive.com`). After `pipedrive-mcp login`, recorded in user config and no longer required in env. |
-| `PIPEDRIVE_API_TOKEN` | no | — | CI/automation fallback. Prefer `pipedrive-mcp login` for interactive use. |
-| `LOG_LEVEL` | no | `info` | `debug` / `info` / `warn` / `error`. |
-| `LOG_FORMAT` | no | `text` | `text` / `json`. |
-| `PIPEDRIVE_ENABLE_DESTRUCTIVE` | no | `false` | When `true`, registers the destructive tools. |
-| `PIPEDRIVE_DRY_RUN` | no | `false` | When `true`, every write becomes a rehearsal. |
-| `PIPEDRIVE_HTTP_TIMEOUT` | no | `30s` | Per-request outbound HTTP timeout. |
 
 ## Connect a client
 
@@ -142,51 +134,136 @@ To pin a specific workspace (e.g., when you have several stored), add
 `PIPEDRIVE_COMPANY_DOMAIN` under `env` to override the recorded
 default for this MCP server only.
 
+## Configuration
+
+Every setting is a `PIPEDRIVE_*` environment variable. The full list, with
+defaults and validation rules, is in
+[docs/configuration.md](docs/configuration.md). The ones that change what
+the server will do at all:
+
+| Env var | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `PIPEDRIVE_COMPANY_DOMAIN` | only without `login` | — | Subdomain (e.g. `acme` for `acme.pipedrive.com`). After `pipedrive-mcp login`, recorded in user config and no longer required in env. |
+| `PIPEDRIVE_API_TOKEN` | no | — | CI/automation fallback. Prefer `pipedrive-mcp login` for interactive use. |
+| `LOG_LEVEL` | no | `info` | `debug` / `info` / `warn` / `error`. |
+| `LOG_FORMAT` | no | `text` | `text` / `json`. |
+| `PIPEDRIVE_DRY_RUN` | no | `false` | Server-wide dry-run floor: every write becomes a rehearsal. A per-call `dry_run` can only turn one on, never off. |
+| `PIPEDRIVE_HTTP_TIMEOUT` | no | `30s` | Per-request outbound HTTP timeout. |
+
 ## Tools
 
-Run `pipedrive-mcp --dump-schemas | jq '[.tools[].name]'` for the
-authoritative list of tools the binary registers. As of v0.1.0 the
-shipped tools are:
+Twenty tools. Reads stay discrete and every mutation goes through one
+`manage_` tool with an `action`, which is how the Google Workspace MCP
+servers shape theirs.
 
-| Tool | Surface |
-| --- | --- |
-| `search` | Free-text search across deals / persons / organizations / products / files / leads. The natural-language gateway: resolve a name to an id, then drill in. |
-| `list_pipelines` | Every pipeline the API token's user can see. |
-| `list_stages` | Stages, optionally filtered to one pipeline. |
-| `get_deal` | One deal by id, custom fields resolved by name. |
-| `list_deals` | Deals filtered by status / pipeline / stage / owner / person / org / update window, sorted, cursor-paginated. |
-| `create_deal` | Create a new deal. `title` required; everything else has Pipedrive defaults. Honours `PIPEDRIVE_DRY_RUN` for rehearsal mode. Custom fields not writable yet — edit in Pipedrive UI for now. |
-| `get_person` | One person by id, with emails / phones / org link / custom fields. |
-| `list_persons` | Persons filtered by owner / linked organization / update window, cursor-paginated. |
-| `create_person` | Create a new person (contact). `name` required; optional first/last name, emails, phones, org_id, owner_id. Honours `PIPEDRIVE_DRY_RUN`. |
-| `get_organization` | One organization by id, with structured address and custom fields. |
-| `list_organizations` | Organizations filtered by owner / update window, cursor-paginated. |
-| `create_organization` | Create a new organization (account / company). `name` required; optional address (single-line, server-parsed) and owner_id. Honours `PIPEDRIVE_DRY_RUN`. |
-| `get_activity` | One activity (call / email / meeting / task) by id, with location, participants, and conference details. |
-| `list_activities` | Activities filtered by status / owner / deal / person / org / lead / update window, cursor-paginated. |
-| `create_activity` | Create a new activity (call / email / meeting / task / ...). `subject` required; `type` defaults to `task` upstream. Honours `PIPEDRIVE_DRY_RUN`. |
-| `get_note` | One note by id (Pipedrive v1 carve-out — v2 has no /notes endpoint). |
-| `list_notes` | Notes filtered by anchor (deal / person / org / lead), author, date range, or update window. |
-| `create_note` | Attach a new note to a deal / person / org / lead / project. Honours `PIPEDRIVE_DRY_RUN` for rehearsal mode. |
-| `delete_note` | Remove a note by id. Destructive — registered only when `PIPEDRIVE_ENABLE_DESTRUCTIVE=true`. Honours `PIPEDRIVE_DRY_RUN`. |
-| `refresh_field_cache` | Re-fetch deal / person / org custom-field metadata. Operator escape hatch when fields change in the Pipedrive UI without a server restart. |
+**Start with `search`.** It is the natural-language gateway: it turns a
+name into the numeric id every other tool needs. Reaching for `list_deals`
+to find "the Acme deal" is the common mistake — it filters, it does not
+match names.
 
-The categories below outline the planned post-v0.1.0 surface; see
-[`CHANGELOG.md`](CHANGELOG.md) for what has actually shipped.
+| Tool | What it does |
+|---|---|
+| `search` | Free text across deals, people, organisations, products, files and leads — the way to turn a name into an id |
+| `whoami` | Which account the token acts as and which workspace it points at, plus the timezone an activity's due time is written in |
+| `get_deal` | One deal: value, currency, status, stage, the people and company on it, and custom fields under their workspace names |
+| `list_deals` | Deals by status, pipeline, stage, owner, person, organisation or update window, cursor-paginated |
+| `manage_deal` | Create or edit a deal, move it between stages, or close it — `create`, `update`, `move_stage`, `mark_won`, `mark_lost`, `reopen` |
+| `get_person` | One contact: names, every email and phone with its label, the company they belong to, and custom fields |
+| `list_persons` | People by owner, linked organisation or update window, cursor-paginated |
+| `manage_person` | Create or edit a contact — `create`, `update` |
+| `get_organization` | One company: the address Pipedrive parsed, how many people hang off it, and custom fields |
+| `list_organizations` | Companies by owner or update window, cursor-paginated |
+| `manage_organization` | Create or edit a company — `create`, `update` |
+| `get_activity` | One call, email, meeting or task, with its location, participants and conference details |
+| `list_activities` | Activities by status, owner, deal, person, organisation, lead or update window; notes stripped unless asked for |
+| `manage_activity` | Create or edit an activity, or tick it off — `create`, `update`, `complete`, `reopen` |
+| `get_note` | One note: its HTML, who wrote it, and which record it hangs off |
+| `list_notes` | Notes by the record they hang off, author, date range or update window |
+| `manage_note` | Create, edit or remove a note — `create`, `update`, `delete` |
+| `list_pipelines` | Every pipeline the token can see; no paging, a workspace rarely has twenty |
+| `list_stages` | The stages of a pipeline, with the deal probability Pipedrive gives each |
+| `refresh_field_cache` | Re-read custom-field names after somebody adds or renames one in the Pipedrive UI |
 
-- **Writes** — create/update for deals, persons, organizations,
-  activities; attach/update deal line items.
-- **Workflows** — move deal to stage, mark won/lost, complete activity,
-  log activity composite.
-- **Destructive (opt-in)** — detach product from deal.
+Five resource templates mirror the `get_` tools, for a client that
+attaches a record rather than calling a tool:
+
+```
+pipedrive://deals/{id}          pipedrive://organizations/{id}
+pipedrive://persons/{id}        pipedrive://activities/{id}
+pipedrive://notes/{id}
+```
+
+They share the code the tools use, so the two cannot drift into
+describing a record differently. A URI carries no options, so
+`include_attendees` and `include_notes` still need the tool.
+
+### Guarded writes
+
+Pipedrive has no undo, so a refusal is the only guard there is. Every
+`manage_` tool reads its target before it writes and refuses what the
+write would destroy that you cannot see. Each refusal names two things:
+the fields it is protecting, and the argument that would permit the
+write — a refusal you cannot act on is a bug.
+
+- **`dry_run`** reports what the write would find and change and sends
+  nothing.
+- **`overwrite`** is required before an update may replace a field that
+  already holds a value. Filling an empty field destroys nothing and
+  needs no permission.
+- **`expect_version`** carries the `update_time` from the read that
+  informed the write, and refuses if the record moved since. Best
+  effort: Pipedrive has no compare-and-set, so it catches a concurrent
+  edit, not a determined race.
+
+The named transitions — `mark_won`, `mark_lost`, `move_stage`, `reopen`,
+`complete` — take no `overwrite`, because the field they change is the
+field you named. Nothing is a one-way door on purpose: `reopen` undoes
+both `mark_lost` and `complete`. The exception is `manage_note`'s
+`delete`, which is soft — Pipedrive v1 clears `active_flag`, `get_note`
+still returns the note, and **nothing here sets the flag back**.
+
+A guarded write that stops comes back tagged `[refused]`, its own error
+class so a model can tell it from a validation failure and from an
+upstream error. Retrying is useless for one and correct for another.
+
+### Resources
+
+Five resource templates mirror the `get_` tools for clients that attach
+records rather than calling tools:
+
+```
+pipedrive://deals/{id}          pipedrive://organizations/{id}
+pipedrive://persons/{id}        pipedrive://activities/{id}
+pipedrive://notes/{id}
+```
+
+They share the same code the tools do, so the two cannot drift into
+describing a record differently. What a URI cannot carry is a tool's
+options — `include_attendees`, `include_notes` — so those still need the
+tool.
+
+### What is not here
+
+Products, leads, files, projects and goals have no tools yet. Custom
+fields are readable everywhere and **not writable** — edit them in the
+Pipedrive UI. Two things the API itself cannot do, which no retry will
+fix: activity type cannot be filtered server-side (ask for the rows and
+filter on their `type`), and activities are not indexed by `search`
+(reach them through `list_activities`).
 
 ## Safety
 
-- **No destructive tools by default.** Deletes are registered only with
-  `PIPEDRIVE_ENABLE_DESTRUCTIVE=true`. A tool that is not registered
-  cannot be called, whatever a model asks for.
-- **`PIPEDRIVE_DRY_RUN` makes every write a rehearsal**, returning what
-  would have been sent without firing the request.
+- **Every write guards itself at the call.** `dry_run` reports what a
+  write would find and change and sends nothing. `overwrite` is required
+  before an update may replace content that is already there, and
+  `expect_version` refuses a write whose record changed since you read
+  it. Registration is no longer the gate: a tool that does not exist
+  cannot explain why it will not act, so the refusal does it instead.
+- **`PIPEDRIVE_DRY_RUN` is a floor, not a default.** Every write tool
+  honours it. A per-call `dry_run` can turn a rehearsal on for one
+  write; nothing on the wire can turn one off while the flag is set, so
+  "set it and the server cannot write" stays true whatever a model asks
+  for.
 - **Stdout carries only MCP JSON-RPC frames.** That is the MCP stdio
   transport's own rule, and `forbidigo` enforces it: the process's
   streams are named in `main` and nowhere else. A stray print corrupts
@@ -206,32 +283,19 @@ MCP client ──stdio──► pipedrive-mcp
                        └── userconfig  the non-secret profile
 ```
 
-## Phase plan
-
-Versioning is strict semver. The MCP tool surface is the public contract.
-
-| Tag | Phase | What ships |
-| --- | --- | --- |
-| (no tag) | Phase 0 | Repo scaffolding, CI, server boot, startup probe — folded into `v0.1.0` rather than cut as `v0.0.1` |
-| `v0.1.0` | Phase 1 | All read tools |
-| `v0.2.0` | Phase 2 | All write tools |
-| `v0.3.0` | Phase 3 | Workflow tools |
-| `v0.9.0` → `v1.0.0-rc.N` | Phase 4 | Polish, evals, security review |
-| `v1.0.0` | Phase 5 | Stable surface, supported-version table |
-
-Each phase boundary requires explicit maintainer approval before the next
-phase starts.
-
-### Reading the setup from a script
-
-`pipedrive-mcp status --json` prints the same state as one JSON object on
-stdout. `credentials.resolved` is the field to branch on, `probe.ran`
-distinguishes a skipped check from a failed one, and the command still
-exits non-zero on every refusal, so a caller may read either. A label in
-the human output is free to be reworded in any release; the object is
-not.
-
 ## Getting help
+
+Run `pipedrive-mcp status`. It shows the workspace it resolved, where the
+domain came from, whether the token was found and in which store, and
+whether the startup auth probe reached Pipedrive — which is most of what
+goes wrong on a first run. `status --json` prints the same thing as one
+JSON object for a script that has to decide whether this server is
+authorised before starting it; `credentials.resolved` is the field to
+branch on, and `probe.ran` distinguishes a skipped check from a failed
+one. The shape is in
+[docs/configuration.md](docs/configuration.md#reading-the-setup-from-a-script).
+
+Past that, the ones worth knowing:
 
 - **`401 Unauthorized` at startup, immediate exit.** The API token is
   invalid, revoked, or for the wrong workspace. Fix the token and restart;
@@ -244,57 +308,75 @@ not.
   tool. Correlate the request ID in stderr with your MCP client's prompt
   log to reconstruct intent.
 
-Run book and operational guidance: [`docs/operations.md`](docs/operations.md).
+Run book and operational guidance: [docs/operations.md](docs/operations.md).
 
 If that does not explain it,
 [open an issue](https://github.com/mmedum/pipedrive-mcp/issues). Never
 paste an API token, a company domain or record contents into one;
 describe the shape instead. Security problems go through
-[`SECURITY.md`](SECURITY.md), privately.
+[SECURITY.md](SECURITY.md), privately.
 
 ## Versioning
 
-See [`SECURITY.md`](SECURITY.md#supported-versions).
+Tool names, their arguments and the shape of their output are stable
+within a major version. Pre-1.0 a minor release may still break the tool
+surface; from 1.0.0 onwards a break needs a major bump. A change that
+needs you to do something — a renamed tool, an argument that moved, a
+different command in your client config — is marked **BREAKING** in
+[CHANGELOG.md](CHANGELOG.md), which is what the release notes are made
+from. Which versions get fixes is in
+[SECURITY.md](SECURITY.md#supported-versions).
 
 ## Development
 
 ```bash
 make build     # the binary
-make test      # race detector, coverage
+make test      # race detector, per-package coverage floor
 make check     # everything CI runs
+make smoke     # drive the built binary over stdio and read the reply
 ```
 
 `make check` is the definition of done: gofmt, `go vet`, golangci-lint,
-race tests with coverage, `govulncheck`, a licence allow-list, the stdio
-smoke test and the staleness check.
+race tests with a per-package coverage floor, `govulncheck`, a licence
+allow-list, a leak gate refusing anything that looks like a real account's
+data in the working tree, a pinned-version gate holding every action to a
+commit SHA and every tool it installs to an exact version, a staleness
+gate over the dependency pins, and a stdio smoke test. CI adds a schema
+diff against the base branch that fails an unacknowledged change to the
+tool surface, and a changelog gate that fails source changes with no
+entry under `[Unreleased]`.
+
+Conventions are in [CONTRIBUTING.md](CONTRIBUTING.md); building, testing
+and releasing are in [docs/development.md](docs/development.md) and
+[docs/release.md](docs/release.md).
 
 ## Documentation
 
-- [`docs/architecture.md`](docs/architecture.md) — the design and the
-  decisions behind it.
-- [`docs/configuration.md`](docs/configuration.md) — every setting.
-- [`docs/development.md`](docs/development.md) — building and testing.
-- [`docs/operations.md`](docs/operations.md) — running it in anger.
-- [`docs/release.md`](docs/release.md) — how a release is cut.
-- [`docs/security.md`](docs/security.md) — the threat model.
+- [docs/architecture.md](docs/architecture.md) — the design, the evidence
+  behind it, and the phase plan.
+- [docs/configuration.md](docs/configuration.md) — every setting.
+- [docs/development.md](docs/development.md) — building and testing.
+- [docs/operations.md](docs/operations.md) — running it in anger.
+- [docs/release.md](docs/release.md) — how a release is cut.
+- [docs/security.md](docs/security.md) — the threat model.
 
 ## Contributing
 
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — PR process, gate checklist,
+- [CONTRIBUTING.md](CONTRIBUTING.md) — PR process, gate checklist,
   Phase 0 spike checklist, sandbox account ownership.
-- [`docs/development.md`](docs/development.md) — local-run guide:
+- [docs/development.md](docs/development.md) — local-run guide:
   prerequisites, `make check`, sandbox-based end-to-end verification,
   Claude Desktop wiring.
 
 ## Security
 
-- Read [`SECURITY.md`](SECURITY.md) before reporting a vulnerability.
-- Read [`docs/security.md`](docs/security.md) for token handling and
+- Read [SECURITY.md](SECURITY.md) before reporting a vulnerability.
+- Read [docs/security.md](docs/security.md) for token handling and
   the threat model.
 
 ## Code of conduct
 
-[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — Contributor Covenant.
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Contributor Covenant 3.0.
 
 ## License
 

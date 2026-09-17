@@ -77,7 +77,7 @@ make lint          # golangci-lint run
 make test          # go test -race -coverprofile cov.out ./...
 make vuln          # govulncheck ./...
 make licenses      # go-licenses check ./...
-make staleness     # scripts/staleness-check.sh
+make staleness     # go run ./scripts/gates deps
 ```
 
 
@@ -123,9 +123,8 @@ EOF
 
 You should see two JSON-RPC frames — the initialize response and the
 tools/list response listing the registered tools. The `--skip-probe`
-flag is for this kind of test only; do not use it in production. CI's
-`scripts/stdio-smoke.sh` does the same sequence and is run as a gate
-on every PR.
+flag is for this kind of test only; do not use it in production. `make
+smoke` does the same sequence and is run as a gate on every PR.
 
 ## Inspecting the tool schemas
 

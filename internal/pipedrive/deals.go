@@ -53,6 +53,56 @@ type CreateDealRequest struct {
 	Probability       *int    `json:"probability,omitempty"`         // 0-100; nil = use stage default
 }
 
+// UpdateDealRequest is the JSON body for PATCH /api/v2/deals/{id}.
+// Every field is a pointer with omitempty: nil omits the field, so it
+// keeps its stored value, and a non-nil pointer sends what it points
+// at. That is what makes this a partial update, and why a bare int64
+// would not do — it could not tell "leave person_id alone" from "send
+// zero".
+//
+// CLEARING a field is NOT supported here, and pointers do not change
+// that. Verified live against v2: null is rejected for
+// expected_close_date ("The value is not a valid 'string'"), and an
+// empty string stores the zero date 0000-00-00 rather than removing the
+// value. Neither empties the field.
+//
+// v1 CAN clear it — PUT /api/v1/deals/{id} with a null works — but this
+// server deliberately does not use that: it would be a third v1
+// carve-out on an API that sunsets 2026-07-31, for a capability nobody
+// has asked for. See docs/architecture.md, "Clearing a field", and do
+// not advertise clearing in a tool description without changing this
+// type in the same commit.
+//
+// Status carries the won/lost transitions; Pipedrive sets won_time and
+// lost_time itself, so they are not writable here.
+type UpdateDealRequest struct {
+	Title             *string  `json:"title,omitempty"`
+	Value             *float64 `json:"value,omitempty"`
+	Currency          *string  `json:"currency,omitempty"`
+	PipelineID        *int64   `json:"pipeline_id,omitempty"`
+	StageID           *int64   `json:"stage_id,omitempty"`
+	OwnerID           *int64   `json:"owner_id,omitempty"`
+	PersonID          *int64   `json:"person_id,omitempty"`
+	OrgID             *int64   `json:"org_id,omitempty"`
+	ExpectedCloseDate *string  `json:"expected_close_date,omitempty"`
+	Probability       *int     `json:"probability,omitempty"`
+	Status            *string  `json:"status,omitempty"`
+	LostReason        *string  `json:"lost_reason,omitempty"`
+}
+
+// UpdateDeal edits a deal via PATCH /api/v2/deals/{id} and returns it
+// as Pipedrive echoes it back, so the caller can report which stored
+// values actually changed. Emptiness is the tools layer's check — see
+// UpdateNote for why it does not live here.
+func (c *Client) UpdateDeal(ctx context.Context, id int64, req UpdateDealRequest) (*Deal, error) {
+	var resp itemEnvelope[Deal]
+	if err := c.patchV2(ctx, "/deals/"+strconv.FormatInt(id, 10), req, &resp); err != nil {
+		return nil, err
+	}
+	d := resp.Data
+	return &d, nil
+}
+
 // GetDeal fetches a single deal by ID. custom_fields are nested under
 // the deal's `custom_fields` object per Pipedrive v2 — caller resolves
 // hash keys to names via the per-Client FieldCache.
