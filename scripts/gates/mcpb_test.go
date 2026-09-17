@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -239,10 +240,17 @@ func TestTheManifestSaysWhereTheTokenComesFrom(t *testing.T) {
 // exists for — and the two were byte-identical when this was written,
 // so nothing would have shown it drifting.
 func TestTheSchemaRefIsATagNotABranch(t *testing.T) {
-	url := schemaFor(minManifestVersion)
-	if strings.Contains(url, "/main/") {
-		t.Errorf("the schema URL tracks a branch: %s", url)
+	// The whole ref, not "is it main". A partial version like v2.1 is a
+	// branch with a version number in its name and moves exactly like
+	// main does, and blacklisting one name says nothing about it. This
+	// asserts the SHAPE of schemaRef rather than comparing the URL to
+	// the constant it was built from — that comparison passes whenever
+	// the two are changed together, which is the failure this test
+	// exists to catch.
+	if !immutableRef.MatchString(schemaRef) {
+		t.Errorf("schemaRef %q is not a complete release tag; a partial ref moves like a branch", schemaRef)
 	}
+	url := schemaFor(minManifestVersion)
 	if !strings.Contains(url, "/"+schemaRef+"/") {
 		t.Errorf("the schema URL does not carry the pinned ref %s: %s", schemaRef, url)
 	}
@@ -251,6 +259,10 @@ func TestTheSchemaRefIsATagNotABranch(t *testing.T) {
 		t.Errorf("the manifest cites %s; the gate builds %s", got, schemaFor(good(t).ManifestVersion))
 	}
 }
+
+// immutableRef is a complete release tag: vMAJOR.MINOR.PATCH and
+// nothing shorter.
+var immutableRef = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 
 func TestOlderThanComparesNumerically(t *testing.T) {
 	cases := []struct {
