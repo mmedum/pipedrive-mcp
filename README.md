@@ -345,10 +345,11 @@ race tests with a per-package coverage floor, `govulncheck`, a licence
 allow-list, a leak gate refusing anything that looks like a real account's
 data in the working tree, a pinned-version gate holding every action to a
 commit SHA and every tool it installs to an exact version, a staleness
-gate over the dependency pins, and a stdio smoke test. CI adds a schema
-diff against the base branch that fails an unacknowledged change to the
-tool surface, and a changelog gate that fails source changes with no
-entry under `[Unreleased]`.
+gate over the dependency pins, a manifest gate holding the installable
+bundle to its schema, a link gate over the changelog's version headings,
+and a stdio smoke test. CI adds a schema diff against the base branch
+that fails an unacknowledged change to the tool surface, and a changelog
+gate that fails source changes with no entry under `[Unreleased]`.
 
 Conventions are in [CONTRIBUTING.md](CONTRIBUTING.md); building, testing
 and releasing are in [docs/development.md](docs/development.md) and

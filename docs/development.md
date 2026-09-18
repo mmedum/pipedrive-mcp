@@ -55,7 +55,7 @@ The same gates that run in CI on every PR. Use this before pushing.
 
 ```sh
 make install-tools # install govulncheck, go-licenses, golangci-lint at pinned versions
-make check         # runs verify-tool-versions, gofmt, vet, lint, test (race), govulncheck, licenses, staleness
+make check         # every per-PR gate, in order; `check:` in the Makefile is the list
 ```
 
 `make check` includes `verify-tool-versions` as its first step. If
