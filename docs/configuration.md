@@ -176,8 +176,9 @@ announces itself, so an LLM client never sees a half-initialized server.
   true` can turn a rehearsal on for a single write; nothing on the wire
   can turn one off while this is set. Set it when you want a server that
   cannot write, whatever a model asks for.
-- **Logging**: dry-run invocations are logged at `info` level with the
-  `dry_run=true` field set, regardless of `LOG_LEVEL`.
+- **Not logged**: a rehearsal leaves no record. No tool handler logs
+  anything, so there is nothing to review afterwards — see
+  [`security.md`](security.md), "LLM audit trail".
 
 ### `PIPEDRIVE_HTTP_TIMEOUT`
 

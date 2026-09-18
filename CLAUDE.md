@@ -10,10 +10,11 @@ still applies; this file adds project-level rules.
 that exposes Pipedrive CRM operations over stdio to LLM-driven clients
 (Claude Desktop, Claude Code, etc.). The architecture overview is in
 `docs/architecture.md`. The phased delivery plan lives in the repo — the
-table under "Phase plan" in `README.md` for what each tag ships, and
-"Phases and approvals" in `CONTRIBUTING.md` for the approval rule. It
-used to live in a plan file outside the repo; that file is gone, which
-is why it now lives somewhere a contributor can actually read.
+tables under "Phase plan" in `docs/architecture.md` for what each tag
+shipped and what is left, and "Phases and approvals" in
+`CONTRIBUTING.md` for the approval rule. It used to live in a plan file
+outside the repo; that file is gone, which is why it now lives somewhere
+a contributor can actually read.
 
 ## Hard rules
 
@@ -124,7 +125,7 @@ commands — the list below drifted out of date once before, naming three
 
 ```
 make check   # verify-tool-versions fmt vet lint test vuln licenses
-             # staleness leaks pins smoke
+             # staleness leaks pins mcpb changelog-links smoke
 ```
 
 Individually, when you need to isolate one: `make fmt` (gofmt, must be
@@ -133,10 +134,12 @@ with coverage ≥ 80% on `internal/pipedrive`, `internal/tools`,
 `internal/credentials` and `internal/app` — the same threshold the CI
 gate enforces),
 `make vuln` (govulncheck), `make licenses` (allow-list), `make staleness`,
-`make leaks`, `make pins`, `make smoke` (drives the built binary over
-stdio). The CHANGELOG gate is not in `make check` because it needs a
-base ref: `go run ./scripts/gates changelog <base> HEAD`, and it only
-fires when a watched source path changed.
+`make leaks`, `make pins`, `make mcpb` (the bundle manifest against its
+schema), `make changelog-links` (every version heading linked) and
+`make smoke` (drives the built binary over stdio). The CHANGELOG *entry*
+gate is not in `make check` because it needs a base ref:
+`go run ./scripts/gates changelog <base> HEAD`, and it only fires when a
+watched source path changed.
 
 **Run the gates against the pinned toolchain**, not whatever `go` is on
 PATH: `export GOTOOLCHAIN=go1.26.6` (the `toolchain` line in `go.mod`,

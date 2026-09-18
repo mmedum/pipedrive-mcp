@@ -114,7 +114,9 @@ A useful bug report contains:
 - Version: `pipedrive-mcp --version`.
 - The exact MCP client (Claude Desktop version, OS, etc.).
 - The relevant log lines from stderr (with tokens redacted).
-- The `request_id` if available, so we can correlate with logs.
+- The tool call as your MCP client recorded it. The server emits no
+  per-call log, so the client transcript is the only place the call and
+  the prompt that caused it sit together.
 - Reproduction steps. If the bug requires a particular Pipedrive workspace
   configuration (custom fields, pipeline shape), describe it without
   including real customer data.

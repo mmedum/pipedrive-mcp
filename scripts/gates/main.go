@@ -38,6 +38,10 @@ func init() {
 			run: changelogGate, args: "BASE HEAD",
 			doc: "a change to watched source needs an entry under [Unreleased]",
 		},
+		"changelog-links": {
+			run: func(out io.Writer, _ []string) error { return changelogLinksGate(out) },
+			doc: "every CHANGELOG version heading has its link definition",
+		},
 		"mcpb": {
 			run: mcpbCmd, args: "",
 			doc: "the bundle manifest describes the bundle the packer stages",

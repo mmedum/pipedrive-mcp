@@ -464,3 +464,28 @@ func (w guardedWrite[T]) predict(before *T) T {
 	}
 	return predicted
 }
+
+// SelfAuthorisingActions names every manage_* action that grants its own
+// overwrite — the transitions, which need no `overwrite` because the
+// field they change is the field the caller named.
+//
+// Exported for one reason: the server's MCP instructions state this list
+// in prose, and prose drifts. v0.5.0 shipped with `archive` and
+// `unarchive` missing from that sentence after they were added here, so
+// the instructions understated what a caller could do without asking.
+// internal/server holds the sentence against this.
+func SelfAuthorisingActions() []string {
+	var out []string
+	for name, a := range dealActions {
+		if a.transition {
+			out = append(out, name)
+		}
+	}
+	for name, a := range activityActions {
+		if a.transition && !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	slices.Sort(out)
+	return out
+}

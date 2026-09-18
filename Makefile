@@ -86,7 +86,7 @@ staleness: ## gates deps
 	go run ./scripts/gates deps
 
 .PHONY: check
-check: verify-tool-versions fmt vet lint test vuln licenses staleness leaks pins mcpb smoke ## Run every per-PR CI gate locally
+check: verify-tool-versions fmt vet lint test vuln licenses staleness leaks pins mcpb changelog-links smoke ## Run every per-PR CI gate locally
 
 .PHONY: leaks
 leaks: ## Nothing from a real Pipedrive account is in the tree
@@ -95,6 +95,10 @@ leaks: ## Nothing from a real Pipedrive account is in the tree
 .PHONY: pins
 pins: ## Every action is a commit and every tool version is exact
 	go run ./scripts/gates pins
+
+.PHONY: changelog-links
+changelog-links: ## Every CHANGELOG version heading has its link definition
+	@$(GO) run ./scripts/gates changelog-links
 
 .PHONY: mcpb
 mcpb: ## The bundle manifest describes the bundle the packer stages
