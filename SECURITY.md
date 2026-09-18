@@ -36,13 +36,19 @@ earlier disclosure.
 Security patches are produced for the most recent MAJOR.MINOR release plus
 the previous MAJOR.MINOR. Older versions are unsupported.
 
-| Version       | Supported          |
-| ------------- | ------------------ |
-| 1.x (current) | yes (post-1.0.0)   |
-| 0.9.x         | release candidates |
-| < 0.9         | no                 |
+| Version         | Supported |
+| --------------- | --------- |
+| 0.5.x (current) | yes       |
+| 0.4.x           | yes       |
+| < 0.4           | no        |
 
-This table will be updated as the project ships releases.
+The table above describes what is shipped today, not what is planned.
+It was written forward once — declaring `1.x` current and everything
+below `0.9` unsupported — and stood that way through five releases, so
+the published policy told every user of the shipped release that it
+received no patches. It is now updated as part of cutting a release
+(`docs/release.md`), and `1.x` goes in the table when 1.0.0 is tagged
+and not before.
 
 ## Operator guidance
 
