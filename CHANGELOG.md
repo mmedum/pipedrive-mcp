@@ -11,9 +11,84 @@ error message wording, and log line formats are not part of the contract.
 Pre-1.0 minor releases may break the tool surface. From 1.0.0 onwards,
 breaking changes require a MAJOR bump.
 
+**One carve-out, and it is deliberate.** `get_note`, `list_notes`,
+`manage_note` and `whoami` run on Pipedrive API v1, whose 2026-07-31
+sunset has passed, because v2 exposes no `/notes` and no `/users` — so
+there is no equivalent to move them to. Those four sit **outside** the
+compatibility promise: if v1 stops answering they are removed in a
+MINOR release. The alternative is letting a third party decide when
+this project cuts a MAJOR. Every other tool is covered by the promise
+in full.
+
 ## [Unreleased]
 
+### Added
+
+- **A `[gone]` error class, and a canary on the v1 carve-out.**
+  Pipedrive's v1 sunset date, 2026-07-31, has passed. Four tools run on
+  v1 — `get_note`, `list_notes`, `manage_note` and `whoami` — because v2
+  exposes no `/notes` and no `/users`, so there is nothing to migrate
+  to. The risk cannot be engineered away; it can only be classified and
+  watched.
+
+  A 410 previously fell through `status >= 400` to `ErrValidation` and
+  reached the model as `[validation]` — "your input was wrong" — sending
+  it to fix the one thing that was fine, and to retry forever. A retired
+  endpoint is neither a caller error nor retryable. On a v1 request the
+  message also names the sunset and says there is no v2 equivalent,
+  because `[gone]` alone reads as a deleted record.
+
+  `TestV1CarveOutStillAnswers` in the live suite asserts the
+  **aggregate**: a retirement fails every v1 tool at once, whatever
+  status it arrives as, and keying on 410 alone would have been a guess
+  about another company's deprecation hygiene — a route can equally be
+  removed (404), gated (403), or answered by an edge with an HTML page.
+  Green against a live workspace on 2026-09-18, so v1 is out of support
+  rather than switched off. It runs at each release boundary, not
+  continuously; `docs/architecture.md` says so rather than implying a
+  watchdog that does not exist.
+
+- **Two gates over lists that had already drifted.**
+  `TestEverySentinelHasItsOwnClass` holds every sentinel against
+  `errorClass`, which ends in a default returning `"error"`: a sentinel
+  added without a case did not fail anything before, it just arrived at
+  the model wearing the same label as every other unmapped failure.
+  `TestOperationsDocListsEveryErrorClass` holds `docs/operations.md`'s
+  `[class]` enumeration against the same list — it was missing
+  `[refused]` since guarded writes shipped, and would have been missing
+  `[gone]` on arrival. Both walk `allSentinels`, the list the package
+  already keeps, rather than adding a third copy of the names.
+
 ### Changed
+
+- **A non-JSON error body is reported as one.** `classifyResponse`
+  discarded the unmarshal error, so an HTML error page from an edge —
+  the likeliest shape of a retirement — produced a message-less error
+  indistinguishable from an empty one. It now reads
+  `non-JSON response (N bytes)`. The length is reported and the body is
+  not, so the no-PII rule on `APIError` still holds.
+
+- **`classify` takes the API version instead of guessing it.** It was
+  recovering v1-ness by prefix-matching the request path, re-deriving a
+  fact the package holds as a typed `apiVersion` three frames up — and
+  `pathOf` falls back to the whole URL on a parse failure, so the guess
+  returned false and dropped the explanation on exactly the defensive
+  branch it was written for. The version is now threaded from `exec`.
+
+- **The docs stopped saying the sunset is in the future.** Every
+  occurrence outside this changelog was written in the future tense —
+  `README.md`, `docs/architecture.md`, `CONTRIBUTING.md`, `CLAUDE.md`
+  and a comment in `internal/pipedrive/deals.go` — including the
+  paragraph gating 1.0 on it, which said "if that date passes" for seven
+  weeks after it did. The evidence behind the "no v2 equivalent" claim
+  now carries the date it was measured.
+
+- **The versioning contract names one carve-out.** `get_note`,
+  `list_notes`, `manage_note` and `whoami` sit outside the 1.0
+  compatibility promise: if Pipedrive v1 stops answering they are
+  removed in a MINOR, rather than a third party's retirement schedule
+  forcing this project into a MAJOR. Decided 2026-09-19; the contract
+  at the top of this file and `docs/architecture.md` both say so.
 
 - **The server speaks the current MCP protocol revision, `2026-07-28`.**
   `go-sdk` v1.6.0 → v1.8.0; v1.7.0 is the release that added it. The

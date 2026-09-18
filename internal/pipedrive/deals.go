@@ -76,10 +76,10 @@ type CreateDealRequest struct {
 //
 // v1 CAN clear it — PUT /api/v1/deals/{id} with a null works — but this
 // server deliberately does not use that: it would be a third v1
-// carve-out on an API that sunsets 2026-07-31, for a capability nobody
-// has asked for. See docs/architecture.md, "Clearing a field", and do
-// not advertise clearing in a tool description without changing this
-// type in the same commit.
+// carve-out on an API whose 2026-07-31 sunset has passed, for a
+// capability nobody has asked for. See docs/architecture.md,
+// "Clearing a field", and do not advertise clearing in a tool
+// description without changing this type in the same commit.
 //
 // Status carries the won/lost transitions; Pipedrive sets won_time and
 // lost_time itself, so they are not writable here.

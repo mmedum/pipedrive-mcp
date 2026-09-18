@@ -42,10 +42,17 @@ the tool's text response, NOT (yet) as a slog field. The classes are:
   records, required fields, stage/pipeline rules).
 - `[not_found]` — 404 from upstream, or our own
   pipeline-not-visible synthetic in `list_stages`.
+- `[gone]` — 410 from upstream: the endpoint is retired. Not retried,
+  because no retry can help. On a Pipedrive v1 path (the notes tools and
+  `whoami`) the message also names the 2026-07-31 sunset and says there
+  is no v2 equivalent, so this is not read as a deleted record.
 - `[rate_limited]` — 429 after retries exhausted.
 - `[server_error]` — 5xx after retries exhausted.
 - `[validation]` — 400 from upstream OR our client-side input checks
   (e.g. `deal_id` ≤ 0, unknown `status` value).
+- `[refused]` — a guarded write refused before any API call: an
+  `overwrite` that would clobber a populated field, or an
+  `expect_version` that no longer matches.
 
 JSON example of a successful debug-level call:
 
