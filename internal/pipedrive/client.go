@@ -184,7 +184,7 @@ func (c *Client) exec(ctx context.Context, method string, version apiVersion, pa
 
 	var lastErr error
 	for attempt := 0; attempt < c.maxAttempts; attempt++ {
-		retry, retryAfter, err := c.attempt(ctx, method, requestURL, body, out, attempt)
+		retry, retryAfter, err := c.attempt(ctx, method, version, requestURL, body, out, attempt)
 		if !retry {
 			return err
 		}
@@ -203,7 +203,9 @@ func (c *Client) exec(ctx context.Context, method string, version apiVersion, pa
 // (nil on success).
 func (c *Client) attempt(
 	ctx context.Context,
-	method, requestURL string,
+	method string,
+	version apiVersion,
+	requestURL string,
 	body, out any,
 	attempt int,
 ) (retry bool, retryAfter time.Duration, err error) {
@@ -247,7 +249,7 @@ func (c *Client) attempt(
 		return false, 0, decodeSuccess(rawBody, out)
 	}
 
-	apiErr := classifyResponse(resp.StatusCode, requestURL, rawBody)
+	apiErr := classifyResponse(resp.StatusCode, version, requestURL, rawBody)
 	if attempt+1 < c.maxAttempts && shouldRetry(method, resp.StatusCode) {
 		return true, parseRetryAfter(resp.Header.Get("Retry-After")), apiErr
 	}
@@ -299,10 +301,20 @@ func decodeSuccess(raw []byte, out any) error {
 	return nil
 }
 
-func classifyResponse(status int, requestURL string, raw []byte) error {
+func classifyResponse(status int, version apiVersion, requestURL string, raw []byte) error {
 	var env envelope
-	_ = json.Unmarshal(raw, &env) // best-effort; classify tolerates empty
-	apiErr := classify(status, pathOf(requestURL), env)
+	// Best-effort: classify tolerates an empty envelope. A body that is
+	// not JSON at all is the shape an edge error page arrives in, and
+	// saying so beats a message-less error — the length is reported and
+	// the body is not, so the no-PII rule above still holds.
+	nonJSON := ""
+	if len(raw) > 0 && json.Unmarshal(raw, &env) != nil {
+		nonJSON = fmt.Sprintf("non-JSON response (%d bytes)", len(raw))
+	}
+	apiErr := classify(status, version, pathOf(requestURL), env)
+	if apiErr != nil && apiErr.Message == "" {
+		apiErr.Message = nonJSON
+	}
 	if apiErr == nil {
 		return fmt.Errorf("pipedrive: unexpected status %d", status)
 	}

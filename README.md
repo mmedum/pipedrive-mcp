@@ -18,12 +18,16 @@ stage.
 
 ## Why pipedrive-mcp
 
-Pipedrive's own API is two APIs: a v2 that is current and a v1 that
-sunsets on 2026-07-31. This server commits to v2 and carves out only what
-exists nowhere else — notes, and the `whoami` lookup — so nothing here
-stops working on that date by surprise. Both carve-outs are documented at
-their call sites and in [CHANGELOG.md](CHANGELOG.md), because a v1
-dependency nobody wrote down is one nobody migrates.
+Pipedrive's own API is two APIs: a v2 that is current and a v1 whose
+sunset date, 2026-07-31, **has passed**. This server commits to v2 and
+carves out only what exists nowhere else — notes, and the `whoami`
+lookup. Those four tools run on an API that is out of support; they
+still answer, and there is no v2 to move them to, because v2 exposes no
+`/notes` and no `/users`. Both carve-outs are documented at their call
+sites and in [CHANGELOG.md](CHANGELOG.md), because a v1 dependency
+nobody wrote down is one nobody migrates — and a 410 from either now
+reaches you as `[gone]`, naming the sunset, rather than as a validation
+error blaming your request.
 
 Its tool surface follows the shipped Google Workspace MCP servers rather
 than a house style of its own: reads stay discrete, every mutation goes
