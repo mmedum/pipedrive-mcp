@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -117,6 +118,16 @@ func TestSettings_LogValue_RedactsTheToken(t *testing.T) {
 
 	if strings.Contains(buf.String(), "super-secret-token") {
 		t.Fatal("the token reached the log line")
+	}
+
+	// fmt does not go through LogValue. It reads unexported fields by
+	// reflection, so this needs String() and the two are not
+	// interchangeable — the comment on Settings claimed LogValue
+	// covered both, and it did not.
+	for _, verb := range []string{"%v", "%+v", "%s"} {
+		if out := fmt.Sprintf(verb, s); strings.Contains(out, "super-secret-token") {
+			t.Errorf("%s printed the token: %s", verb, out)
+		}
 	}
 	for _, want := range []string{"workspace=acme", "domain_source=env", "token_source=keyring"} {
 		if !strings.Contains(buf.String(), want) {
