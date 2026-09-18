@@ -544,7 +544,7 @@ func TestManageWrite_RejectsZeroID(t *testing.T) {
 func TestManageDeal_UpdateOverlayCoversEveryField(t *testing.T) {
 	// dealAfterUpdate has a branch per field. Set them all at once so a
 	// copy-paste slip in one branch cannot hide behind the others.
-	prob := 60
+	prob := 60.0
 	fake := &fakeDealsClient{
 		deal: &pipedrive.Deal{ID: 9, Status: "open", UpdateTime: "t0"},
 		updateDeal: &pipedrive.Deal{

@@ -13,6 +13,51 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Every pipeline and stage reported itself inactive.** `Pipeline` read
+  `active` and `Stage` read `active_flag`; v2 returns neither — both
+  carry `is_deleted` — so both decoded to `false` for every record, and
+  `list_pipelines` told the model each pipeline was inactive under a
+  schema description saying exactly that. Both spellings are v1
+  vocabulary that came across in the port, and the comment above them
+  claimed they had been confirmed against the live v2 endpoints. The
+  LLM-facing `active` field keeps its name and now means something:
+  `is_deleted` inverted.
+
+- **`people_count` was promised and never sent.** v2 returns it only when
+  a read asks through `include_fields`, which this client never did, so
+  the field was absent from every organization while three tool
+  descriptions listed it. Every organization read now requests it.
+
+- **One fractional deal probability failed a whole page.** `Probability`
+  was `*int` where Pipedrive declares `number`. Go's decoder refuses
+  `12.5` into an `int` and the client returns that error, so a single
+  such deal made `list_deals` fail rather than returning the page. It is
+  `*float64` now, on the record, the request and the LLM-facing summary.
+
+### Added
+
+- **The upstream types are held against Pipedrive's own OpenAPI
+  description.** `internal/pipedrive/spec_test.go` walks the `json` tags
+  in this package against a fixture derived from the published v2
+  document and fails on a tag Pipedrive does not return, or a Go type
+  that cannot hold what the spec declares. All three defects above were
+  found by writing it.
+
+  It is a test, not a generator — nothing generated is vendored or
+  compiled in. The spec has zero `$ref`, so a generator emits a separate
+  anonymous struct per endpoint rather than one `Deal`, and models-only
+  emits no response types at all. `docs/architecture.md`, "Hand-rolled
+  HTTP", has the measurements; `CONTRIBUTING.md` records the spike this
+  closes.
+
+  Two exemptions are recorded with reasons, both verified live:
+  `is_writable`, which the `*Fields` endpoints return and the write guard
+  depends on while the spec has never declared it, and `people_count`,
+  which is an `include_fields` value rather than part of the default
+  response.
+
 ### Changed
 
 - **The `/simplify` findings 0.4.0 deferred are taken.** `dealRequestFor`

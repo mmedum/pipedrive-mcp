@@ -165,6 +165,51 @@ Deal not found [/api/v2/deals/99999]`. The `[class]` tag conveys
 class; HTTP status and endpoint go to slog at debug level for
 operator triage.
 
+## Hand-rolled HTTP
+
+`internal/pipedrive/` is written by hand rather than generated from
+Pipedrive's OpenAPI description. That was an open question until
+2026-09-18; this is what settled it.
+
+**The spec cannot produce this client.** Measured against the published
+v2 document: 85 paths, 158 operations, **zero `$ref`**, and five
+`components.schemas` that nothing references. Every response shape is
+inlined per operation, so a generator emits a separate anonymous struct
+per endpoint — the full client is 44,762 lines with no shared `Deal`
+type, `/deals` and `/deals/{id}` each carrying their own copy of the
+same 32 fields. Generating models only, pruned to the 14 operations this
+server uses, emits 725 lines that are **all** `*Params` types and no
+response models whatever, because without a `$ref` the response shapes
+live inside the client's anonymous structs and nowhere else. The usual
+hybrid — generated types, hand-written transport — is not on the table
+for this spec.
+
+**And the spec knows nothing about failure.** Across 158 operations the
+only declared statuses are `200`, `201`, and four `404`s. No `401`, no
+`403`, no `429`, no `5xx`. Every sentinel in `errors.go`, the 403
+disambiguation, the retry policy that retries 5xx on GET but never on a
+write — none of it has a source in the document.
+
+**What the spec is good for is telling us when our mirror has drifted.**
+It is a test oracle, not a code input: `spec_test.go` holds the struct
+tags in this package against a small fixture derived from the spec, and
+nothing generated is compiled into the binary. Adopting it found three
+defects that had shipped, all confirmed against a live workspace:
+`Pipeline.Active` and `Stage.Active` read fields v2 does not return, so
+every pipeline and stage reported itself inactive; `Organization`
+declared `people_count` without the `include_fields` request that makes
+v2 send it, so the field was absent while three tool descriptions
+promised it; and `Deal.Probability` was an `int` where the spec says
+`number`, which fails the decode of a whole page on one fractional
+value.
+
+Two exemptions are recorded in `knownSpecOmissions`, both verified live.
+`is_writable` is returned by the `*Fields` endpoints and the write guard
+depends on it, and the spec has never declared it — the field is real
+and the description is behind. `people_count` is an `include_fields`
+value rather than part of the default response, and this package asks
+for it on every organization read.
+
 ## Custom-field cache
 
 Pipedrive surfaces custom fields by 40-char hash key, and a dropdown
@@ -490,10 +535,11 @@ there a live suite" should find it here.
 configurations, pipeline shapes and permission levels vary, and the 403
 spike below needs a second account regardless.
 
-**4. The two remaining Phase 0 spikes**, both in `CONTRIBUTING.md`:
-403 disambiguation (needs a permission-denied and a business-rule 403 from
-a real account, to tighten `businessRule403Signals`), and the hand-rolled
-HTTP versus OpenAPI-generator decision, which needs recording either way.
+**4. The remaining Phase 0 spike**, in `CONTRIBUTING.md`: 403
+disambiguation, which needs a permission-denied and a business-rule 403
+from a real account to tighten `businessRule403Signals`. The hand-rolled
+HTTP versus OpenAPI-generator question was answered on 2026-09-18 — see
+"Hand-rolled HTTP" above.
 
 **5. A Claude Desktop smoke.** Still open. 0.4.0 was driven through stdio and Claude
 Code. The runbook accepts either, so this is a gap in coverage rather than

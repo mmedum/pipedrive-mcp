@@ -36,16 +36,16 @@ type ListDealsOptions struct {
 // pipeline, ...). The tool layer enforces title non-empty client-side
 // so a typo surfaces as [validation] instead of an upstream 400.
 type CreateDealRequest struct {
-	Title             string  `json:"title"`
-	Value             float64 `json:"value,omitempty"`
-	Currency          string  `json:"currency,omitempty"`
-	PipelineID        int64   `json:"pipeline_id,omitempty"`
-	StageID           int64   `json:"stage_id,omitempty"`
-	OwnerID           int64   `json:"owner_id,omitempty"`
-	PersonID          int64   `json:"person_id,omitempty"`
-	OrgID             int64   `json:"org_id,omitempty"`
-	ExpectedCloseDate string  `json:"expected_close_date,omitempty"` // YYYY-MM-DD
-	Probability       *int    `json:"probability,omitempty"`         // 0-100; nil = use stage default
+	Title             string   `json:"title"`
+	Value             float64  `json:"value,omitempty"`
+	Currency          string   `json:"currency,omitempty"`
+	PipelineID        int64    `json:"pipeline_id,omitempty"`
+	StageID           int64    `json:"stage_id,omitempty"`
+	OwnerID           int64    `json:"owner_id,omitempty"`
+	PersonID          int64    `json:"person_id,omitempty"`
+	OrgID             int64    `json:"org_id,omitempty"`
+	ExpectedCloseDate string   `json:"expected_close_date,omitempty"` // YYYY-MM-DD
+	Probability       *float64 `json:"probability,omitempty"`         // 0-100; nil = use stage default
 
 	// CustomFields is keyed by the 40-char hash Pipedrive stores,
 	// with dropdown values as option ids: the shape FieldCache.Encode
@@ -86,7 +86,7 @@ type UpdateDealRequest struct {
 	PersonID          *int64   `json:"person_id,omitempty"`
 	OrgID             *int64   `json:"org_id,omitempty"`
 	ExpectedCloseDate *string  `json:"expected_close_date,omitempty"`
-	Probability       *int     `json:"probability,omitempty"`
+	Probability       *float64 `json:"probability,omitempty"`
 	Status            *string  `json:"status,omitempty"`
 	LostReason        *string  `json:"lost_reason,omitempty"`
 
