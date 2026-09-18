@@ -86,7 +86,7 @@ staleness: ## gates deps
 	go run ./scripts/gates deps
 
 .PHONY: check
-check: verify-tool-versions fmt vet lint test vuln licenses staleness leaks pins mcpb changelog-links smoke ## Run every per-PR CI gate locally
+check: verify-tool-versions fmt vet lint test vuln licenses staleness leaks pins mcpb changelog-links descriptions smoke ## Run every per-PR CI gate locally
 
 .PHONY: leaks
 leaks: ## Nothing from a real Pipedrive account is in the tree
@@ -115,6 +115,11 @@ mcpb-pack: ## Pack the .mcpb from a built dist tree (release; manual)
 .PHONY: smoke
 smoke: build ## Drive the binary over stdio and read the reply
 	go run ./scripts/gates smoke binary $(BIN)
+
+.PHONY: descriptions
+descriptions: build ## Tool descriptions against the mechanical house-style rules
+	$(BIN) --dump-schemas > /tmp/pipedrive-schemas.json
+	go run ./scripts/gates descriptions /tmp/pipedrive-schemas.json
 
 .PHONY: dump-schemas
 dump-schemas: build ## Print the registered tool schemas as JSON

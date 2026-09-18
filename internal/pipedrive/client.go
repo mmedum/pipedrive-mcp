@@ -177,6 +177,25 @@ func (c *Client) deleteV1(ctx context.Context, path string, out any) error {
 	return c.exec(ctx, http.MethodDelete, apiV1, path, nil, out)
 }
 
+// deleteV2 is the v2 DELETE helper (DELETE /api/v2/<resource>/{id}).
+// Same retry policy as the other writes: only 429 is retried, never
+// 5xx — the delete may already have committed, and retrying would
+// surface a 404 that obscures the real failure.
+//
+// Pipedrive's v2 delete is SOFT and time-boxed: the documentation for
+// every resource that has one says "Marks a <resource> as deleted.
+// After 30 days, the <resource> will be permanently deleted." That is
+// why the types carry is_deleted rather than the row disappearing.
+// Nothing in this server restores one; Pipedrive's own UI can, within
+// the window.
+func (c *Client) deleteV2(ctx context.Context, path string) error {
+	// No out parameter: the v2 delete response carries only the id, and
+	// every caller discards it. A caller that wants the record's final
+	// state reads it before deleting, which the guarded-write path does
+	// anyway.
+	return c.exec(ctx, http.MethodDelete, apiV2, path, nil, nil)
+}
+
 // exec runs the configured retry loop for a single API call. version
 // selects the path segment between /api and the resource path.
 func (c *Client) exec(ctx context.Context, method string, version apiVersion, path string, body, out any) error {

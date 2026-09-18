@@ -171,3 +171,16 @@ func (c *Client) ReloadOrganizationFields(ctx context.Context) (int, error) {
 	}
 	return c.organizationFields.Count(), nil
 }
+
+// DeleteOrganization marks a organization as deleted. Pipedrive's delete is SOFT and
+// time-boxed — its documentation says "Marks a organization as deleted.
+// After 30 days, the organization will be permanently deleted." Within that
+// window the row still exists, carrying is_deleted; nothing in this
+// server puts it back, and Pipedrive's own UI is what can.
+//
+// The response carries only the id, so there is nothing typed to
+// return: a caller that wants the record's final state reads it before
+// deleting, which the guarded-write path does anyway.
+func (c *Client) DeleteOrganization(ctx context.Context, id int64) error {
+	return c.deleteV2(ctx, "/organizations/"+strconv.FormatInt(id, 10))
+}

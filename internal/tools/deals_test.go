@@ -34,6 +34,10 @@ type fakeDealsClient struct {
 	updateCalls   int
 	getCalls      int
 
+	deleteErr    error
+	deleteCalls  int
+	lastDeleteID int64
+
 	encodeErr error
 }
 
@@ -42,6 +46,12 @@ func (f *fakeDealsClient) UpdateDeal(_ context.Context, id int64, req pipedrive.
 	f.lastUpdateReq = req
 	f.updateCalls++
 	return f.updateDeal, f.updateErr
+}
+
+func (f *fakeDealsClient) DeleteDeal(_ context.Context, id int64) error {
+	f.deleteCalls++
+	f.lastDeleteID = id
+	return f.deleteErr
 }
 
 func (f *fakeDealsClient) GetDeal(_ context.Context, _ int64) (*pipedrive.Deal, error) {
