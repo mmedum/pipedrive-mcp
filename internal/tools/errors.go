@@ -116,6 +116,7 @@ var allSentinels = []error{
 	pipedrive.ErrForbiddenBusinessRule,
 	pipedrive.ErrNotFound,
 	pipedrive.ErrRateLimited,
+	pipedrive.ErrGone,
 	pipedrive.ErrServerError,
 	pipedrive.ErrValidation,
 }
@@ -169,6 +170,8 @@ func errorClass(err error) string {
 		return "not_found"
 	case errors.Is(err, pipedrive.ErrRateLimited):
 		return "rate_limited"
+	case errors.Is(err, pipedrive.ErrGone):
+		return "gone"
 	case errors.Is(err, pipedrive.ErrServerError):
 		return "server_error"
 	case errors.Is(err, pipedrive.ErrValidation):

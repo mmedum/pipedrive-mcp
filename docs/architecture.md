@@ -147,8 +147,10 @@ LLM can branch on without parsing free text.
 | 403 (permission) | `ErrForbiddenPermission` | `[permission]` | upstream message surfaced |
 | 403 (business rule) | `ErrForbiddenBusinessRule` | `[business_rule]` | upstream message surfaced |
 | 404 | `ErrNotFound` | `[not_found]` | upstream message surfaced |
+| 410 | `ErrGone` | `[gone]` | endpoint retired upstream; not retried. On a v1 path the message names the 2026-07-31 sunset. |
 | 429 | `ErrRateLimited` | `[rate_limited]` | retry honoring `Retry-After`, jittered |
 | 5xx | `ErrServerError` | `[server_error]` | retry with jittered exponential backoff |
+| — | `errRefused` | `[refused]` | a guard refused the write before any call was made |
 
 Retry policy: `maxAttempts = 3` (so up to 3 attempts total: at most 2
 backoff sleeps between them). 429 honors `Retry-After`; otherwise base
@@ -410,8 +412,8 @@ read, and a tool that called `""` a clear would be lying to the model.
 
 v1 does it correctly. This server does not use that, and should not
 without a deliberate decision: it would be a third v1 carve-out on an
-API that **sunsets 2026-07-31**, built for a capability nobody has asked
-for. Every `manage_*` input says "omit to leave it as it is" instead,
+API whose **2026-07-31 sunset has passed**, built for a capability
+nobody has asked for. Every `manage_*` input says "omit to leave it as it is" instead,
 and the `Update*Request` types stay `*T` with `omitempty` — nil omits,
 non-nil sends, no third state, because there is no third behaviour worth
 reaching for.
@@ -615,10 +617,44 @@ piece of work and gates 1.0 rather than 0.5.
 
 **`v1.0.0` is gated on more than a checklist.** It means breaking changes
 require a MAJOR bump, and two parts of this surface — the notes tools and
-`whoami` — sit on Pipedrive **v1, which sunsets 2026-07-31**. If that
-date passes without a v2 `/notes`, those tools break or change shape, and
-a 1.0.0 cut before then would be a promise the API will not let us keep.
-The v1 sunset needs a resolution first.
+`whoami` — sit on Pipedrive **v1, whose 2026-07-31 sunset has passed**.
+
+The gate was written as a prediction — "if that date passes" — rather
+than as something that checks itself, so the date passed and nothing in
+the tree registered it.
+
+Where that leaves 1.0:
+
+- v1 is **out of support, not switched off**. `get_note`, `list_notes`,
+  `manage_note` and `whoami` still answer; last confirmed against a live
+  workspace 2026-09-18.
+- **There is nothing to migrate to.** Measured against Pipedrive's
+  published v2 description on 2026-09-18, `/notes` is absent and
+  `/users` is absent. This is not a port that was skipped; there is no
+  destination. It is also why the startup auth probe uses `/dealFields`.
+  Re-check that claim at each release boundary: if v2 ever grows
+  `/notes`, that is the migration trigger, and nothing here watches for
+  it.
+- So the resolution is not a migration. It is naming which four tools
+  carry the risk, classifying the failure correctly when it arrives
+  (`ErrGone`, not `ErrValidation` — see "MCP error mapping"), and
+  checking rather than predicting. `TestV1CarveOutStillAnswers` in the
+  live suite does the checking, and asserts the aggregate — a
+  retirement fails all four at once, whatever status it arrives as.
+- **That check runs at each release boundary, not continuously.** The
+  live suite needs a token and has no CI job by design
+  (`docs/development.md`), and `make integration-writes` is a per-phase
+  release gate, so the cadence is per tag. A slow watchdog beats a
+  sentence, but it is a slow watchdog: a retirement between tags is
+  found by a user before it is found here.
+- **Still open, and a decision for 1.0:** from 1.0.0 a breaking change
+  needs a MAJOR bump, and these four tools sit on an API a third party
+  can retire at will — which hands that third party the power to force
+  one. This document does not yet say what the project does on the day.
+  Pre-committing (for instance: the v1 carve-out tools sit outside the
+  1.0 compatibility promise and are removed in a MINOR if v1 stops
+  answering) would turn a forced MAJOR into a disclosed carve-out. That
+  is a maintainer decision and has not been made.
 
 Each phase boundary requires explicit maintainer approval before the next
 phase starts.

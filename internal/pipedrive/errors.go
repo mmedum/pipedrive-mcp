@@ -16,6 +16,7 @@ var (
 	ErrForbiddenBusinessRule = errors.New("pipedrive: forbidden (business rule)")
 	ErrNotFound              = errors.New("pipedrive: not found")
 	ErrRateLimited           = errors.New("pipedrive: rate limited")
+	ErrGone                  = errors.New("pipedrive: gone")
 	ErrServerError           = errors.New("pipedrive: server error")
 	ErrValidation            = errors.New("pipedrive: validation")
 )
@@ -60,7 +61,7 @@ type envelope struct {
 // The raw response body is intentionally not retained on APIError.
 // Pipedrive can echo PII back in error bodies; if a future need for
 // debug bodies arises, add a redacting accessor — don't add a field.
-func classify(status int, endpoint string, env envelope) *APIError {
+func classify(status int, version apiVersion, endpoint string, env envelope) *APIError {
 	msg := strings.TrimSpace(env.ErrorMsg)
 	if msg == "" {
 		msg = strings.TrimSpace(env.ErrorInfo)
@@ -80,6 +81,15 @@ func classify(status int, endpoint string, env envelope) *APIError {
 		return mk(ErrNotFound)
 	case status == 429:
 		return mk(ErrRateLimited)
+	case status == 410:
+		// Without this, a 410 fell through `status >= 400` to
+		// ErrValidation and reached the model as "your input was
+		// wrong" — sending it to fix the one thing that was fine. A
+		// retired endpoint is not a caller error and not retryable.
+		if version == apiV1 {
+			msg = withV1Sunset(msg)
+		}
+		return mk(ErrGone)
 	case status >= 500:
 		return mk(ErrServerError)
 	case status >= 400:
@@ -87,6 +97,29 @@ func classify(status int, endpoint string, env envelope) *APIError {
 	}
 	return nil
 }
+
+// withV1Sunset says why a 410 on a v1 path is not the caller's fault
+// and not worth a retry.
+//
+// The four tools on this path — get_note, list_notes, manage_note and
+// whoami — are there because v2 exposes no /notes and no /users at all,
+// so there is nothing to fall back to. Pipedrive's v1 sunset date,
+// 2026-07-31, has passed; v1 is out of support rather than switched
+// off, and this is the message for the day that changes. A caller that
+// reads "validation" retries with different arguments forever; one that
+// reads this tells the user.
+func withV1Sunset(msg string) string {
+	if msg == "" {
+		return v1SunsetNote
+	}
+	return msg + " — " + v1SunsetNote
+}
+
+// v1SunsetNote is the explanation appended to a v1 failure. A package
+// const so the tests assert the same string the caller sees rather than
+// grepping fragments of it.
+const v1SunsetNote = "this endpoint is on Pipedrive API v1, which is past its " +
+	"2026-07-31 sunset and has no v2 equivalent — changing the request will not help"
 
 // Case-insensitive substrings in Pipedrive's upstream `error` field
 // that flag a business-logic 403 rather than a permission 403.

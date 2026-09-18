@@ -66,8 +66,8 @@ rationale captured in the relevant code or doc:
    the zero date `0000-00-00` rather than removing the value. v1's
    `PUT /api/v1/deals/{id}` does clear it with a null, so this is a v2
    gap rather than a Pipedrive-wide one — but reaching for v1 would be a
-   third carve-out on an API that sunsets 2026-07-31. **Decision: this
-   server does not clear fields.** Every optional `manage_*` input reads
+   third carve-out on an API whose 2026-07-31 sunset has passed.
+   **Decision: this server does not clear fields.** Every optional `manage_*` input reads
    "omit to leave it as it is" and the `Update*Request` types stay `*T`
    with `omitempty`. Evidence and the request-by-request table are in
    `docs/architecture.md`, "Clearing a field" — do not re-derive this

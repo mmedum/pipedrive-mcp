@@ -386,8 +386,9 @@ once, up front.
 Pipedrive v2 rejects a null and stores an empty string as a value, so
 neither empties a field. v1 clears correctly, which is how we know it is
 a v2 gap and not a law of nature — but reaching for it would be a third
-carve-out on an API that sunsets 2026-07-31. Every optional input reads
-"omit to leave it as it is". `docs/architecture.md`, "Clearing a field",
+carve-out on an API whose 2026-07-31 sunset has PASSED. Every optional
+input reads "omit to leave it as it is". `docs/architecture.md`,
+"Clearing a field",
 has the request-by-request evidence; read it before adding a third state
 to a request struct.
 
