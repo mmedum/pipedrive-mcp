@@ -74,6 +74,10 @@ func init() {
 			run: smokeGate, args: "binary TARGET",
 			doc: "drive an MCP handshake over stdio and read the reply",
 		},
+		"descriptions": {
+			run: descriptionsGate, args: "SCHEMA_DUMP",
+			doc: "hold the tool descriptions against the mechanical house-style rules",
+		},
 	}
 }
 

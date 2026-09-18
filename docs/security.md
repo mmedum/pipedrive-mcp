@@ -139,9 +139,35 @@ The destructive surface today:
   plainly is that **nothing in this server sets `active_flag` back**, so
   it should be treated as one-way.
 
-Other destructive tools (`delete_deal`, `detach_product_from_deal`) are
-not on the v1.0 roadmap. Adding any needs an explicit user decision
-captured in the release that introduces them.
+**Deletes on the four v2 resources shipped on an explicit decision
+taken 2026-09-19**, which is what this paragraph used to ask for.
+`manage_deal`, `manage_person`, `manage_organization` and
+`manage_activity` each gained a `delete` action.
+
+They take `dry_run` and `expect_version` and **no permitting flag
+beyond them**, for the reason the note above gives: Pipedrive's v2
+delete is soft and time-boxed — its own documentation says "Marks a
+<resource> as deleted. After 30 days, the <resource> will be
+permanently deleted" — which is the reversible case `trash_file`
+handles the same way. The read each action performs puts the record on
+screen before it goes, so there is nothing the caller cannot already
+see.
+
+Two things the descriptions say plainly rather than guard:
+
+- **Nothing here restores a deleted record.** Pipedrive's own UI can,
+  within the 30-day window. After it, nobody can.
+- **What becomes of the records hanging off a deleted one is not
+  documented by Pipedrive and has not been verified here.** No probe
+  was run, because the only workspace available is a real one. So the
+  descriptions tell the caller to read `list_notes`, `list_activities`,
+  `list_persons` and `list_deals` for the record first, rather than the
+  code guarding against a behaviour nobody has established. If that
+  behaviour is ever established, the guard to add is `force`, on the
+  three parents — an activity is a leaf and would still not need one.
+
+`detach_product_from_deal` remains off the roadmap; products are not
+part of this surface at all.
 
 ## Dry-run
 

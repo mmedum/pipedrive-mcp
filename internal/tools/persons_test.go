@@ -13,6 +13,10 @@ import (
 )
 
 type fakePersonsClient struct {
+	deleteErr    error
+	deleteCalls  int
+	lastDeleteID int64
+
 	person       *pipedrive.Person
 	err          error
 	persons      []pipedrive.Person
@@ -390,4 +394,10 @@ func TestCreatePerson_PropagatesUpstreamError(t *testing.T) {
 	if !strings.HasPrefix(contentText(res), "[validation]") {
 		t.Errorf("error text = %q; want [validation] prefix", contentText(res))
 	}
+}
+
+func (f *fakePersonsClient) DeletePerson(_ context.Context, id int64) error {
+	f.deleteCalls++
+	f.lastDeleteID = id
+	return f.deleteErr
 }

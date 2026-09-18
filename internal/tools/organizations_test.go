@@ -13,6 +13,10 @@ import (
 )
 
 type fakeOrganizationsClient struct {
+	deleteErr    error
+	deleteCalls  int
+	lastDeleteID int64
+
 	org       *pipedrive.Organization
 	err       error
 	orgs      []pipedrive.Organization
@@ -380,4 +384,10 @@ func TestCreateOrganization_PropagatesUpstreamError(t *testing.T) {
 	if !strings.HasPrefix(contentText(res), "[validation]") {
 		t.Errorf("error text = %q; want [validation] prefix", contentText(res))
 	}
+}
+
+func (f *fakeOrganizationsClient) DeleteOrganization(_ context.Context, id int64) error {
+	f.deleteCalls++
+	f.lastDeleteID = id
+	return f.deleteErr
 }

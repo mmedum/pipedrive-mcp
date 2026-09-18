@@ -14,6 +14,7 @@ type personsClient interface {
 	ListPersons(ctx context.Context, opts pipedrive.ListPersonsOptions) ([]pipedrive.Person, string, error)
 	CreatePerson(ctx context.Context, req pipedrive.CreatePersonRequest) (*pipedrive.Person, error)
 	UpdatePerson(ctx context.Context, id int64, req pipedrive.UpdatePersonRequest) (*pipedrive.Person, error)
+	DeletePerson(ctx context.Context, id int64) error
 	ResolvePersonCustomFields(ctx context.Context, raw map[string]any) map[string]any
 	EncodePersonCustomFields(ctx context.Context, in map[string]any) (pipedrive.CustomFieldWrite, error)
 }
@@ -125,7 +126,7 @@ func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string, opts 
 	registerManagePerson(s, c, companyDomain, opts)
 }
 
-var allowedPersonActions = map[string]bool{"create": true, "update": true}
+var allowedPersonActions = map[string]bool{"create": true, "update": true, "delete": true}
 
 // personBaseFields is the table of LLM-facing field names a write can
 // touch that every person has. A workspace's own custom fields are
@@ -151,7 +152,7 @@ var personBaseFields = []fieldSpec[pipedrive.Person]{
 }
 
 type managePersonInput struct {
-	Action        string                   `json:"action" jsonschema:"create or update"`
+	Action        string                   `json:"action" jsonschema:"create, update or delete"`
 	PersonID      int64                    `json:"person_id,omitempty" jsonschema:"the person to act on, required by update and ignored by create"`
 	Name          *string                  `json:"name,omitempty" jsonschema:"the person's full name, required by create. If the user did not give you a name, ask — do NOT invent one"`
 	FirstName     *string                  `json:"first_name,omitempty" jsonschema:"first or given name; Pipedrive combines first_name and last_name into name, and passing all three is fine"`
@@ -177,7 +178,7 @@ func registerManagePerson(s *mcp.Server, c personsClient, companyDomain string, 
 
 	AddTool(s, &mcp.Tool{
 		Name:        "manage_person",
-		Description: "Create a contact or edit one. One call, either action: create takes name, update takes person_id. Writing is guarded, and update reads the person before it writes, so a write is two API calls. It refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. IMPORTANT: emails and phones REPLACE the stored collection rather than adding to it, because that is what Pipedrive does with them — to add an address, read the person first and send the existing entries back alongside the new one, or you will silently drop the rest. Pipedrive derives `name` from `first_name` and `last_name`, so changing either reports `name` as changed too — a dry run predicts only the field you set, and the write reports what actually moved. Custom fields ARE writable here: pass custom_fields keyed by the names get_person reports, and give a dropdown its label rather than an option id. Use search to turn a company name into the org_id this links to.",
+		Description: "Create a contact, edit one, or delete one. One call, whichever action: create takes name, update and delete take person_id. Writing is guarded, and update reads the person before it writes, so a write is two API calls. It refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. IMPORTANT: emails and phones REPLACE the stored collection rather than adding to it, because that is what Pipedrive does with them — to add an address, read the person first and send the existing entries back alongside the new one, or you will silently drop the rest. Pipedrive derives `name` from `first_name` and `last_name`, so changing either reports `name` as changed too — a dry run predicts only the field you set, and the write reports what actually moved. Custom fields ARE writable here: pass custom_fields keyed by the names get_person reports, and give a dropdown its label rather than an option id. Deleting is soft and time-boxed: Pipedrive marks the person deleted and removes it permanently after 30 days, so it takes dry_run and expect_version and no permitting flag beyond them — within that window Pipedrive's own UI can restore it, but NOTHING HERE PUTS IT BACK, so treat it as one-way and rehearse with dry_run first. What becomes of the deals, notes and activities hanging off a deleted person is not documented by Pipedrive and is not verified here, so read them first when the contact has history. Use search to turn a company name into the org_id this links to.",
 		Annotations: mutatingAnnotations(),
 	}, managePersonHandler(c, companyDomain, opts.DryRun))
 }
@@ -193,9 +194,12 @@ func managePersonHandler(c personsClient, companyDomain string, dryRun bool) mcp
 			res *mcp.CallToolResult
 			out managePersonOutput
 		)
-		if in.Action == "create" {
+		switch in.Action {
+		case "create":
 			res, out = createPersonAction(ctx, c, companyDomain, in)
-		} else {
+		case "delete":
+			res, out = deletePersonAction(ctx, c, companyDomain, in)
+		default:
 			res, out = updatePersonAction(ctx, c, companyDomain, in)
 		}
 		if res == nil {
@@ -352,4 +356,42 @@ func summarizePerson(domain string, p *pipedrive.Person, customFields map[string
 		CustomFields: customFields,
 		URL:          pipedrive.WebURL(domain, pipedrive.WebURLPerson, p.ID),
 	}
+}
+
+// deletePersonAction marks a person deleted.
+//
+// dry_run and expect_version, and nothing else. Pipedrive's delete is
+// soft and time-boxed, which is the reversible case, and a guard is
+// only added where the caller cannot see what they are about to lose —
+// the read this performs puts the person on screen first.
+//
+// It does not pretend to know what becomes of the records hanging off
+// this one. Pipedrive does not document that and nothing here has
+// verified it, so the description warns rather than the code guarding
+// against a behaviour nobody has established.
+//
+// There is no already-deleted short-circuit, unlike manage_deal's,
+// because there is nothing here to read one from: a deal carries
+// status "deleted", but pipedrive.Person has no deleted marker and
+// cannot grow one — the v2 response fixture spec_test.go checks against
+// does not declare is_deleted for this resource, so the tag would fail
+// the gate. A second delete reaches Pipedrive and is reported as
+// whatever Pipedrive answers.
+func deletePersonAction(ctx context.Context, c personsClient, companyDomain string, in managePersonInput) (*mcp.CallToolResult, managePersonOutput) {
+	if err := validatePositiveID(in.PersonID, "personid"); err != nil {
+		return errorResult(err), managePersonOutput{}
+	}
+	before, err := c.GetPerson(ctx, in.PersonID)
+	if err != nil {
+		return errorResult(err), managePersonOutput{}
+	}
+	if err := checkExpectVersion(in.ExpectVersion, before.UpdateTime, fmt.Sprintf("person %d", in.PersonID)); err != nil {
+		return errorResult(err), managePersonOutput{}
+	}
+	if !in.DryRun {
+		if err := c.DeletePerson(ctx, in.PersonID); err != nil {
+			return errorResult(err), managePersonOutput{}
+		}
+	}
+	return nil, managePersonOutput{Person: resolvedPerson(ctx, c, companyDomain, before), Changed: []string{"is_deleted"}}
 }

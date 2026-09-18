@@ -200,3 +200,16 @@ func (c *Client) ListActivities(ctx context.Context, opts ListActivitiesOptions)
 	}
 	return resp.Data, resp.AdditionalData.NextCursor, nil
 }
+
+// DeleteActivity marks a activity as deleted. Pipedrive's delete is SOFT and
+// time-boxed — its documentation says "Marks a activity as deleted.
+// After 30 days, the activity will be permanently deleted." Within that
+// window the row still exists, carrying is_deleted; nothing in this
+// server puts it back, and Pipedrive's own UI is what can.
+//
+// The response carries only the id, so there is nothing typed to
+// return: a caller that wants the record's final state reads it before
+// deleting, which the guarded-write path does anyway.
+func (c *Client) DeleteActivity(ctx context.Context, id int64) error {
+	return c.deleteV2(ctx, "/activities/"+strconv.FormatInt(id, 10))
+}

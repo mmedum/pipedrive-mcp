@@ -198,3 +198,16 @@ func (c *Client) ListDeals(ctx context.Context, opts ListDealsOptions) ([]Deal, 
 	}
 	return resp.Data, resp.AdditionalData.NextCursor, nil
 }
+
+// DeleteDeal marks a deal as deleted. Pipedrive's delete is SOFT and
+// time-boxed — its documentation says "Marks a deal as deleted.
+// After 30 days, the deal will be permanently deleted." Within that
+// window the row still exists, carrying is_deleted; nothing in this
+// server puts it back, and Pipedrive's own UI is what can.
+//
+// The response carries only the id, so there is nothing typed to
+// return: a caller that wants the record's final state reads it before
+// deleting, which the guarded-write path does anyway.
+func (c *Client) DeleteDeal(ctx context.Context, id int64) error {
+	return c.deleteV2(ctx, "/deals/"+strconv.FormatInt(id, 10))
+}
