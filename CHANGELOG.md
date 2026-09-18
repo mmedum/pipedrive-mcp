@@ -11,6 +11,27 @@ error message wording, and log line formats are not part of the contract.
 Pre-1.0 minor releases may break the tool surface. From 1.0.0 onwards,
 breaking changes require a MAJOR bump.
 
+## [Unreleased]
+
+### Fixed
+
+- **`SECURITY.md` said the shipped release was unsupported.** The
+  supported-versions table was written forward — `1.x (current)`,
+  `0.9.x`, `< 0.9 → no` — and stood that way through five releases, so
+  the published security policy told every user of every shipped
+  release that it received no patches. It now describes what is
+  shipped, and updating it is a step in the release runbook rather than
+  something to remember.
+
+- **`README.md` named five of the seven self-authorising transitions**,
+  omitting `archive` and `unarchive` and so telling a reader those two
+  need an `overwrite` they do not take. This is the defect v0.5.0 added
+  `TestInstructionsNameEverySelfAuthorisingAction` to catch, one
+  document over: that gate reads the MCP instructions string and
+  nothing read the README. The check is now one helper asserting the
+  same sentence against the same `tools.SelfAuthorisingActions()` in
+  both documents.
+
 ## [0.5.0] - 2026-09-18
 
 ### Added
