@@ -50,7 +50,7 @@ type dealSummary struct {
 	LostReason        string         `json:"lost_reason,omitempty" jsonschema:"free-text reason recorded when the deal was marked lost"`
 	AddTime           string         `json:"add_time,omitempty" jsonschema:"timestamp the deal was created"`
 	UpdateTime        string         `json:"update_time,omitempty" jsonschema:"timestamp the deal was last updated"`
-	Probability       *int           `json:"probability,omitempty" jsonschema:"deal probability override (0-100); null when the stage default applies"`
+	Probability       *float64       `json:"probability,omitempty" jsonschema:"deal probability override (0-100); null when the stage default applies"`
 	CustomFields      map[string]any `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label; an unrecognised field or option falls through under its stored key"`
 	URL               string         `json:"url" jsonschema:"link to the deal in the Pipedrive web UI"`
 }
@@ -199,7 +199,7 @@ var dealBaseFields = []fieldSpec[pipedrive.Deal]{
 	{"person_id", func(d *pipedrive.Deal) string { return projectID(d.PersonID) }},
 	{"org_id", func(d *pipedrive.Deal) string { return projectID(d.OrgID) }},
 	{"expected_close_date", func(d *pipedrive.Deal) string { return d.ExpectedCloseDate }},
-	{"probability", func(d *pipedrive.Deal) string { return projectOptInt(d.Probability) }},
+	{"probability", func(d *pipedrive.Deal) string { return projectOptFloat(d.Probability) }},
 	{"lost_reason", func(d *pipedrive.Deal) string { return d.LostReason }},
 }
 
@@ -219,7 +219,7 @@ type manageDealInput struct {
 	PersonID          *int64         `json:"person_id,omitempty" jsonschema:"the linked contact. Omit to leave it as it is; unlinking is not supported here"`
 	OrgID             *int64         `json:"org_id,omitempty" jsonschema:"the linked organization. Omit to leave it as it is; unlinking is not supported here"`
 	ExpectedCloseDate *string        `json:"expected_close_date,omitempty" jsonschema:"YYYY-MM-DD the deal is expected to close. Omit to leave it as it is: Pipedrive v2 offers no way to remove a date once set, so this can only be changed, never cleared"`
-	Probability       *int           `json:"probability,omitempty" jsonschema:"probability override from 0 to 100; omit to let the stage's own default apply"`
+	Probability       *float64       `json:"probability,omitempty" jsonschema:"probability override from 0 to 100; omit to let the stage's own default apply"`
 	LostReason        *string        `json:"lost_reason,omitempty" jsonschema:"why the deal was lost, for mark_lost. Free text Pipedrive keeps and reports on: if the user did not give a reason, leave this blank — do NOT invent one"`
 	CustomFields      map[string]any `json:"custom_fields,omitempty" jsonschema:"this workspace's own fields, keyed by the name get_deal reports — a dropdown takes its label, a multi-select a list of labels, everything else the plain value. Only create and update read this; the transitions ignore it, as they ignore every descriptive field. Omit a field to leave it as it is; a field cannot be cleared"`
 	DryRun            bool           `json:"dry_run,omitempty" jsonschema:"report what the write would find and change, and send nothing"`

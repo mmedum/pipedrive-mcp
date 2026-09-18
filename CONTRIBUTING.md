@@ -56,9 +56,9 @@ GitHub Release.
 
 ### Phase 0 spike checklist
 
-Two questions remain pending until they are exercised against the
-Pipedrive sandbox, and must be resolved with the rationale captured in
-the relevant code or doc:
+One question remains pending — the 403 heuristic, which needs a second
+account to produce both kinds of 403. It must be resolved with the
+rationale captured in the relevant code or doc:
 
 1. ~~**Field-clearing mechanism on PATCH.**~~ **ANSWERED 2026-09-16.**
    v2 accepts neither: `{"expected_close_date": null}` is rejected
@@ -77,9 +77,28 @@ the relevant code or doc:
    deal, gated stage). Tighten the `businessRule403Signals` list in
    `internal/pipedrive/errors.go` based on the recorded response
    bodies; commit the bodies as test fixtures.
-3. **Hand-rolled HTTP vs. OpenAPI generator.** Inspect Pipedrive's
-   OpenAPI spec coverage and run a small generator. Default remains
-   hand-rolled; switch only if the spike surfaces a strong reason.
+3. ~~**Hand-rolled HTTP vs. OpenAPI generator.**~~ **ANSWERED
+   2026-09-18.** The client stays hand-rolled, and the spec is adopted
+   as a TEST ORACLE rather than a code input. Measured against the
+   published v2 description: 85 paths, 158 operations, **zero `$ref`**,
+   and the only declared response statuses across the whole document are
+   `200`, `201` and four `404`s. Generating the full client produces
+   44,762 lines with no shared `Deal` type — `/deals` and `/deals/{id}`
+   each inline the same 32 fields — and nothing for `errors.go` to be
+   built from. Generating models-only, pruned to the 14 operations this
+   server uses, emits 725 lines that are **all** `*Params` types and no
+   response models at all, because with no `$ref` the response shapes
+   exist only inside the client's anonymous structs. The usual hybrid
+   (generated types, hand-written transport) is therefore not available
+   from this spec.
+
+   What the spike found instead is that the hand-written mirror had
+   drifted three times, all confirmed live and all now fixed, and that
+   the spec catches exactly that class. `internal/pipedrive/spec_test.go`
+   holds the struct tags against
+   `internal/pipedrive/testdata/v2-response-fields.json`. Refreshing the
+   fixture is a step in `docs/release.md`. Rationale in
+   `docs/architecture.md`, "Hand-rolled HTTP".
 
 Outcomes update `internal/pipedrive/`, `docs/architecture.md`, and
 `CHANGELOG.md`. There is no separate ADR file — the rationale lives

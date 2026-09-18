@@ -3,22 +3,27 @@ package pipedrive
 // Pipeline is a Pipedrive pipeline (a deal flow grouping). Subset of the
 // /api/v2/pipelines response that we surface to LLM clients.
 type Pipeline struct {
-	ID      int64  `json:"id"`
-	Name    string `json:"name"`
-	OrderNr int    `json:"order_nr"`
-	Active  bool   `json:"active"`
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	OrderNr   int    `json:"order_nr"`
+	IsDeleted bool   `json:"is_deleted"`
 }
 
 // Stage is a Pipedrive stage within a pipeline. Subset of /api/v2/stages.
 //
-// Note: Active maps to the upstream `active_flag` field, while Pipeline
-// uses `active`. This is Pipedrive's API, not a copy-paste error —
-// confirmed against /api/v2/stages and /api/v2/pipelines responses.
+// IsDeleted, not an active flag. A comment here used to say that
+// Pipeline reads `active` while Stage reads `active_flag`, and that both
+// had been confirmed against the live endpoints. Neither field exists on
+// v2 — both resources carry is_deleted — so both decoded to false for
+// every record and the tools reported every pipeline and stage in the
+// workspace as inactive. Both spellings are v1 vocabulary that came
+// across in the port. TestUpstreamTypesMatchTheSpec is what now holds
+// this against Pipedrive's own description of the response.
 type Stage struct {
 	ID              int64  `json:"id"`
 	Name            string `json:"name"`
 	OrderNr         int    `json:"order_nr"`
-	Active          bool   `json:"active_flag"`
+	IsDeleted       bool   `json:"is_deleted"`
 	PipelineID      int64  `json:"pipeline_id"`
 	DealProbability int    `json:"deal_probability"`
 }
@@ -84,7 +89,7 @@ type Deal struct {
 	LostReason        string         `json:"lost_reason,omitempty"`
 	AddTime           string         `json:"add_time"`
 	UpdateTime        string         `json:"update_time"`
-	Probability       *int           `json:"probability,omitempty"`
+	Probability       *float64       `json:"probability,omitempty"`
 	CustomFields      map[string]any `json:"custom_fields,omitempty"`
 }
 
