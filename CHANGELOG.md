@@ -11,43 +11,20 @@ error message wording, and log line formats are not part of the contract.
 Pre-1.0 minor releases may break the tool surface. From 1.0.0 onwards,
 breaking changes require a MAJOR bump.
 
-## [Unreleased]
-
-### Fixed
-
-- **`list_deals` was quietly short.** Pipedrive moved archived deals to
-  their own collection on 2025-07-15 and stopped returning them from
-  `/deals`; nothing here knew. An archived deal was absent from every
-  list, `get_deal` could not say a deal was archived, and `manage_deal`
-  met a bare 403 with no way to explain it. Deals now carry
-  `is_archived`, `list_deals` takes `archived` to read the other
-  collection — no filter reaches it, so that is the only way in — and
-  `manage_deal` gains `archive` and `unarchive`. An edit to an archived
-  deal is refused by the read the write already does, naming the action
-  that fixes it rather than passing the 403 along.
-
-- **Every pipeline and stage reported itself inactive.** `Pipeline` read
-  `active` and `Stage` read `active_flag`; v2 returns neither — both
-  carry `is_deleted` — so both decoded to `false` for every record, and
-  `list_pipelines` told the model each pipeline was inactive under a
-  schema description saying exactly that. Both spellings are v1
-  vocabulary that came across in the port, and the comment above them
-  claimed they had been confirmed against the live v2 endpoints. The
-  LLM-facing `active` field keeps its name and now means something:
-  `is_deleted` inverted.
-
-- **`people_count` was promised and never sent.** v2 returns it only when
-  a read asks through `include_fields`, which this client never did, so
-  the field was absent from every organization while three tool
-  descriptions listed it. Every organization read now requests it.
-
-- **One fractional deal probability failed a whole page.** `Probability`
-  was `*int` where Pipedrive declares `number`. Go's decoder refuses
-  `12.5` into an `int` and the client returns that error, so a single
-  such deal made `list_deals` fail rather than returning the page. It is
-  `*float64` now, on the record, the request and the LLM-facing summary.
+## [0.5.0] - 2026-09-18
 
 ### Added
+
+- **Two gates against documentation drifting from code**, both watched
+  failing before being believed. `TestInstructionsNameEverySelfAuthorisingAction`
+  holds the MCP instructions' transition sentence against the actions
+  that actually grant their own overwrite — the first version of that
+  test searched the whole instructions string and passed while the bug
+  was present, because "archive" also appears in the paragraph warning
+  that archiving is not closing. And `gates changelog-links`, now in
+  `make check`, asserts every `## [x.y.z]` heading has its link
+  definition and that `[Unreleased]` compares from the newest release;
+  v0.4.0 shipped with neither and it took a release to notice.
 
 - **The upstream types are held against Pipedrive's own OpenAPI
   description.** `internal/pipedrive/spec_test.go` walks the `json` tags
@@ -68,23 +45,6 @@ breaking changes require a MAJOR bump.
   depends on while the spec has never declared it, and `people_count`,
   which is an `include_fields` value rather than part of the default
   response.
-
-### Changed
-
-- **The `/simplify` findings 0.4.0 deferred are taken.** `dealRequestFor`
-  returns an `error` like every other validator in the package rather
-  than a `*mcp.CallToolResult`. `manage_deal` and `manage_activity` each
-  have one action table saying whether an action creates and whether it
-  authorises its own overwrite — the guard used to read
-  `in.Action != "update"`, which states the rule by exclusion, so a new
-  action was a transition unless it happened to be named update.
-  `testutil.CallTool` and `CallToolInto` replaced 57 of the 91
-  hand-rolled connect-call-decode blocks in the tests. `projectString`,
-  an identity function wrapped at 19 table entries, is gone, and
-  `populatedFields` scans the handful of names a write touches instead
-  of building a set to search them.
-
-### Added
 
 - **Custom fields are writable.** `manage_deal`, `manage_person` and
   `manage_organization` take a `custom_fields` object keyed by the names
@@ -174,6 +134,19 @@ breaking changes require a MAJOR bump.
 
 ### Changed
 
+- **The `/simplify` findings 0.4.0 deferred are taken.** `dealRequestFor`
+  returns an `error` like every other validator in the package rather
+  than a `*mcp.CallToolResult`. `manage_deal` and `manage_activity` each
+  have one action table saying whether an action creates and whether it
+  authorises its own overwrite — the guard used to read
+  `in.Action != "update"`, which states the rule by exclusion, so a new
+  action was a transition unless it happened to be named update.
+  `testutil.CallTool` and `CallToolInto` replaced 57 of the 91
+  hand-rolled connect-call-decode blocks in the tests. `projectString`,
+  an identity function wrapped at 19 table entries, is gone, and
+  `populatedFields` scans the handful of names a write touches instead
+  of building a set to search them.
+
 - **A dropdown custom field now reads as its label, not its option id.**
   `get_deal`, `get_person`, `get_organization`, the three `list_` tools
   and the resource templates all resolved a custom field's *key* to the
@@ -197,6 +170,72 @@ breaking changes require a MAJOR bump.
   object — but the tool and field *descriptions* do, and descriptions are
   part of the dumped schema, so the schema-diff gate sees this change and
   the commit carries a `SCHEMA-CHANGE:` footer.
+
+### Fixed
+
+- **The docs promised an audit trail that has never existed, in three
+  places.** `docs/security.md` said dry-run invocations are logged at
+  `info` for an operator to audit, and its "LLM audit trail" section
+  documented an incident-response procedure built on correlating a
+  `request_id` in the server's stderr — a field that appears nowhere in
+  the source. `docs/configuration.md` carried the same dry-run promise,
+  and `docs/operations.md` asked bug reporters to supply that
+  `request_id`. `internal/tools` holds no logger at all, so a successful
+  write produces no log line and a rehearsal leaves no trace. An
+  operator following that run book after a surprising write would have
+  found nothing, and an absent log reads as a quiet period rather than a
+  missing feature. All three now say so and point at the two trails that
+  do exist: Pipedrive's own change record, and the MCP client's
+  transcript.
+
+- **The server's own MCP instructions told every client that custom
+  fields were "not yet writable".** That is the first thing a connecting
+  LLM reads, and this release makes it false on three resources. The
+  tool descriptions and the README were updated when the capability
+  landed; the server-level instructions were not, so a model would have
+  believed a capability it had was unavailable. They now also name
+  `archive` and `unarchive` among the self-authorising transitions, and
+  say that a dropdown reads back as its label. Found by the v0.5.0
+  release security review.
+
+- **`docs/security.md` promised an audit trail that has never
+  existed.** It said dry-run invocations are logged at `info` with
+  `dry_run=true` so an operator could audit what the LLM tried;
+  `internal/tools` emits no log records at all. An operator relying on
+  that sentence would have found nothing. It now says so, and points at
+  the roadmap entry for the log line that would make it true.
+
+- **`list_deals` was quietly short.** Pipedrive moved archived deals to
+  their own collection on 2025-07-15 and stopped returning them from
+  `/deals`; nothing here knew. An archived deal was absent from every
+  list, `get_deal` could not say a deal was archived, and `manage_deal`
+  met a bare 403 with no way to explain it. Deals now carry
+  `is_archived`, `list_deals` takes `archived` to read the other
+  collection — no filter reaches it, so that is the only way in — and
+  `manage_deal` gains `archive` and `unarchive`. An edit to an archived
+  deal is refused by the read the write already does, naming the action
+  that fixes it rather than passing the 403 along.
+
+- **Every pipeline and stage reported itself inactive.** `Pipeline` read
+  `active` and `Stage` read `active_flag`; v2 returns neither — both
+  carry `is_deleted` — so both decoded to `false` for every record, and
+  `list_pipelines` told the model each pipeline was inactive under a
+  schema description saying exactly that. Both spellings are v1
+  vocabulary that came across in the port, and the comment above them
+  claimed they had been confirmed against the live v2 endpoints. The
+  LLM-facing `active` field keeps its name and now means something:
+  `is_deleted` inverted.
+
+- **`people_count` was promised and never sent.** v2 returns it only when
+  a read asks through `include_fields`, which this client never did, so
+  the field was absent from every organization while three tool
+  descriptions listed it. Every organization read now requests it.
+
+- **One fractional deal probability failed a whole page.** `Probability`
+  was `*int` where Pipedrive declares `number`. Go's decoder refuses
+  `12.5` into an `int` and the client returns that error, so a single
+  such deal made `list_deals` fail rather than returning the page. It is
+  `*float64` now, on the record, the request and the LLM-facing summary.
 
 ## [0.4.0] - 2026-09-17
 
@@ -1428,7 +1467,9 @@ destructive flag is on.
   External callers can still branch on the error class via `errors.Is`
   and read `Status`/`Message`/`Endpoint`.
 
-[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/mmedum/pipedrive-mcp/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/mmedum/pipedrive-mcp/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.2.0...v0.3.0

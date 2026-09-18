@@ -247,10 +247,11 @@ tool.
 
 ### What is not here
 
-Products, leads, files, projects and goals have no tools yet. Custom
-fields are readable everywhere and **not writable** — edit them in the
-Pipedrive UI. Two things the API itself cannot do, which no retry will
-fix: activity type cannot be filtered server-side (ask for the rows and
+Products, leads, files, projects and goals have no tools yet. **No field
+can be cleared** once it holds a value — Pipedrive v2 rejects a null and
+stores an empty string as a value, so a field can be changed but not
+emptied. Two more the API itself cannot do, which no retry will fix:
+activity type cannot be filtered server-side (ask for the rows and
 filter on their `type`), and activities are not indexed by `search`
 (reach them through `list_activities`).
 
@@ -344,10 +345,11 @@ race tests with a per-package coverage floor, `govulncheck`, a licence
 allow-list, a leak gate refusing anything that looks like a real account's
 data in the working tree, a pinned-version gate holding every action to a
 commit SHA and every tool it installs to an exact version, a staleness
-gate over the dependency pins, and a stdio smoke test. CI adds a schema
-diff against the base branch that fails an unacknowledged change to the
-tool surface, and a changelog gate that fails source changes with no
-entry under `[Unreleased]`.
+gate over the dependency pins, a manifest gate holding the installable
+bundle to its schema, a link gate over the changelog's version headings,
+and a stdio smoke test. CI adds a schema diff against the base branch
+that fails an unacknowledged change to the tool surface, and a changelog
+gate that fails source changes with no entry under `[Unreleased]`.
 
 Conventions are in [CONTRIBUTING.md](CONTRIBUTING.md); building, testing
 and releasing are in [docs/development.md](docs/development.md) and

@@ -314,7 +314,7 @@ func createDealAction(ctx context.Context, c dealsClient, companyDomain string, 
 	}
 }
 
-// writeDealAction serves update and the four transitions. They share
+// writeDealAction serves update and every transition. They share
 // everything but which request they build and whether the overwrite
 // guard applies, so splitting them further would duplicate the
 // read-guard-write spine four more times.

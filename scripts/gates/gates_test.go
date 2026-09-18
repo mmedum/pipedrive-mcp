@@ -123,6 +123,73 @@ func TestAddedUnderUnreleasedCountsNothingWhenTheSectionIsUntouched(t *testing.T
 	}
 }
 
+// Cutting a release renames [Unreleased] to the version, so the entries
+// being released sit under a heading this gate would otherwise read as
+// already published. It failed exactly that way on the v0.5.0 cut. The
+// cut excuses only the heading it cut: entries parked under an older
+// released heading in the same diff stay invisible to a reader of that
+// release, so they must not be what carries the gate.
+func TestAddedUnderUnreleasedCountsTheCutSectionOnly(t *testing.T) {
+	const diff = `@@ -1,8 +1,10 @@
+ # Changelog
+ 
+-## [Unreleased]
++## [0.5.0] - 2026-09-18
++- the entry being released
+ 
+ ## [0.4.0] - 2026-09-17
++- parked under a shipped release
+ - the old entry
+`
+	if got := addedUnderUnreleased(diff); got != 1 {
+		t.Errorf("counted %d, want 1: only the cut section counts", got)
+	}
+}
+
+// Without the cut, a version heading is just a released section, and
+// this is the case the gate exists for. It also pins that the cut is
+// read off the diff rather than assumed: hard-coding it true passes
+// every other test in this file.
+func TestAddedUnderUnreleasedIgnoresAnUncutVersionHeading(t *testing.T) {
+	const diff = `@@ -1,8 +1,10 @@
+ # Changelog
+ 
+ ## [Unreleased]
+ 
++## [0.5.0] - 2026-09-18
++- added under a heading this diff did not cut
+ 
+ ## [0.4.0] - 2026-09-17
+ - the old entry
+`
+	if got := addedUnderUnreleased(diff); got != 0 {
+		t.Errorf("counted %d, want 0: no [Unreleased] heading was cut", got)
+	}
+}
+
+// The hint exists for the one failure that looks wrong: entries were
+// added, under a version heading, and the gate still refused. It must
+// not fire on a cut, where the gate passes and the hint would confuse.
+func TestCutHintOnlyFiresWithoutACut(t *testing.T) {
+	const parked = `@@ -1,4 +1,6 @@
+ ## [Unreleased]
+ 
++## [0.5.0] - 2026-09-18
++- added under a heading this diff did not cut
+`
+	if cutHint(parked) == "" {
+		t.Error("a new section that was not cut from [Unreleased] got no hint")
+	}
+	const cut = `@@ -1,4 +1,5 @@
+-## [Unreleased]
++## [0.5.0] - 2026-09-18
++- the entry being released
+`
+	if got := cutHint(cut); got != "" {
+		t.Errorf("a release cut got a hint it cannot act on: %q", got)
+	}
+}
+
 func TestPinnedWithReasonNeedsTheReason(t *testing.T) {
 	const gomod = `module example.com/x
 

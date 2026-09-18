@@ -5,12 +5,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/mmedum/pipedrive-mcp/internal/config"
 	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
+	"github.com/mmedum/pipedrive-mcp/internal/tools"
 )
 
 func TestNew_ReturnsServer(t *testing.T) {
@@ -118,4 +120,41 @@ func TestNew_WarmGoroutineCancelsWithParentContext(t *testing.T) {
 	// signature contract (parent ctx is accepted and propagated)
 	// without requiring goroutine introspection.
 	_ = ctx
+}
+
+// The instructions string is the first thing a connecting LLM reads, and
+// it states in prose a set that code owns. Prose drifts: v0.5.0 needed a
+// release-prep commit whose whole job was fixing this string, because it
+// still told every client custom fields were "not yet writable" after
+// they became writable, and it left archive and unarchive out of the
+// transitions that need no overwrite. Nothing tested it, so nothing
+// said.
+//
+// This holds the sentence against the structure it mirrors. It cannot
+// tell prose from truth — no test can — but it closes the half that is
+// mechanical, which is the half that broke.
+func TestInstructionsNameEverySelfAuthorisingAction(t *testing.T) {
+	// The SENTENCE, not the whole string. Searching the whole thing
+	// passes on an action named anywhere for any reason — "archive"
+	// also appears in the paragraph warning that archiving is not
+	// closing — so a check written that way stays green while the
+	// transition list is wrong, which is the exact bug it is here to
+	// catch.
+	const (
+		opener = "The named transitions — "
+		closer = " — take no overwrite"
+	)
+	i := strings.Index(instructions, opener)
+	j := strings.Index(instructions, closer)
+	if i < 0 || j < i {
+		t.Fatalf("the instructions no longer carry a %q ... %q sentence; this test is asserting on nothing", opener, closer)
+	}
+	sentence := instructions[i+len(opener) : j]
+
+	for _, action := range tools.SelfAuthorisingActions() {
+		if !strings.Contains(sentence, action) {
+			t.Errorf("the transition sentence does not name %q, which grants its own overwrite; "+
+				"a caller reading it asks permission the tool does not require. Sentence: %q", action, sentence)
+		}
+	}
 }

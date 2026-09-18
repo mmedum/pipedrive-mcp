@@ -47,7 +47,7 @@ func changelogGate(w io.Writer, args []string) error {
 			strings.Join(watchedPaths, ", "))
 	}
 	if n := addedUnderUnreleased(diff); n == 0 {
-		return fmt.Errorf("CHANGELOG.md changed but no new lines under [Unreleased]")
+		return fmt.Errorf("CHANGELOG.md changed but no new lines under [Unreleased]%s", cutHint(diff))
 	} else {
 		_, _ = fmt.Fprintf(w, "CHANGELOG entry under [Unreleased] confirmed (%d added lines)\n", n)
 	}
@@ -68,19 +68,59 @@ func touchesWatched(nameOnlyDiff string) bool {
 // addedUnderUnreleased counts added lines sitting under the [Unreleased]
 // heading, reading the diff as a state machine the way the shell version
 // did: a heading line, added or unchanged, switches the section.
+//
+// A RELEASE CUT is the one case where the entries do not sit under
+// [Unreleased] and are still in the right place: cutting a release
+// renames that heading to the version, so a pull request that both cuts
+// the release and touches watched source could never satisfy this gate.
+// It failed exactly that way on the v0.5.0 cut. When the diff removes
+// the [Unreleased] heading, the version heading that replaced it is
+// treated as the unreleased section — which is what it was, one commit
+// ago, and the entries under it are the ones being released.
 func addedUnderUnreleased(diff string) int {
+	cut := isReleaseCut(diff)
 	count, inHunk, inUnreleased := 0, false, false
 	for _, line := range strings.Split(diff, "\n") {
 		switch {
 		case strings.HasPrefix(line, "@@"):
 			inHunk = true
 		case inHunk && (strings.HasPrefix(line, "+## [") || strings.HasPrefix(line, " ## [")):
-			inUnreleased = strings.Contains(line, "[Unreleased]")
+			inUnreleased = strings.Contains(line, "[Unreleased]") ||
+				(cut && strings.HasPrefix(line, "+## ["))
 		case inHunk && inUnreleased && strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
 			count++
 		}
 	}
 	return count
+}
+
+// isReleaseCut reports whether the diff renames [Unreleased] to a
+// version, which is what a release-prep change does and nothing else
+// does.
+func isReleaseCut(diff string) bool {
+	for _, line := range strings.Split(diff, "\n") {
+		if strings.HasPrefix(line, "-## [Unreleased]") {
+			return true
+		}
+	}
+	return false
+}
+
+// cutHint explains the one confusing way this gate fails: entries exist,
+// but they are under a version heading that was not cut from
+// [Unreleased] in this diff, so they are invisible to a reader of the
+// release they belong to.
+func cutHint(diff string) string {
+	if isReleaseCut(diff) {
+		return ""
+	}
+	for _, line := range strings.Split(diff, "\n") {
+		if strings.HasPrefix(line, "+## [") {
+			return " — entries were added under a released heading; " +
+				"a new section only counts when this diff also cuts it from [Unreleased]"
+		}
+	}
+	return ""
 }
 
 func git(args ...string) (string, error) {
