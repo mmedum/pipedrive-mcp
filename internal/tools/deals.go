@@ -15,6 +15,7 @@ type dealsClient interface {
 	CreateDeal(ctx context.Context, req pipedrive.CreateDealRequest) (*pipedrive.Deal, error)
 	UpdateDeal(ctx context.Context, id int64, req pipedrive.UpdateDealRequest) (*pipedrive.Deal, error)
 	ResolveDealCustomFields(ctx context.Context, raw map[string]any) map[string]any
+	EncodeDealCustomFields(ctx context.Context, in map[string]any) (pipedrive.CustomFieldWrite, error)
 }
 
 // dealStatusOpen is Pipedrive's default status for a freshly-created
@@ -50,7 +51,7 @@ type dealSummary struct {
 	AddTime           string         `json:"add_time,omitempty" jsonschema:"timestamp the deal was created"`
 	UpdateTime        string         `json:"update_time,omitempty" jsonschema:"timestamp the deal was last updated"`
 	Probability       *int           `json:"probability,omitempty" jsonschema:"deal probability override (0-100); null when the stage default applies"`
-	CustomFields      map[string]any `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name; unknown fields fall through under their internal key"`
+	CustomFields      map[string]any `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label; an unrecognised field or option falls through under its stored key"`
 	URL               string         `json:"url" jsonschema:"link to the deal in the Pipedrive web UI"`
 }
 
@@ -94,7 +95,7 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string, opts Regi
 
 	AddTool(s, &mcp.Tool{
 		Name:        "get_deal",
-		Description: "Fetch a single Pipedrive deal by deal_id. Returns id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, lost_reason, and any custom fields resolved by name. Unknown deal_id returns a [not_found] error.",
+		Description: "Fetch a single Pipedrive deal by deal_id. Returns id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, lost_reason, and any custom fields under their workspace names, dropdown values as labels rather than option ids. Unknown deal_id returns a [not_found] error.",
 		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getDealInput) (*mcp.CallToolResult, getDealOutput, error) {
 		if err := validatePositiveID(in.DealID, "deal_id"); err != nil {
@@ -109,7 +110,7 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string, opts Regi
 
 	AddTool(s, &mcp.Tool{
 		Name:        "list_deals",
-		Description: "List deals filtered by status, pipeline, stage, owner, person, organization, or update window. Returns matching deals with id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, and any custom fields (resolved by name). Default sort is update_time desc — most-recently-touched first, ideal for 'which deals have we been working on lately'. Default limit is 25, max 100. Omit `status` to include every non-deleted deal. For more results, pass the next_cursor from the previous response. To find a deal by name (rather than ID), call `search` with type=deal first — search is the natural-language gateway, list_deals is the precision filter when the IDs are already known.",
+		Description: "List deals filtered by status, pipeline, stage, owner, person, organization, or update window. Returns matching deals with id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, and any custom fields under their workspace names, dropdown values as labels rather than option ids. Default sort is update_time desc — most-recently-touched first, ideal for 'which deals have we been working on lately'. Default limit is 25, max 100. Omit `status` to include every non-deleted deal. For more results, pass the next_cursor from the previous response. To find a deal by name (rather than ID), call `search` with type=deal first — search is the natural-language gateway, list_deals is the precision filter when the IDs are already known.",
 		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listDealsInput) (*mcp.CallToolResult, listDealsOutput, error) {
 		if err := validateEnum(in.Status, "status", allowedDealStatuses); err != nil {
@@ -151,35 +152,55 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string, opts Regi
 	registerManageDeal(s, c, companyDomain, opts)
 }
 
-// allowedDealActions is the closed enum manage_deal dispatches on.
-var allowedDealActions = map[string]bool{
-	"create":     true,
-	"update":     true,
-	"move_stage": true,
-	"mark_won":   true,
-	"mark_lost":  true,
-	"reopen":     true,
+// dealAction is what manage_deal needs to know about one action beyond
+// how to build its request: whether it creates rather than writes, and
+// whether it authorises its own overwrite.
+//
+// A transition does authorise itself — it names both the change and the
+// field it lands on, so the caller already sees the whole blast radius,
+// and only a free-form update needs permission. That used to be spelled
+// as `in.Action != "update"` at the guard, which is a rule stated by
+// exclusion: a new action was a transition unless it happened to be
+// named update, whatever it actually did. Here a new action states what
+// it is, in the same place it is declared to exist at all.
+type dealAction struct {
+	creates    bool
+	transition bool
 }
 
-// dealFields is the one table of LLM-facing field names a write can
-// touch. changedFields and the overwrite guard both walk it.
+// dealActions is the closed enum manage_deal dispatches on.
+var dealActions = map[string]dealAction{
+	"create":     {creates: true},
+	"update":     {},
+	"move_stage": {transition: true},
+	"mark_won":   {transition: true},
+	"mark_lost":  {transition: true},
+	"reopen":     {transition: true},
+}
+
+// dealBaseFields is the table of LLM-facing field names a write can
+// touch that every deal has. A workspace's own custom fields are added
+// per call, so THIS IS NOT THE WHOLE TABLE. A create diffs against
+// dealSpec's result; an update hands this table to guardedWrite and lets
+// its Custom/CustomOf pair extend it. Either way, never diff a write
+// against this alone — the caller's custom fields would fall out of both
+// the report and the overwrite guard, silently.
 //
 // won_time and lost_time are absent because Pipedrive stamps them
-// itself; add_time and update_time likewise. custom_fields are absent
-// because no action here writes them yet.
-var dealFields = []fieldSpec[pipedrive.Deal]{
-	{"title", func(d *pipedrive.Deal) string { return projectString(d.Title) }},
+// itself; add_time and update_time likewise.
+var dealBaseFields = []fieldSpec[pipedrive.Deal]{
+	{"title", func(d *pipedrive.Deal) string { return d.Title }},
 	{"value", func(d *pipedrive.Deal) string { return projectMoney(d.Value) }},
-	{"currency", func(d *pipedrive.Deal) string { return projectString(d.Currency) }},
-	{"status", func(d *pipedrive.Deal) string { return projectString(d.Status) }},
+	{"currency", func(d *pipedrive.Deal) string { return d.Currency }},
+	{"status", func(d *pipedrive.Deal) string { return d.Status }},
 	{"stage_id", func(d *pipedrive.Deal) string { return projectID(d.StageID) }},
 	{"pipeline_id", func(d *pipedrive.Deal) string { return projectID(d.PipelineID) }},
 	{"owner_id", func(d *pipedrive.Deal) string { return projectID(d.OwnerID) }},
 	{"person_id", func(d *pipedrive.Deal) string { return projectID(d.PersonID) }},
 	{"org_id", func(d *pipedrive.Deal) string { return projectID(d.OrgID) }},
-	{"expected_close_date", func(d *pipedrive.Deal) string { return projectString(d.ExpectedCloseDate) }},
+	{"expected_close_date", func(d *pipedrive.Deal) string { return d.ExpectedCloseDate }},
 	{"probability", func(d *pipedrive.Deal) string { return projectOptInt(d.Probability) }},
-	{"lost_reason", func(d *pipedrive.Deal) string { return projectString(d.LostReason) }},
+	{"lost_reason", func(d *pipedrive.Deal) string { return d.LostReason }},
 }
 
 // manageDealInput is the single input shape for every deal mutation.
@@ -187,22 +208,23 @@ var dealFields = []fieldSpec[pipedrive.Deal]{
 // express "unlink this person", and a bare float64 could never express
 // "this deal is worth nothing after all".
 type manageDealInput struct {
-	Action            string   `json:"action" jsonschema:"create, update, move_stage, mark_won, mark_lost or reopen"`
-	DealID            int64    `json:"deal_id,omitempty" jsonschema:"the deal to act on, required by every action except create"`
-	Title             *string  `json:"title,omitempty" jsonschema:"the deal's title, required by create. Give it a name a human would recognise; if the user did not supply one, ask rather than inventing it"`
-	Value             *float64 `json:"value,omitempty" jsonschema:"monetary value in the deal's currency"`
-	Currency          *string  `json:"currency,omitempty" jsonschema:"ISO 4217 code such as USD, EUR or DKK; omit on create to take the workspace default"`
-	PipelineID        *int64   `json:"pipeline_id,omitempty" jsonschema:"the pipeline the deal sits in; list_pipelines reports the ids"`
-	StageID           *int64   `json:"stage_id,omitempty" jsonschema:"the stage the deal sits in, and what move_stage requires; list_stages reports the ids and which pipeline each belongs to"`
-	OwnerID           *int64   `json:"owner_id,omitempty" jsonschema:"the user who owns the deal; omit on create to take the API token's own user"`
-	PersonID          *int64   `json:"person_id,omitempty" jsonschema:"the linked contact. Omit to leave it as it is; unlinking is not supported here"`
-	OrgID             *int64   `json:"org_id,omitempty" jsonschema:"the linked organization. Omit to leave it as it is; unlinking is not supported here"`
-	ExpectedCloseDate *string  `json:"expected_close_date,omitempty" jsonschema:"YYYY-MM-DD the deal is expected to close. Omit to leave it as it is: Pipedrive v2 offers no way to remove a date once set, so this can only be changed, never cleared"`
-	Probability       *int     `json:"probability,omitempty" jsonschema:"probability override from 0 to 100; omit to let the stage's own default apply"`
-	LostReason        *string  `json:"lost_reason,omitempty" jsonschema:"why the deal was lost, for mark_lost. Free text Pipedrive keeps and reports on: if the user did not give a reason, leave this blank — do NOT invent one"`
-	DryRun            bool     `json:"dry_run,omitempty" jsonschema:"report what the write would find and change, and send nothing"`
-	Overwrite         bool     `json:"overwrite,omitempty" jsonschema:"allow update to replace fields that already hold a value. Without it such an update is refused, naming each field"`
-	ExpectVersion     string   `json:"expect_version,omitempty" jsonschema:"the update_time from the read that informed this write; the write is refused if the deal changed since"`
+	Action            string         `json:"action" jsonschema:"create, update, move_stage, mark_won, mark_lost or reopen"`
+	DealID            int64          `json:"deal_id,omitempty" jsonschema:"the deal to act on, required by every action except create"`
+	Title             *string        `json:"title,omitempty" jsonschema:"the deal's title, required by create. Give it a name a human would recognise; if the user did not supply one, ask rather than inventing it"`
+	Value             *float64       `json:"value,omitempty" jsonschema:"monetary value in the deal's currency"`
+	Currency          *string        `json:"currency,omitempty" jsonschema:"ISO 4217 code such as USD, EUR or DKK; omit on create to take the workspace default"`
+	PipelineID        *int64         `json:"pipeline_id,omitempty" jsonschema:"the pipeline the deal sits in; list_pipelines reports the ids"`
+	StageID           *int64         `json:"stage_id,omitempty" jsonschema:"the stage the deal sits in, and what move_stage requires; list_stages reports the ids and which pipeline each belongs to"`
+	OwnerID           *int64         `json:"owner_id,omitempty" jsonschema:"the user who owns the deal; omit on create to take the API token's own user"`
+	PersonID          *int64         `json:"person_id,omitempty" jsonschema:"the linked contact. Omit to leave it as it is; unlinking is not supported here"`
+	OrgID             *int64         `json:"org_id,omitempty" jsonschema:"the linked organization. Omit to leave it as it is; unlinking is not supported here"`
+	ExpectedCloseDate *string        `json:"expected_close_date,omitempty" jsonschema:"YYYY-MM-DD the deal is expected to close. Omit to leave it as it is: Pipedrive v2 offers no way to remove a date once set, so this can only be changed, never cleared"`
+	Probability       *int           `json:"probability,omitempty" jsonschema:"probability override from 0 to 100; omit to let the stage's own default apply"`
+	LostReason        *string        `json:"lost_reason,omitempty" jsonschema:"why the deal was lost, for mark_lost. Free text Pipedrive keeps and reports on: if the user did not give a reason, leave this blank — do NOT invent one"`
+	CustomFields      map[string]any `json:"custom_fields,omitempty" jsonschema:"this workspace's own fields, keyed by the name get_deal reports — a dropdown takes its label, a multi-select a list of labels, everything else the plain value. Only create and update read this; the transitions ignore it, as they ignore every descriptive field. Omit a field to leave it as it is; a field cannot be cleared"`
+	DryRun            bool           `json:"dry_run,omitempty" jsonschema:"report what the write would find and change, and send nothing"`
+	Overwrite         bool           `json:"overwrite,omitempty" jsonschema:"allow update to replace fields that already hold a value. Without it such an update is refused, naming each field"`
+	ExpectVersion     string         `json:"expect_version,omitempty" jsonschema:"the update_time from the read that informed this write; the write is refused if the deal changed since"`
 }
 
 type manageDealOutput struct {
@@ -216,7 +238,7 @@ func registerManageDeal(s *mcp.Server, c dealsClient, companyDomain string, opts
 
 	AddTool(s, &mcp.Tool{
 		Name:        "manage_deal",
-		Description: "Create a deal, edit one, move it between stages, or close it won or lost. One call, whichever action: create takes title, every other action takes deal_id. Writing is guarded, and every action except create reads the deal before it writes, so a write is two API calls. An update refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the deal moved under you. The four transitions — move_stage, mark_won, mark_lost and reopen — take no overwrite, because you named the transition and the field it changes is the field you named. IMPORTANT: lost_reason on mark_lost is free text Pipedrive keeps and reports on, so if the user did not give you a reason, leave it blank — do NOT invent one. Closing a deal is reversible here: reopen puts it back to open and clears the lost reason, though Pipedrive keeps its own record of won_time and lost_time, which you cannot set from this tool. Two things this cannot do: custom fields are readable through get_deal and list_deals but not writable here, and NO FIELD CAN BE CLEARED once it holds a value — Pipedrive v2 rejects a null and treats an empty string as a value, so a field can be changed but not emptied. Use search to turn a company or person name into the person_id or org_id a new deal needs, and list_stages to find a stage_id.",
+		Description: "Create a deal, edit one, move it between stages, or close it won or lost. One call, whichever action: create takes title, every other action takes deal_id. Writing is guarded, and every action except create reads the deal before it writes, so a write is two API calls. An update refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the deal moved under you. The four transitions — move_stage, mark_won, mark_lost and reopen — take no overwrite, because you named the transition and the field it changes is the field you named. IMPORTANT: lost_reason on mark_lost is free text Pipedrive keeps and reports on, so if the user did not give you a reason, leave it blank — do NOT invent one. Closing a deal is reversible here: reopen puts it back to open and clears the lost reason, though Pipedrive keeps its own record of won_time and lost_time, which you cannot set from this tool. Custom fields ARE writable here, on create and update: pass custom_fields keyed by the names get_deal reports, and give a dropdown its label rather than an option id. One thing this cannot do: NO FIELD CAN BE CLEARED once it holds a value — Pipedrive v2 rejects a null and treats an empty string as a value, so a field can be changed but not emptied. Use search to turn a company or person name into the person_id or org_id a new deal needs, and list_stages to find a stage_id.",
 		Annotations: mutatingAnnotations(),
 	}, manageDealHandler(c, companyDomain, opts.DryRun))
 }
@@ -225,7 +247,7 @@ func registerManageDeal(s *mcp.Server, c dealsClient, companyDomain string, opts
 // per-call dry_run can turn a rehearsal on and nothing can turn one off.
 func manageDealHandler(c dealsClient, companyDomain string, dryRun bool) mcp.ToolHandlerFor[manageDealInput, manageDealOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in manageDealInput) (*mcp.CallToolResult, manageDealOutput, error) {
-		if err := validateAction(in.Action, allowedDealActions); err != nil {
+		if err := validateAction(in.Action, dealActions); err != nil {
 			return errorResult(err), manageDealOutput{}, nil
 		}
 		in.DryRun = in.DryRun || dryRun
@@ -234,7 +256,7 @@ func manageDealHandler(c dealsClient, companyDomain string, dryRun bool) mcp.Too
 			res *mcp.CallToolResult
 			out manageDealOutput
 		)
-		if in.Action == "create" {
+		if dealActions[in.Action].creates {
 			res, out = createDealAction(ctx, c, companyDomain, in)
 		} else {
 			res, out = writeDealAction(ctx, c, companyDomain, in)
@@ -251,6 +273,10 @@ func createDealAction(ctx context.Context, c dealsClient, companyDomain string, 
 	if in.Title == nil || *in.Title == "" {
 		return errorResult(fmt.Errorf("%w: title must not be empty", pipedrive.ErrValidation)), manageDealOutput{}
 	}
+	cf, err := c.EncodeDealCustomFields(ctx, in.CustomFields)
+	if err != nil {
+		return errorResult(err), manageDealOutput{}
+	}
 	req := pipedrive.CreateDealRequest{
 		Title:             *in.Title,
 		Value:             deref(in.Value),
@@ -262,6 +288,7 @@ func createDealAction(ctx context.Context, c dealsClient, companyDomain string, 
 		OrgID:             deref(in.OrgID),
 		ExpectedCloseDate: deref(in.ExpectedCloseDate),
 		Probability:       in.Probability,
+		CustomFields:      cf.Values,
 	}
 	created := syntheticDealFromRequest(req)
 	if !in.DryRun {
@@ -271,12 +298,13 @@ func createDealAction(ctx context.Context, c dealsClient, companyDomain string, 
 		}
 		created = c
 	}
-	// resolvedX on both paths, so a dry-run preview and a real
-	// create describe their custom fields the same way. The
-	// synthetic record carries none, so this resolves an empty map.
+	// resolvedX on both paths, so a dry-run preview and a real create
+	// describe their custom fields the same way: the synthetic record
+	// carries the custom fields the write would set, and the rehearsal
+	// reports them under the names the real create would use.
 	return nil, manageDealOutput{
 		Deal:    resolvedDeal(ctx, c, companyDomain, created),
-		Changed: changedFields(dealFields, &pipedrive.Deal{}, created),
+		Changed: changedFields(dealSpec(cf), &pipedrive.Deal{}, created),
 	}
 }
 
@@ -288,20 +316,25 @@ func writeDealAction(ctx context.Context, c dealsClient, companyDomain string, i
 	if err := validatePositiveID(in.DealID, "deal_id"); err != nil {
 		return errorResult(err), manageDealOutput{}
 	}
-	req, res := dealRequestFor(in)
-	if res != nil {
-		return res, manageDealOutput{}
+	req, custom, err := dealRequestFor(in)
+	if err != nil {
+		return errorResult(err), manageDealOutput{}
 	}
+	cf, err := c.EncodeDealCustomFields(ctx, custom)
+	if err != nil {
+		return errorResult(err), manageDealOutput{}
+	}
+	req.CustomFields = cf.Values
 
 	deal, changed, res := guardedWrite[pipedrive.Deal]{
-		Spec:          dealFields,
+		Spec:          dealBaseFields,
+		Custom:        cf,
+		CustomOf:      func(d *pipedrive.Deal) *map[string]any { return &d.CustomFields },
 		Resource:      fmt.Sprintf("deal %d", in.DealID),
 		ExpectVersion: in.ExpectVersion,
 		Version:       func(d *pipedrive.Deal) string { return d.UpdateTime },
-		// A transition names both the change and the field it lands on,
-		// so it authorises itself: the caller already sees the whole
-		// blast radius. Only a free-form update needs permission.
-		Overwrite: in.Overwrite || in.Action != "update",
+		// A transition authorises its own overwrite; see dealAction.
+		Overwrite: in.Overwrite || dealActions[in.Action].transition,
 		DryRun:    in.DryRun,
 		Get:       func(ctx context.Context) (*pipedrive.Deal, error) { return c.GetDeal(ctx, in.DealID) },
 		Predict:   func(d *pipedrive.Deal) pipedrive.Deal { return dealAfterUpdate(*d, req) },
@@ -313,15 +346,23 @@ func writeDealAction(ctx context.Context, c dealsClient, companyDomain string, i
 	return nil, manageDealOutput{Deal: resolvedDeal(ctx, c, companyDomain, deal), Changed: changed}
 }
 
-// dealRequestFor turns an action plus its inputs into the PATCH body.
+// dealRequestFor turns an action plus its inputs into the PATCH body,
+// plus the custom fields that action sends — unencoded, because encoding
+// needs a context and can fail, and this is a pure function of the
+// input.
+//
 // The transitions ignore the descriptive fields entirely: mark_won is
 // "status=won" and nothing else, so a caller who also passed a title
-// does not silently get it written.
-func dealRequestFor(in manageDealInput) (pipedrive.UpdateDealRequest, *mcp.CallToolResult) {
+// does not silently get it written. Custom fields are one of those
+// descriptive fields, and returning them from the same switch is what
+// stops "which actions send custom fields" being answered in two places
+// that can disagree — the caller encodes what this hands back, so a
+// transition neither sends them nor is refused over them.
+func dealRequestFor(in manageDealInput) (pipedrive.UpdateDealRequest, map[string]any, error) {
 	switch in.Action {
 	case "move_stage":
 		if in.StageID == nil || *in.StageID <= 0 {
-			return pipedrive.UpdateDealRequest{}, errorResult(fmt.Errorf("%w: move_stage needs stage_id; list_stages reports them", pipedrive.ErrValidation))
+			return pipedrive.UpdateDealRequest{}, nil, fmt.Errorf("%w: move_stage needs stage_id; list_stages reports them", pipedrive.ErrValidation)
 		}
 		req := pipedrive.UpdateDealRequest{StageID: in.StageID}
 		// A stage belongs to exactly one pipeline, so moving across
@@ -329,22 +370,22 @@ func dealRequestFor(in manageDealInput) (pipedrive.UpdateDealRequest, *mcp.CallT
 		if in.PipelineID != nil {
 			req.PipelineID = in.PipelineID
 		}
-		return req, nil
+		return req, nil, nil
 	case "mark_won":
-		return pipedrive.UpdateDealRequest{Status: ptr("won")}, nil
+		return pipedrive.UpdateDealRequest{Status: ptr("won")}, nil, nil
 	case "mark_lost":
 		req := pipedrive.UpdateDealRequest{Status: ptr("lost")}
 		if in.LostReason != nil {
 			req.LostReason = in.LostReason
 		}
-		return req, nil
+		return req, nil, nil
 	case "reopen":
 		// Clearing the lost reason with the status keeps the record
 		// honest: a deal that is open again was not lost for a reason.
 		return pipedrive.UpdateDealRequest{
 			Status:     ptr(dealStatusOpen),
 			LostReason: ptr(""),
-		}, nil
+		}, nil, nil
 	default: // update
 		req := pipedrive.UpdateDealRequest{
 			Title:             in.Title,
@@ -358,8 +399,16 @@ func dealRequestFor(in manageDealInput) (pipedrive.UpdateDealRequest, *mcp.CallT
 			OrgID:             in.OrgID,
 			ExpectedCloseDate: in.ExpectedCloseDate,
 		}
-		return req, nil
+		return req, in.CustomFields, nil
 	}
+}
+
+// dealSpec is the base table plus the custom fields a write names. The
+// create path needs it because a create has no target to guard and so
+// does not go through guardedWrite, which does this itself.
+func dealSpec(cf pipedrive.CustomFieldWrite) []fieldSpec[pipedrive.Deal] {
+	return withCustomFields(dealBaseFields, cf,
+		func(d *pipedrive.Deal) map[string]any { return d.CustomFields })
 }
 
 // dealAfterUpdate overlays what the request sets onto the deal as it
@@ -393,6 +442,7 @@ func dealAfterUpdate(before pipedrive.Deal, req pipedrive.UpdateDealRequest) pip
 // synthetic deal doesn't alias the request's pointer.
 func syntheticDealFromRequest(req pipedrive.CreateDealRequest) *pipedrive.Deal {
 	return &pipedrive.Deal{
+		CustomFields:      req.CustomFields,
 		Title:             req.Title,
 		Value:             req.Value,
 		Currency:          req.Currency,

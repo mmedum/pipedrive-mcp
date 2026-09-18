@@ -15,6 +15,7 @@ type personsClient interface {
 	CreatePerson(ctx context.Context, req pipedrive.CreatePersonRequest) (*pipedrive.Person, error)
 	UpdatePerson(ctx context.Context, id int64, req pipedrive.UpdatePersonRequest) (*pipedrive.Person, error)
 	ResolvePersonCustomFields(ctx context.Context, raw map[string]any) map[string]any
+	EncodePersonCustomFields(ctx context.Context, in map[string]any) (pipedrive.CustomFieldWrite, error)
 }
 
 // allowedPersonSortFields enumerates Pipedrive v2's allowed sort_by
@@ -36,7 +37,7 @@ type personSummary struct {
 	OwnerID      int64                    `json:"owner_id" jsonschema:"id of the user who owns this record"`
 	AddTime      string                   `json:"add_time,omitempty" jsonschema:"timestamp the person was created"`
 	UpdateTime   string                   `json:"update_time,omitempty" jsonschema:"timestamp the person was last updated"`
-	CustomFields map[string]any           `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name"`
+	CustomFields map[string]any           `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label; an unrecognised field or option falls through under its stored key"`
 	URL          string                   `json:"url" jsonschema:"link to the person in the Pipedrive web UI"`
 }
 
@@ -71,7 +72,7 @@ func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string, opts 
 
 	AddTool(s, &mcp.Tool{
 		Name:        "get_person",
-		Description: "Fetch a single Pipedrive person by person_id. Returns id, name, first_name, last_name, all emails (with primary flag and label), all phones, owner_id, linked org_id, add/update timestamps, and any custom fields resolved by name. Unknown person_id returns a [not_found] error. To find a person by name, call `search` first to resolve the id.",
+		Description: "Fetch a single Pipedrive person by person_id. Returns id, name, first_name, last_name, all emails (with primary flag and label), all phones, owner_id, linked org_id, add/update timestamps, and any custom fields under their workspace names, dropdown values as labels rather than option ids. Unknown person_id returns a [not_found] error. To find a person by name, call `search` first to resolve the id.",
 		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getPersonInput) (*mcp.CallToolResult, getPersonOutput, error) {
 		if err := validatePositiveID(in.PersonID, "person_id"); err != nil {
@@ -86,7 +87,7 @@ func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string, opts 
 
 	AddTool(s, &mcp.Tool{
 		Name:        "list_persons",
-		Description: "List Pipedrive persons filtered by owner, linked organization, or update window. Returns id, name, first_name, last_name, emails, phones, owner_id, linked org_id, add/update timestamps, and any custom fields resolved by name. Default sort is update_time desc — most-recently-touched first, ideal for 'who at company X have we been talking to lately'. Default limit is 25, max 100. For more results, pass the next_cursor from the previous response. To find a person by name (rather than ID), call `search` with type=person — search is the natural-language gateway, list_persons is the precision filter when the IDs are already known.",
+		Description: "List Pipedrive persons filtered by owner, linked organization, or update window. Returns id, name, first_name, last_name, emails, phones, owner_id, linked org_id, add/update timestamps, and any custom fields under their workspace names, dropdown values as labels rather than option ids. Default sort is update_time desc — most-recently-touched first, ideal for 'who at company X have we been talking to lately'. Default limit is 25, max 100. For more results, pass the next_cursor from the previous response. To find a person by name (rather than ID), call `search` with type=person — search is the natural-language gateway, list_persons is the precision filter when the IDs are already known.",
 		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listPersonsInput) (*mcp.CallToolResult, listPersonsOutput, error) {
 		if err := validateEnum(in.SortBy, "sort_by", allowedPersonSortFields); err != nil {
@@ -126,16 +127,23 @@ func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string, opts 
 
 var allowedPersonActions = map[string]bool{"create": true, "update": true}
 
-// personFields is the one table of LLM-facing field names a write can
-// touch. Emails and phones project through projectContactPoints, which
+// personBaseFields is the table of LLM-facing field names a write can
+// touch that every person has. A workspace's own custom fields are
+// added per call, so THIS IS NOT THE WHOLE TABLE. A create diffs
+// against personSpec's result; an update hands this table to
+// guardedWrite and lets its Custom/CustomOf pair extend it. Either way,
+// never diff a write against this alone — the caller's custom fields
+// would fall out of both the report and the overwrite guard, silently.
+//
+// Emails and phones project through projectContactPoints, which
 // renders every field of every entry — see the rule on projectCollection
 // in guard.go. "Does this person already have an email" is NOT the
 // question the guard needs answered; that reasoning shipped once and was
 // wrong twice over.
-var personFields = []fieldSpec[pipedrive.Person]{
-	{"name", func(p *pipedrive.Person) string { return projectString(p.Name) }},
-	{"first_name", func(p *pipedrive.Person) string { return projectString(p.FirstName) }},
-	{"last_name", func(p *pipedrive.Person) string { return projectString(p.LastName) }},
+var personBaseFields = []fieldSpec[pipedrive.Person]{
+	{"name", func(p *pipedrive.Person) string { return p.Name }},
+	{"first_name", func(p *pipedrive.Person) string { return p.FirstName }},
+	{"last_name", func(p *pipedrive.Person) string { return p.LastName }},
 	{"emails", func(p *pipedrive.Person) string { return projectContactPoints(p.Emails) }},
 	{"phones", func(p *pipedrive.Person) string { return projectContactPoints(p.Phones) }},
 	{"org_id", func(p *pipedrive.Person) string { return projectID(p.OrgID) }},
@@ -152,6 +160,7 @@ type managePersonInput struct {
 	Phones        []pipedrive.ContactPoint `json:"phones,omitempty" jsonschema:"phone numbers, same shape as emails, and replaced wholesale on update for the same reason"`
 	OrgID         *int64                   `json:"org_id,omitempty" jsonschema:"the organization the person belongs to. Use search to turn a company name into the id. Omit to leave it as it is; unlinking is not supported here"`
 	OwnerID       *int64                   `json:"owner_id,omitempty" jsonschema:"the user who owns the record; omit on create to take the API token's own user"`
+	CustomFields  map[string]any           `json:"custom_fields,omitempty" jsonschema:"this workspace's own fields, keyed by the name get_person reports — a dropdown takes its label, a multi-select a list of labels, everything else the plain value. Omit a field to leave it as it is; a field cannot be cleared"`
 	DryRun        bool                     `json:"dry_run,omitempty" jsonschema:"report what the write would find and change, and send nothing"`
 	Overwrite     bool                     `json:"overwrite,omitempty" jsonschema:"allow update to replace fields that already hold a value. Without it such an update is refused, naming each field"`
 	ExpectVersion string                   `json:"expect_version,omitempty" jsonschema:"the update_time from the read that informed this write; the write is refused if the person changed since"`
@@ -168,7 +177,7 @@ func registerManagePerson(s *mcp.Server, c personsClient, companyDomain string, 
 
 	AddTool(s, &mcp.Tool{
 		Name:        "manage_person",
-		Description: "Create a contact or edit one. One call, either action: create takes name, update takes person_id. Writing is guarded, and update reads the person before it writes, so a write is two API calls. It refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. IMPORTANT: emails and phones REPLACE the stored collection rather than adding to it, because that is what Pipedrive does with them — to add an address, read the person first and send the existing entries back alongside the new one, or you will silently drop the rest. Pipedrive derives `name` from `first_name` and `last_name`, so changing either reports `name` as changed too — a dry run predicts only the field you set, and the write reports what actually moved. Custom fields are readable through get_person and list_persons but are not writable here yet. Use search to turn a company name into the org_id this links to.",
+		Description: "Create a contact or edit one. One call, either action: create takes name, update takes person_id. Writing is guarded, and update reads the person before it writes, so a write is two API calls. It refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. IMPORTANT: emails and phones REPLACE the stored collection rather than adding to it, because that is what Pipedrive does with them — to add an address, read the person first and send the existing entries back alongside the new one, or you will silently drop the rest. Pipedrive derives `name` from `first_name` and `last_name`, so changing either reports `name` as changed too — a dry run predicts only the field you set, and the write reports what actually moved. Custom fields ARE writable here: pass custom_fields keyed by the names get_person reports, and give a dropdown its label rather than an option id. Use search to turn a company name into the org_id this links to.",
 		Annotations: mutatingAnnotations(),
 	}, managePersonHandler(c, companyDomain, opts.DryRun))
 }
@@ -201,14 +210,19 @@ func createPersonAction(ctx context.Context, c personsClient, companyDomain stri
 	if in.Name == nil || *in.Name == "" {
 		return errorResult(fmt.Errorf("%w: name must not be empty", pipedrive.ErrValidation)), managePersonOutput{}
 	}
+	cf, err := c.EncodePersonCustomFields(ctx, in.CustomFields)
+	if err != nil {
+		return errorResult(err), managePersonOutput{}
+	}
 	req := pipedrive.CreatePersonRequest{
-		Name:      *in.Name,
-		FirstName: deref(in.FirstName),
-		LastName:  deref(in.LastName),
-		Emails:    in.Emails,
-		Phones:    in.Phones,
-		OrgID:     deref(in.OrgID),
-		OwnerID:   deref(in.OwnerID),
+		Name:         *in.Name,
+		FirstName:    deref(in.FirstName),
+		LastName:     deref(in.LastName),
+		Emails:       in.Emails,
+		Phones:       in.Phones,
+		OrgID:        deref(in.OrgID),
+		OwnerID:      deref(in.OwnerID),
+		CustomFields: cf.Values,
 	}
 	created := syntheticPersonFromRequest(req)
 	if !in.DryRun {
@@ -218,12 +232,13 @@ func createPersonAction(ctx context.Context, c personsClient, companyDomain stri
 		}
 		created = c
 	}
-	// resolvedX on both paths, so a dry-run preview and a real
-	// create describe their custom fields the same way. The
-	// synthetic record carries none, so this resolves an empty map.
+	// resolvedX on both paths, so a dry-run preview and a real create
+	// describe their custom fields the same way: the synthetic record
+	// carries the custom fields the write would set, and the rehearsal
+	// reports them under the names the real create would use.
 	return nil, managePersonOutput{
 		Person:  resolvedPerson(ctx, c, companyDomain, created),
-		Changed: changedFields(personFields, &pipedrive.Person{}, created),
+		Changed: changedFields(personSpec(cf), &pipedrive.Person{}, created),
 	}
 }
 
@@ -231,18 +246,25 @@ func updatePersonAction(ctx context.Context, c personsClient, companyDomain stri
 	if err := validatePositiveID(in.PersonID, "person_id"); err != nil {
 		return errorResult(err), managePersonOutput{}
 	}
+	cf, err := c.EncodePersonCustomFields(ctx, in.CustomFields)
+	if err != nil {
+		return errorResult(err), managePersonOutput{}
+	}
 	req := pipedrive.UpdatePersonRequest{
-		Name:      in.Name,
-		Emails:    in.Emails,
-		Phones:    in.Phones,
-		FirstName: in.FirstName,
-		LastName:  in.LastName,
-		OrgID:     in.OrgID,
-		OwnerID:   in.OwnerID,
+		Name:         in.Name,
+		Emails:       in.Emails,
+		Phones:       in.Phones,
+		FirstName:    in.FirstName,
+		LastName:     in.LastName,
+		OrgID:        in.OrgID,
+		OwnerID:      in.OwnerID,
+		CustomFields: cf.Values,
 	}
 
 	person, changed, res := guardedWrite[pipedrive.Person]{
-		Spec:          personFields,
+		Spec:          personBaseFields,
+		Custom:        cf,
+		CustomOf:      func(p *pipedrive.Person) *map[string]any { return &p.CustomFields },
 		Resource:      fmt.Sprintf("person %d", in.PersonID),
 		ExpectVersion: in.ExpectVersion,
 		Version:       func(p *pipedrive.Person) string { return p.UpdateTime },
@@ -256,6 +278,14 @@ func updatePersonAction(ctx context.Context, c personsClient, companyDomain stri
 		return res, managePersonOutput{}
 	}
 	return nil, managePersonOutput{Person: resolvedPerson(ctx, c, companyDomain, person), Changed: changed}
+}
+
+// personSpec is the base table plus the custom fields a write names. The
+// create path needs it because a create has no target to guard and so
+// does not go through guardedWrite, which does this itself.
+func personSpec(cf pipedrive.CustomFieldWrite) []fieldSpec[pipedrive.Person] {
+	return withCustomFields(personBaseFields, cf,
+		func(p *pipedrive.Person) map[string]any { return p.CustomFields })
 }
 
 func personAfterUpdate(before pipedrive.Person, req pipedrive.UpdatePersonRequest) pipedrive.Person {
@@ -282,13 +312,14 @@ func personAfterUpdate(before pipedrive.Person, req pipedrive.UpdatePersonReques
 // tells the LLM nothing was actually persisted.
 func syntheticPersonFromRequest(req pipedrive.CreatePersonRequest) *pipedrive.Person {
 	return &pipedrive.Person{
-		Name:      req.Name,
-		FirstName: req.FirstName,
-		LastName:  req.LastName,
-		Emails:    req.Emails,
-		Phones:    req.Phones,
-		OrgID:     req.OrgID,
-		OwnerID:   req.OwnerID,
+		Name:         req.Name,
+		FirstName:    req.FirstName,
+		LastName:     req.LastName,
+		Emails:       req.Emails,
+		Phones:       req.Phones,
+		OrgID:        req.OrgID,
+		OwnerID:      req.OwnerID,
+		CustomFields: req.CustomFields,
 	}
 }
 

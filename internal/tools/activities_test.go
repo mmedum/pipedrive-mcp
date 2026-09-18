@@ -108,18 +108,9 @@ func TestGetActivity_HappyPath(t *testing.T) {
 			Location: &pipedrive.ActivityLocation{Value: "Acme HQ", Locality: "Berlin"},
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "get_activity",
-		Arguments: map[string]any{"activity_id": 77, "include_attendees": true},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
+	}, "get_activity", map[string]any{"activity_id": 77, "include_attendees": true})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -143,15 +134,9 @@ func TestGetActivity_HappyPath(t *testing.T) {
 }
 
 func TestGetActivity_RejectsZeroID(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterActivities(s, &fakeActivitiesClient{}, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "get_activity",
-		Arguments: map[string]any{"activity_id": 0},
-	})
+	}, "get_activity", map[string]any{"activity_id": 0})
 	if !res.IsError {
 		t.Fatal("expected isError on zero activity_id")
 	}
@@ -169,15 +154,9 @@ func TestGetActivity_UpstreamNotFound(t *testing.T) {
 			Endpoint: "/api/v2/activities/99999",
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "get_activity",
-		Arguments: map[string]any{"activity_id": 99999},
-	})
+	}, "get_activity", map[string]any{"activity_id": 99999})
 	if !res.IsError {
 		t.Fatal("expected isError on upstream 404")
 	}
@@ -194,22 +173,13 @@ func TestListActivities_HappyPath(t *testing.T) {
 		},
 		activityNext: "cursor-page-2",
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
+	}, "list_activities", map[string]any{
+		"status":  "open",
+		"deal_id": 42,
+		"limit":   50,
 	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "list_activities",
-		Arguments: map[string]any{
-			"status":  "open",
-			"deal_id": 42,
-			"limit":   50,
-		},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -242,15 +212,9 @@ func TestListActivities_StripsNotesByDefault(t *testing.T) {
 			{ID: 1, Subject: "A", Note: "<b>private</b>", PublicDescription: "<p>visible</p>"},
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_activities",
-		Arguments: map[string]any{},
-	})
+	}, "list_activities", map[string]any{})
 	var out struct {
 		Activities []activityRow `json:"activities"`
 	}
@@ -270,15 +234,9 @@ func TestListActivities_IncludeNotesPreservesText(t *testing.T) {
 			{ID: 1, Subject: "A", Note: "private", PublicDescription: "visible"},
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_activities",
-		Arguments: map[string]any{"include_notes": true},
-	})
+	}, "list_activities", map[string]any{"include_notes": true})
 	var out struct {
 		Activities []activityRow `json:"activities"`
 	}
@@ -297,15 +255,9 @@ func TestGetActivity_AlwaysReturnsNotes(t *testing.T) {
 			ID: 1, Subject: "A", Note: "private", PublicDescription: "visible",
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "get_activity",
-		Arguments: map[string]any{"activity_id": 1},
-	})
+	}, "get_activity", map[string]any{"activity_id": 1})
 	var out struct {
 		Activity activityRow `json:"activity"`
 	}
@@ -455,15 +407,9 @@ func TestListActivities_ExplicitSortByDefaultsToAsc(t *testing.T) {
 }
 
 func TestListActivities_RejectsBadStatus(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterActivities(s, &fakeActivitiesClient{}, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_activities",
-		Arguments: map[string]any{"status": "pending"},
-	})
+	}, "list_activities", map[string]any{"status": "pending"})
 	if !res.IsError {
 		t.Fatal("expected isError on bad status")
 	}
@@ -473,15 +419,9 @@ func TestListActivities_RejectsBadStatus(t *testing.T) {
 }
 
 func TestListActivities_RejectsBadSortBy(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterActivities(s, &fakeActivitiesClient{}, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_activities",
-		Arguments: map[string]any{"sort_by": "subject"},
-	})
+	}, "list_activities", map[string]any{"sort_by": "subject"})
 	if !res.IsError {
 		t.Fatal("expected isError on bad sort_by")
 	}
@@ -552,28 +492,19 @@ func TestCreateActivity_HappyPath(t *testing.T) {
 			Location: &pipedrive.ActivityLocation{Value: "Aalborg, Denmark", Country: "Denmark", Locality: "Aalborg"},
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
+	}, "manage_activity", map[string]any{
+		"action":    "create",
+		"subject":   "VisitorPass demo follow-up",
+		"type":      "meeting",
+		"due_date":  "2026-05-06",
+		"due_time":  "10:00",
+		"duration":  "00:45",
+		"org_id":    59,
+		"person_id": 73,
+		"location":  "Aalborg, Denmark",
 	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "manage_activity",
-		Arguments: map[string]any{
-			"action":    "create",
-			"subject":   "VisitorPass demo follow-up",
-			"type":      "meeting",
-			"due_date":  "2026-05-06",
-			"due_time":  "10:00",
-			"duration":  "00:45",
-			"org_id":    59,
-			"person_id": 73,
-			"location":  "Aalborg, Denmark",
-		},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -635,21 +566,15 @@ func TestCreateActivity_RejectsEmptySubject(t *testing.T) {
 
 func TestCreateActivity_DryRunSkipsUpstream(t *testing.T) {
 	fake := &fakeActivitiesClient{}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{DryRun: true})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "manage_activity",
-		Arguments: map[string]any{
-			"action":   "create",
-			"subject":  "Dry run probe",
-			"type":     "call",
-			"done":     true,
-			"note":     "<p>just had a call</p>",
-			"location": "On the moon",
-		},
+	}, "manage_activity", map[string]any{
+		"action":   "create",
+		"subject":  "Dry run probe",
+		"type":     "call",
+		"done":     true,
+		"note":     "<p>just had a call</p>",
+		"location": "On the moon",
 	})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
@@ -687,18 +612,12 @@ func TestCreateActivity_PropagatesUpstreamError(t *testing.T) {
 			Endpoint: "/api/v2/activities",
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "manage_activity",
-		Arguments: map[string]any{
-			"action":  "create",
-			"subject": "Bad type",
-			"type":    "meetingg",
-		},
+	}, "manage_activity", map[string]any{
+		"action":  "create",
+		"subject": "Bad type",
+		"type":    "meetingg",
 	})
 	if !res.IsError {
 		t.Fatal("expected isError on upstream 400")

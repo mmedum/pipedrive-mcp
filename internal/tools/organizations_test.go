@@ -32,6 +32,8 @@ type fakeOrganizationsClient struct {
 	lastUpdateID  int64
 	updateCalls   int
 	getCalls      int
+
+	encodeErr error
 }
 
 func (f *fakeOrganizationsClient) UpdateOrganization(_ context.Context, id int64, req pipedrive.UpdateOrganizationRequest) (*pipedrive.Organization, error) {
@@ -66,6 +68,9 @@ func (f *fakeOrganizationsClient) ResolveOrganizationCustomFields(_ context.Cont
 	}
 	return raw
 }
+func (f *fakeOrganizationsClient) EncodeOrganizationCustomFields(_ context.Context, in map[string]any) (pipedrive.CustomFieldWrite, error) {
+	return fakeEncode(in, f.encodeErr)
+}
 
 type orgAddressRow struct {
 	Value      string `json:"value,omitempty"`
@@ -98,18 +103,9 @@ func TestGetOrganization_HappyPath(t *testing.T) {
 			return map[string]any{"Tier": raw["def456"]}
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterOrganizations(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "get_organization",
-		Arguments: map[string]any{"org_id": 47},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
+	}, "get_organization", map[string]any{"org_id": 47})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -133,15 +129,9 @@ func TestGetOrganization_HappyPath(t *testing.T) {
 }
 
 func TestGetOrganization_RejectsZeroID(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "get_organization",
-		Arguments: map[string]any{"org_id": 0},
-	})
+	}, "get_organization", map[string]any{"org_id": 0})
 	if !res.IsError {
 		t.Fatal("expected isError on zero org_id")
 	}
@@ -159,15 +149,9 @@ func TestGetOrganization_UpstreamNotFound(t *testing.T) {
 			Endpoint: "/api/v2/organizations/99999",
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterOrganizations(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "get_organization",
-		Arguments: map[string]any{"org_id": 99999},
-	})
+	}, "get_organization", map[string]any{"org_id": 99999})
 	if !res.IsError {
 		t.Fatal("expected isError on upstream 404")
 	}
@@ -190,15 +174,9 @@ func TestListOrganizations_HappyPath(t *testing.T) {
 			return raw
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterOrganizations(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_organizations",
-		Arguments: map[string]any{"owner_id": 13, "limit": 50},
-	})
+	}, "list_organizations", map[string]any{"owner_id": 13, "limit": 50})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -229,15 +207,9 @@ func TestListOrganizations_HappyPath(t *testing.T) {
 }
 
 func TestListOrganizations_RejectsBadSortBy(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_organizations",
-		Arguments: map[string]any{"sort_by": "name"},
-	})
+	}, "list_organizations", map[string]any{"sort_by": "name"})
 	if !res.IsError {
 		t.Fatal("expected isError on unsupported sort_by")
 	}
@@ -288,23 +260,14 @@ func TestCreateOrganization_HappyPath(t *testing.T) {
 			OwnerID: 13,
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterOrganizations(s, fake, "acme", tools.RegisterOptions{})
+	}, "manage_organization", map[string]any{
+		"action":   "create",
+		"name":     "Nordjyllands Trafikselskab",
+		"address":  "John F. Kennedys Plads 1T, Aalborg, Denmark",
+		"owner_id": 13,
 	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "manage_organization",
-		Arguments: map[string]any{
-			"action":   "create",
-			"name":     "Nordjyllands Trafikselskab",
-			"address":  "John F. Kennedys Plads 1T, Aalborg, Denmark",
-			"owner_id": 13,
-		},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -361,18 +324,12 @@ func TestCreateOrganization_RejectsEmptyName(t *testing.T) {
 
 func TestCreateOrganization_DryRunSkipsUpstream(t *testing.T) {
 	fake := &fakeOrganizationsClient{}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterOrganizations(s, fake, "acme", tools.RegisterOptions{DryRun: true}) // dryRun = true
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "manage_organization",
-		Arguments: map[string]any{
-			"action":  "create",
-			"name":    "Dry run probe",
-			"address": "Somewhere on the moon",
-		},
+	}, "manage_organization", map[string]any{
+		"action":  "create",
+		"name":    "Dry run probe",
+		"address": "Somewhere on the moon",
 	})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
@@ -410,18 +367,12 @@ func TestCreateOrganization_PropagatesUpstreamError(t *testing.T) {
 			Endpoint: "/api/v2/organizations",
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterOrganizations(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "manage_organization",
-		Arguments: map[string]any{
-			"action":   "create",
-			"name":     "Bad owner",
-			"owner_id": 999999,
-		},
+	}, "manage_organization", map[string]any{
+		"action":   "create",
+		"name":     "Bad owner",
+		"owner_id": 999999,
 	})
 	if !res.IsError {
 		t.Fatal("expected isError on upstream 400")

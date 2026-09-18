@@ -3,7 +3,8 @@ package tools
 import (
 	"errors"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -37,7 +38,7 @@ func refuseStale(resource, want, got string) error {
 // needs its own message because validateEnum treats "" as "not
 // supplied" and passes it; both messages name the enum so the caller
 // can self-correct rather than guess again.
-func validateAction(action string, allowed map[string]bool) error {
+func validateAction[T any](action string, allowed map[string]T) error {
 	if action == "" {
 		return fmt.Errorf("%w: action is required: one of %s", pipedrive.ErrValidation, enumValues(allowed))
 	}
@@ -135,8 +136,11 @@ func validatePositiveID(v int64, fieldName string) error {
 // value valid" check + error-formatting that previously lived inline
 // in each tool. The error message names both the offending value and
 // the closed enum so the LLM can self-correct.
-func validateEnum(value, fieldName string, allowed map[string]bool) error {
-	if value == "" || allowed[value] {
+func validateEnum[T any](value, fieldName string, allowed map[string]T) error {
+	if value == "" {
+		return nil
+	}
+	if _, ok := allowed[value]; ok {
 		return nil
 	}
 	return fmt.Errorf("%w: %s %q is not one of %s", pipedrive.ErrValidation, fieldName, value, enumValues(allowed))
@@ -145,13 +149,8 @@ func validateEnum(value, fieldName string, allowed map[string]bool) error {
 // enumValues renders a closed enum as "a|b|c". Sorted, so an error
 // message is deterministic — tests grep on the formatted string, and a
 // message that reorders between runs is a message nobody can assert on.
-func enumValues(allowed map[string]bool) string {
-	keys := make([]string, 0, len(allowed))
-	for k := range allowed {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return strings.Join(keys, "|")
+func enumValues[T any](allowed map[string]T) string {
+	return strings.Join(slices.Sorted(maps.Keys(allowed)), "|")
 }
 
 // errorClass returns a short classifier the LLM can branch on,

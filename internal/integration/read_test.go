@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
 	"github.com/mmedum/pipedrive-mcp/internal/server/testutil"
 )
 
@@ -147,39 +148,107 @@ func TestGet_AgreesWithList(t *testing.T) {
 // it, which is invisible to a fake whose fixtures are already named.
 var hashKey = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
-func TestCustomFields_ResolveToWorkspaceNames(t *testing.T) {
+// A custom field has to reach the caller in the workspace's own words,
+// on both halves: the key under the NAME the workspace gives the field,
+// and — for a dropdown — the value under its option LABEL rather than
+// the id Pipedrive stores. One walk asserts both, because they are one
+// property of one map and reading the rows twice would cost a second
+// live call to learn the same thing.
+//
+// A fake cannot answer this. Its fixtures are already named and its
+// options are whatever the fixture says, so the only way to know the
+// two sides agree is to read the workspace's own field metadata and
+// check it against what the tools returned.
+func TestCustomFields_ResolveToWorkspaceWords(t *testing.T) {
 	requireLive(t)
 
-	cases := []struct{ list, key string }{
-		{"list_deals", "deals"},
-		{"list_persons", "persons"},
-		{"list_organizations", "organizations"},
+	cases := []struct {
+		list, key string
+		fields    func(context.Context) ([]pipedrive.Field, error)
+	}{
+		{"list_deals", "deals", liveClient.ListDealFields},
+		{"list_persons", "persons", liveClient.ListPersonFields},
+		{"list_organizations", "organizations", liveClient.ListOrganizationFields},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.key, func(t *testing.T) {
+			fields, err := tc.fields(context.Background())
+			if err != nil {
+				t.Fatalf("reading %s field metadata: %v", tc.key, err)
+			}
+			ids := unlabelledOptionIDs(fields)
+
 			var raw map[string]any
-			mustCall(t, tc.list, map[string]any{"limit": 10}, &raw)
+			mustCall(t, tc.list, map[string]any{"limit": 20}, &raw)
 			rows, _ := raw[tc.key].([]any)
 			if len(rows) == 0 {
 				t.Skipf("workspace has no %s", tc.key)
 			}
-			seen := 0
+
+			named, labelled := 0, 0
 			for _, r := range rows {
 				row, _ := r.(map[string]any)
 				custom, _ := row["custom_fields"].(map[string]any)
-				for name := range custom {
-					seen++
+				for name, v := range custom {
+					named++
 					if hashKey.MatchString(name) {
 						t.Errorf("custom field surfaced as a %d-char hash, not a name", len(name))
 					}
+					stored, ok := ids[name]
+					if !ok {
+						continue
+					}
+					for _, one := range values(v) {
+						labelled++
+						if stored[pipedrive.OptionKey(one)] {
+							// The id rather than the field's name, for
+							// the reason the hash check prints a length
+							// and not the name: this output gets pasted
+							// in public.
+							t.Errorf("an option field surfaced the stored id %v instead of its label", one)
+						}
+					}
 				}
 			}
-			if seen == 0 {
+			if named == 0 {
 				t.Skipf("no %s in this workspace carries a custom field", tc.key)
+			}
+			if labelled == 0 {
+				t.Logf("key half only: no %s in this workspace has a dropdown filled in", tc.key)
 			}
 		})
 	}
+}
+
+// unlabelledOptionIDs maps a field's name to the ids it stores, rendered
+// the way the cache renders them. An option whose label reads the same
+// as its id is left out: matching one would prove nothing about whether
+// the label was resolved.
+func unlabelledOptionIDs(fields []pipedrive.Field) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for _, f := range fields {
+		stored := map[string]bool{}
+		for _, o := range f.Options {
+			if id := pipedrive.OptionKey(o.ID); id != o.Label {
+				stored[id] = true
+			}
+		}
+		if len(stored) > 0 {
+			out[f.Name] = stored
+		}
+	}
+	return out
+}
+
+// values treats a set's array and an enum's scalar as one shape, the
+// same way the cache does — and for the same reason: the option table
+// says whether to resolve, the value's shape says only how to walk it.
+func values(v any) []any {
+	if vs, ok := v.([]any); ok {
+		return vs
+	}
+	return []any{v}
 }
 
 // TestListDeals_CursorPages pins the paging contract the server

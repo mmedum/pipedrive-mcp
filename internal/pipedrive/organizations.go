@@ -29,6 +29,11 @@ type CreateOrganizationRequest struct {
 	Name    string `json:"name"`
 	OwnerID int64  `json:"owner_id,omitempty"`
 	Address string `json:"address,omitempty"` // single-line; server-parsed
+
+	// CustomFields is what FieldCache.Encode produces; see
+	// CustomFieldWrite.Values for the shape. Nil omits the object,
+	// leaving every custom field as it is.
+	CustomFields map[string]any `json:"custom_fields,omitempty"`
 }
 
 // UpdateOrganizationRequest is the JSON body for
@@ -39,6 +44,11 @@ type UpdateOrganizationRequest struct {
 	Name    *string `json:"name,omitempty"`
 	OwnerID *int64  `json:"owner_id,omitempty"`
 	Address *string `json:"address,omitempty"` // single-line; server-parsed
+
+	// CustomFields is what FieldCache.Encode produces; see
+	// CustomFieldWrite.Values for the shape. Nil omits the object,
+	// leaving every custom field as it is.
+	CustomFields map[string]any `json:"custom_fields,omitempty"`
 }
 
 // UpdateOrganization edits an organization via
@@ -121,6 +131,14 @@ func (c *Client) ListOrganizationFields(ctx context.Context) ([]Field, error) {
 // field cache.
 func (c *Client) ResolveOrganizationCustomFields(ctx context.Context, raw map[string]any) map[string]any {
 	return c.organizationFields.Resolve(ctx, raw)
+}
+
+// EncodeOrganizationCustomFields turns a caller's custom-field map — workspace
+// names, dropdown labels — into the hash keys and option ids a write
+// body carries. What it refuses, and how, is FieldCache.Encode's to
+// say — do not restate it here.
+func (c *Client) EncodeOrganizationCustomFields(ctx context.Context, in map[string]any) (CustomFieldWrite, error) {
+	return c.organizationFields.Encode(ctx, in)
 }
 
 // WarmOrganizationFields eagerly triggers the cache load.

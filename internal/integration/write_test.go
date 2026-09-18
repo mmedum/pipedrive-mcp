@@ -3,11 +3,13 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
 	"github.com/mmedum/pipedrive-mcp/internal/server/testutil"
 )
 
@@ -342,5 +344,103 @@ func TestWrite_DealDateRoundTrips(t *testing.T) {
 	mustCall(t, "get_deal", map[string]any{"deal_id": id}, &after)
 	if after.Deal.ExpectedCloseDate != probe {
 		t.Error("an independent read does not see the write")
+	}
+}
+
+// A reversible custom-field write, and the only probe that exercises the
+// label→option-id path end to end: a fake's options are whatever the
+// fixture says, so only the workspace can say whether a label the tools
+// accepted is the one Pipedrive stored.
+//
+// It targets a dropdown that is ALREADY filled in, per rule 5 of the
+// contract above — v2 has no spelling that empties a field again, so an
+// empty one is not a reversible place to write. The restore puts the
+// original label back and a fresh read confirms it.
+func TestWrite_CustomFieldRoundTripsByLabel(t *testing.T) {
+	requireWrites(t)
+
+	fields, err := liveClient.ListDealFields(context.Background())
+	if err != nil {
+		t.Fatalf("reading deal field metadata: %v", err)
+	}
+
+	// A writable custom dropdown with at least two choices: one to move
+	// to, and the one that was there to move back to.
+	var target pipedrive.Field
+	for _, f := range fields {
+		if f.IsCustom && f.IsWritable && len(f.Options) >= 2 {
+			target = f
+			break
+		}
+	}
+	if target.Key == "" {
+		t.Skip("workspace has no writable custom dropdown with two choices")
+	}
+
+	var page dealsOut
+	mustCall(t, "list_deals", map[string]any{"limit": 50}, &page)
+	deal := pickWhere(t, page.Deals,
+		"no deal in this workspace has that dropdown filled in",
+		func(d dealRow) bool {
+			v, ok := d.CustomFields[target.Name]
+			s, isString := v.(string)
+			return ok && isString && s != ""
+		})
+
+	was, _ := deal.CustomFields[target.Name].(string)
+	other := ""
+	for _, o := range target.Options {
+		if o.Label != was && o.Label != "" {
+			other = o.Label
+			break
+		}
+	}
+	if other == "" {
+		t.Skip("the dropdown's other choices are unusable as a write target")
+	}
+
+	undo(t, fmt.Sprintf("deal %d left on the wrong dropdown choice", deal.ID), func() (bool, string) {
+		if res := call(t, "manage_deal", map[string]any{
+			"action": "update", "deal_id": deal.ID, "overwrite": true,
+			"custom_fields": map[string]any{target.Name: was},
+		}); res.IsError {
+			return false, testutil.TextContent(res)
+		}
+		var back dealOut
+		mustCall(t, "get_deal", map[string]any{"deal_id": deal.ID}, &back)
+		got, _ := back.Deal.CustomFields[target.Name].(string)
+		return got == was, "restored value does not match what was read first"
+	})
+
+	// Replacing a populated field needs overwrite, and saying so is half
+	// the contract: without it the write must be refused, naming the
+	// field under the name the caller used.
+	refused := call(t, "manage_deal", map[string]any{
+		"action": "update", "deal_id": deal.ID,
+		"custom_fields": map[string]any{target.Name: other},
+	})
+	if !refused.IsError {
+		t.Error("replacing a populated custom field was allowed without overwrite")
+	} else if !strings.Contains(testutil.TextContent(refused), "overwrite") {
+		t.Errorf("the refusal does not name the argument that allows it: %s", testutil.TextContent(refused))
+	}
+
+	var out struct {
+		Changed []string `json:"changed"`
+	}
+	mustCall(t, "manage_deal", map[string]any{
+		"action": "update", "deal_id": deal.ID, "overwrite": true,
+		"custom_fields": map[string]any{target.Name: other},
+	}, &out)
+	if !slices.Contains(out.Changed, target.Name) {
+		t.Errorf("changed = %v; want the custom field named in it", out.Changed)
+	}
+
+	// The echo is not the evidence: read it back.
+	var after dealOut
+	mustCall(t, "get_deal", map[string]any{"deal_id": deal.ID}, &after)
+	got, _ := after.Deal.CustomFields[target.Name].(string)
+	if got != other {
+		t.Errorf("stored dropdown reads %q after the write; want the label that was sent", got)
 	}
 }
