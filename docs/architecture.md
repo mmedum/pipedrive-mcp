@@ -266,6 +266,20 @@ thing the field metadata proves is that Pipedrive does not spell an id
 one way. Rendering both sides costs an allocation per resolved value and
 buys a comparison that cannot fail on a type mismatch.
 
+**Pipedrive has a server-side version of this and it is not worth
+taking.** `include_option_labels=true`, added 2026-05-21 and declared on
+all six deal/person/organization reads, returns a dropdown as
+`{"id":107,"label":"Direct"}` rather than `107`. It does not hand back a
+label — it hands back an object, so the tool layer would still have to
+unwrap it to reach the string, which is the work being done here
+already. And it settles only the value half: the 40-char key still needs
+`/dealFields` to become a name, and the write direction still needs the
+inverse table. Adopting it would swap one shape for another, add a
+dependency on a parameter younger than the endpoints it decorates, and
+leave both the cache and the unwrapping in place. The one thing it would
+buy is a correct label when the cache has not seen an option yet, which
+is what `refresh_field_cache` is for.
+
 An option id with no matching option passes through as itself, matching
 what an unrecognised field key does. Both are the same bet: a workspace
 can add a field or an option at any moment, and a caller seeing a raw id
