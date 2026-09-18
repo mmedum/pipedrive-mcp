@@ -13,6 +13,38 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Security
+
+- The MCP registry publish verifies the checksum file's signature before
+  reading it. `publish-mcp.yml` took `SHA256SUMS` from the published
+  release and fed it straight to `gates registry-publish`, which lifts
+  the bundle's row out of it and writes that digest into the registry
+  entry as `fileSha256` — the number a registry-driven client verifies
+  the download against. Nothing checked it. `SHA256SUMS.bundle`, the
+  cosign signature goreleaser makes over exactly that artifact, was
+  never downloaded, and the workflow's `cosign verify-blob` ran only
+  against the `mcp-publisher` tarball, while the file's own header
+  asserted the opposite.
+
+  Exploiting it needs `contents: write` — replace the `.mcpb` asset,
+  edit `SHA256SUMS` to match. The signature and the attestation both
+  break, which is the detection the release pipeline exists to provide,
+  but neither was consulted here, so a re-publish would have written the
+  attacker's digest into a registry whose entries cannot be withdrawn.
+  The job now verifies `SHA256SUMS` against its bundle, identity pinned
+  to this repository's `release.yml` on a tag ref, before anything reads
+  it.
+
+### Fixed
+
+- `app.Settings` implements `String()`, so `%v` and `%+v` cannot print
+  the API token. It was unexported with a redacting `LogValue`, and the
+  comment claimed that covered `fmt` too — it did not, because `fmt`
+  reads unexported fields by reflection. No call site formatted a
+  Settings, which is why it would have gone unnoticed until one did. The
+  test now asserts the fmt verbs alongside the slog path, and fails
+  without the method.
+
 ### Added
 
 - An integration suite in `internal/integration/`, every file behind

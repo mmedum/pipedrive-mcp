@@ -30,9 +30,11 @@ import (
 // Settings is the resolved startup state: which workspace, which token,
 // and the configuration around both.
 //
-// The token is unexported and LogValue redacts it, so neither
-// slog.Any("settings", s) nor %+v can put a keyring token in a log
-// line. internal/pipedrive sets the same precedent: add a redacting
+// The token is unexported, and Settings implements both LogValue and
+// String, so neither slog.Any("settings", s) nor %+v can put a keyring
+// token in a log line. Both are needed: unexporting the field stops
+// callers reading it, and fmt reads it anyway through reflection.
+// internal/pipedrive sets the same precedent: add a redacting
 // accessor, not a field.
 type Settings struct {
 	Config       config.Config
@@ -44,6 +46,14 @@ type Settings struct {
 
 // Domain is the validated workspace subdomain.
 func (s Settings) Domain() string { return s.Config.CompanyDomain }
+
+// String keeps %v and %+v from printing the token.
+//
+// LogValue alone was not enough and the comment above used to claim it
+// was: fmt reads unexported fields through reflection, so %+v on a
+// Settings rendered `token:<the real token>`. Nothing did that, which
+// is exactly why it would have gone unnoticed until something did.
+func (s Settings) String() string { return s.LogValue().String() }
 
 // LogValue renders Settings for slog without the token.
 func (s Settings) LogValue() slog.Value {
