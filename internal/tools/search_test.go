@@ -52,18 +52,9 @@ func TestSearch_HappyPath(t *testing.T) {
 			hitItem(1.2, map[string]any{"id": float64(11), "type": "deal", "title": "Acme renewal", "value": float64(75000), "currency": "DKK"}),
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterSearch(s, fake)
-	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "search",
-		Arguments: map[string]any{"term": "Acme"},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
+	}, "search", map[string]any{"term": "Acme"})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -103,17 +94,10 @@ func TestSearch_TruncatedFlagSetWhenCursor(t *testing.T) {
 		hits: []pipedrive.SearchHit{hitItem(1, map[string]any{"id": float64(1), "type": "deal", "title": "x"})},
 		next: "page2",
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterSearch(s, fake)
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "search",
-		Arguments: map[string]any{"term": "xx"},
-	})
 	var out searchOutputRow
-	testutil.DecodeStructured(t, res.StructuredContent, &out)
+	testutil.CallToolInto(t, func(s *mcp.Server) {
+		tools.RegisterSearch(s, fake)
+	}, "search", map[string]any{"term": "xx"}, &out)
 
 	if !out.Truncated {
 		t.Error("Truncated = false; want true (next_cursor non-empty)")
@@ -132,31 +116,19 @@ func TestSearch_NotTruncatedWhenLimitFullButCursorEmpty(t *testing.T) {
 		hits[i] = hitItem(1, map[string]any{"id": float64(i + 1), "type": "deal", "title": "x"})
 	}
 	fake := &fakeSearchClient{hits: hits, next: ""}
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterSearch(s, fake)
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "search",
-		Arguments: map[string]any{"term": "xx", "limit": 3},
-	})
 	var out searchOutputRow
-	testutil.DecodeStructured(t, res.StructuredContent, &out)
+	testutil.CallToolInto(t, func(s *mcp.Server) {
+		tools.RegisterSearch(s, fake)
+	}, "search", map[string]any{"term": "xx", "limit": 3}, &out)
 	if out.Truncated {
 		t.Error("Truncated = true; want false (cursor is empty — Pipedrive says no more)")
 	}
 }
 
 func TestSearch_RejectsShortTerm(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterSearch(s, &fakeSearchClient{})
-	})
-	defer h.Close()
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "search",
-		Arguments: map[string]any{"term": "a"},
-	})
+	}, "search", map[string]any{"term": "a"})
 	if !res.IsError {
 		t.Fatal("expected isError on 1-char term")
 	}
@@ -167,14 +139,9 @@ func TestSearch_RejectsShortTerm(t *testing.T) {
 
 func TestSearch_OneCharOKWithExactMatch(t *testing.T) {
 	fake := &fakeSearchClient{}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterSearch(s, fake)
-	})
-	defer h.Close()
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "search",
-		Arguments: map[string]any{"term": "a", "exact_match": true},
-	})
+	}, "search", map[string]any{"term": "a", "exact_match": true})
 	if res.IsError {
 		t.Fatalf("expected success with exact_match: %+v", res.Content)
 	}
@@ -187,14 +154,9 @@ func TestSearch_OneCharOKWithExactMatch(t *testing.T) {
 }
 
 func TestSearch_RejectsBadType(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterSearch(s, &fakeSearchClient{})
-	})
-	defer h.Close()
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "search",
-		Arguments: map[string]any{"term": "xx", "types": []string{"campaign"}},
-	})
+	}, "search", map[string]any{"term": "xx", "types": []string{"campaign"}})
 	if !res.IsError {
 		t.Fatal("expected isError on unknown type")
 	}

@@ -167,12 +167,14 @@ operator triage.
 
 ## Custom-field cache
 
-Pipedrive surfaces custom fields by 40-char hash key. Each per-resource
-client (`Client.dealFields`, `Client.personFields`,
+Pipedrive surfaces custom fields by 40-char hash key, and a dropdown
+field's value by option id. Each per-resource client
+(`Client.dealFields`, `Client.personFields`,
 `Client.organizationFields`) holds a `*FieldCache` (the same type) that
 fetches `/dealFields` / `/personFields` / `/organizationFields` once
-and resolves hash→name. Caches are private; tools call the typed
-adapter methods (`ResolveDealCustomFields`, etc.).
+and resolves both: hash→name on the key, option id→label on the value.
+Caches are private; tools call the typed adapter methods
+(`ResolveDealCustomFields`, etc.).
 
 Refresh strategy as implemented today:
 
@@ -192,7 +194,93 @@ Refresh strategy as implemented today:
 
 In v2, custom fields nest under a `custom_fields` object on both
 request and response bodies. The cache is responsible for translating
-that nested map's keys (hashes) into human-readable names on output.
+that nested map into the words the workspace uses — keys (hashes) into
+human-readable names, and option ids into labels — on output.
+
+### Option labels
+
+An `enum` stores one option id and a `set` stores an array of them, so
+which one a stored value is gets decided by the value's own shape rather
+than by the field's declared `field_type`. That keeps this independent
+of Pipedrive's type taxonomy: a field type we have never seen resolves
+correctly as long as its value is either an id or a list of them.
+
+`FieldOption.ID` is `any` rather than `int64`. Custom fields carry
+numeric option ids, but built-in fields like `status` carry string ones
+(`"open"`, `"won"`), and a write has to keep those apart — a numeric
+option sent as `"107"` is a different request. What `any` does **not**
+do is preserve the literal wire form: every JSON number decodes to a
+float64 first, so the type distinction survives and the spelling does
+not.
+
+Comparison therefore happens on a rendered form (`OptionKey`) rather
+than on the decoded value. Keying a `map[any]string` on the decoded id
+would be cheaper and would be less tolerant: the stored value and the
+option that names it reach us from two different calls, and the one
+thing the field metadata proves is that Pipedrive does not spell an id
+one way. Rendering both sides costs an allocation per resolved value and
+buys a comparison that cannot fail on a type mismatch.
+
+An option id with no matching option passes through as itself, matching
+what an unrecognised field key does. Both are the same bet: a workspace
+can add a field or an option at any moment, and a caller seeing a raw id
+is recoverable where a caller seeing nothing is not. `refresh_field_cache`
+re-reads the option tables along with the names.
+
+### Writing a custom field
+
+`FieldCache.Encode` is `Resolve` run backwards: the names the workspace
+shows become hash keys, and a dropdown's label becomes its option id.
+That is what makes a custom field writable, and it is the only place the
+translation happens — the tools layer hands it what the caller typed and
+gets back a body.
+
+It refuses rather than guesses, and each refusal names what to do
+instead: an unknown field points at `refresh_field_cache`, a bad choice
+lists the choices, a name two custom fields share names their keys so
+the caller can pass one, a field Pipedrive marks `is_writable: false` is
+named as read-only, and a null is refused because v2 cannot empty a
+field. A refusal names **every** field that was wrong, for the reason
+the overwrite guard names every field it protects. And **one bad field
+refuses the whole map**: encoding the rest would report a success over a
+record that never received the field the caller cared about, and there
+is no undo to fall back on.
+
+**A built-in is refused whether it is named by label or by key.** The
+field metadata carries Pipedrive's own fields alongside the workspace's,
+so `byKey` holds `title` and `status` as well as the 40-char hashes.
+Checking only the name refused `"Title"` and admitted `"title"` — and
+the guard then measured the wrong thing, because a built-in's value does
+not live in the record's `custom_fields` map, so it read as empty and no
+`overwrite` refusal could fire over it. Pipedrive rejects such a body
+outright (`Validation failed: custom_fields: Unknown key 'title'`), so
+the damage was bounded upstream rather than here, which is not where
+this server's guard is meant to hold.
+
+Two asymmetries with the read direction are deliberate:
+
+- **A failed cache load is fatal here.** `Resolve` falls through and
+  costs the caller a hash key in place of a name; `Encode` would be
+  inventing a field.
+- **An id is accepted where a label is expected.** `Resolve` hands back a
+  bare id whenever it cannot name an option, so refusing to take one
+  again would make that output unusable.
+
+The guard reaches custom fields through specs derived per call
+(`withCustomFields`) rather than a static table, because which custom
+fields exist is the workspace's business. A static list would be a
+second place to add a field — the thing "one list of field names per
+resource" exists to prevent.
+
+Reaching a custom field needs two things done: the field table extended
+so the diff and the overwrite guard see it, and the value overlaid onto
+the predicted record so the diff has something to see. Both hang off one
+pair of adjacent fields on `guardedWrite` — `Custom` and `CustomOf` — so
+a resource does both or neither. They were two edits in two functions
+once, and that is a silent failure: the dry run reports nothing, the
+write goes out, and the field changes unreported. A multi-select is compared as a set, since
+two orderings of the same choices are the same value and Pipedrive does
+not promise to echo one back in the order it was sent.
 
 ## Guarded writes
 
@@ -412,34 +500,49 @@ Code. The runbook accepts either, so this is a gap in coverage rather than
 in process.
 
 **Deferred review findings.** Each was raised by a `/simplify` pass during
-0.4.0 and judged not worth blocking the release. None is a defect:
+0.4.0 and judged not worth blocking that release. All were taken during
+0.5.0; none had been a defect.
 
-- `dealRequestFor` returns `*mcp.CallToolResult` where every other
-  validator in the package returns `error` and lets the caller wrap.
-- The action taxonomy is written four times per resource — the enum map,
-  the create branch, the request builder's `default`, and the guard
-  posture — so adding an action is four edits, and a new transition-shaped
-  action inherits whichever posture it lands in.
-- 95 hand-rolled `Connect` + `CallTool` + `DecodeStructured` blocks across
-  the tests. `callTool` in `manage_write_test.go` is the right helper in
-  the wrong package; it belongs in `internal/server/testutil`.
-- `projectString` is an identity function wrapped at 19 table entries. It
-  buys a uniform column and costs a reader's attention on the column where
-  the projection is load-bearing.
-- `populatedFields` builds a `map[string]bool` for a membership test over
-  at most 18 elements.
+- ~~`dealRequestFor` returns `*mcp.CallToolResult`~~ — it returns `error`
+  now, like every other validator in the package, and the caller wraps.
+- ~~The action taxonomy is written four times per resource~~ — `manage_deal`
+  and `manage_activity` each have one `map[string]xAction` table saying
+  whether an action creates and whether it authorises its own overwrite.
+  The guard posture used to read `in.Action != "update"`, which states the
+  rule by exclusion: a new action was a transition unless it happened to
+  be called update, whatever it did. Now an action says what it is where
+  it is declared to exist. `manage_person`, `manage_organization` and
+  `manage_note` keep a plain set — they carry no per-action facts, and a
+  struct with no fields in it would be worse.
+- ~~95 hand-rolled `Connect` + `CallTool` + `DecodeStructured` blocks~~ —
+  `testutil.CallTool` and `testutil.CallToolInto` are the helper, in the
+  package the finding named, and 57 of the 91 call sites now use them.
+  The remainder are not the same shape: they drive several calls over one
+  harness, or connect a server and then assert on something other than a
+  tool call. Converting those would mean bending the helper to fit tests
+  it was not the right answer for.
+- ~~`projectString` is an identity function~~ — gone. A plain string field
+  returns the field.
+- ~~`populatedFields` builds a `map[string]bool`~~ — a linear scan over the
+  handful of names one write touches.
 
-**6. The bundle manifest is never validated against its schema.** The
+**6. The bundle manifest is validated against its schema.** *Done.* The
 gate checks the *declaration* — that `$schema` agrees with the declared
 `manifest_version`, that the ref is a complete release tag, and that the
 version meets a floor — and it checks referential integrity against the
-files the packer stages. Nothing parses the document against the schema
-it cites, so a wrong type or a missing required field would pass here
-and fail in somebody else's tool. `google/jsonschema-go` is already a
-dependency, so this costs no new one. Found while comparing notes with
-`google-chat-mcp`, which has the mirror gap: it validates against a
-vendored copy and never checks that the URL agrees with the declaration.
+files the packer stages. It now also parses the document against the
+schema it cites, which is what catches a wrong type, a missing required
+field, or a misspelled top-level key: the schema closes its root with
+`additionalProperties: false`, so that last class was invisible to every
+other check we had.
 
+The schema is vendored with its SHA256 recorded beside the pinned URL,
+which holds both halves at once. `google-chat-mcp` has the mirror gap —
+it validates against a vendored copy and never checks that the URL
+agrees with the declaration — and the recorded hash is what stops this
+repository acquiring the same gap from the other side. The stamped
+manifest is checked too, after the version is substituted rather than
+before.
 **Explicitly not in 0.5.0.** Products, leads, files, projects and goals
 are new resources and belong to their own milestone. Field clearing is
 blocked on Pipedrive v2, not on us. The v1 sunset migration is its own

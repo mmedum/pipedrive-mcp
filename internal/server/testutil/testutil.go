@@ -79,3 +79,45 @@ func ConnectTo(ctx context.Context, server *mcp.Server) (*Harness, error) {
 		},
 	}, nil
 }
+
+// CallTool connects a server with register already applied, calls one
+// tool on it, and returns the result.
+//
+// It exists because the connect / call / check-the-transport-error
+// sequence was written out at nearly a hundred call sites, each one
+// three or four lines of harness around one line of intent. A transport
+// error fails the test rather than being returned: it means the harness
+// broke, which is never what the caller was asserting about.
+//
+// A tool that answers with isError is NOT a failure here — that is a
+// tool-execution error, which is a result the caller usually wants to
+// assert on. Read it off the returned result.
+func CallTool(t *testing.T, register func(*mcp.Server), name string, args map[string]any) *mcp.CallToolResult {
+	t.Helper()
+
+	h := Connect(t, register)
+	defer h.Close()
+
+	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      name,
+		Arguments: args,
+	})
+	if err != nil {
+		t.Fatalf("calling %s: %v", name, err)
+	}
+	return res
+}
+
+// CallToolInto is CallTool plus decoding the structured result into
+// `into`, which is what most callers do next. A result that carries no
+// structured content, or that is an error, is left undecoded and handed
+// back for the caller to assert on.
+func CallToolInto(t *testing.T, register func(*mcp.Server), name string, args map[string]any, into any) *mcp.CallToolResult {
+	t.Helper()
+
+	res := CallTool(t, register, name, args)
+	if into != nil && !res.IsError && res.StructuredContent != nil {
+		DecodeStructured(t, res.StructuredContent, into)
+	}
+	return res
+}

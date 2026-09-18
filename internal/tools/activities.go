@@ -187,11 +187,21 @@ func RegisterActivities(s *mcp.Server, c activitiesClient, companyDomain string,
 	registerManageActivity(s, c, companyDomain, opts)
 }
 
-var allowedActivityActions = map[string]bool{
-	"create":   true,
-	"update":   true,
-	"complete": true,
-	"reopen":   true,
+// activityActions is the closed enum manage_activity dispatches on, and
+// what it needs to know about each one: whether it creates rather than
+// writes, and whether it authorises its own overwrite. Same shape and
+// same reasoning as dealAction — complete and reopen name the field they
+// land on, so the caller already sees the blast radius.
+type activityAction struct {
+	creates    bool
+	transition bool
+}
+
+var activityActions = map[string]activityAction{
+	"create":   {creates: true},
+	"update":   {},
+	"complete": {transition: true},
+	"reopen":   {transition: true},
 }
 
 // activityFields is the one table of LLM-facing field names a write can
@@ -204,18 +214,18 @@ var allowedActivityActions = map[string]bool{
 // done flips; attendees and conference details are absent because they
 // come from the calendar integration and no write here touches them.
 var activityFields = []fieldSpec[pipedrive.Activity]{
-	{"subject", func(a *pipedrive.Activity) string { return projectString(a.Subject) }},
-	{"type", func(a *pipedrive.Activity) string { return projectString(a.Type) }},
-	{"due_date", func(a *pipedrive.Activity) string { return projectString(a.DueDate) }},
-	{"due_time", func(a *pipedrive.Activity) string { return projectString(a.DueTime) }},
-	{"duration", func(a *pipedrive.Activity) string { return projectString(a.Duration) }},
+	{"subject", func(a *pipedrive.Activity) string { return a.Subject }},
+	{"type", func(a *pipedrive.Activity) string { return a.Type }},
+	{"due_date", func(a *pipedrive.Activity) string { return a.DueDate }},
+	{"due_time", func(a *pipedrive.Activity) string { return a.DueTime }},
+	{"duration", func(a *pipedrive.Activity) string { return a.Duration }},
 	{"deal_id", func(a *pipedrive.Activity) string { return projectID(a.DealID) }},
 	{"person_id", func(a *pipedrive.Activity) string { return projectID(a.PersonID) }},
 	{"org_id", func(a *pipedrive.Activity) string { return projectID(a.OrgID) }},
-	{"lead_id", func(a *pipedrive.Activity) string { return projectString(a.LeadID) }},
+	{"lead_id", func(a *pipedrive.Activity) string { return a.LeadID }},
 	{"owner_id", func(a *pipedrive.Activity) string { return projectID(a.OwnerID) }},
-	{"note", func(a *pipedrive.Activity) string { return projectString(a.Note) }},
-	{"public_description", func(a *pipedrive.Activity) string { return projectString(a.PublicDescription) }},
+	{"note", func(a *pipedrive.Activity) string { return a.Note }},
+	{"public_description", func(a *pipedrive.Activity) string { return a.PublicDescription }},
 	{"location", func(a *pipedrive.Activity) string { return projectLocation(a.Location) }},
 	{"done", func(a *pipedrive.Activity) string { return projectBool(a.Done) }},
 	{"busy", func(a *pipedrive.Activity) string { return projectBool(a.Busy) }},
@@ -269,7 +279,7 @@ func registerManageActivity(s *mcp.Server, c activitiesClient, companyDomain str
 
 func manageActivityHandler(c activitiesClient, companyDomain string, dryRun bool) mcp.ToolHandlerFor[manageActivityInput, manageActivityOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in manageActivityInput) (*mcp.CallToolResult, manageActivityOutput, error) {
-		if err := validateAction(in.Action, allowedActivityActions); err != nil {
+		if err := validateAction(in.Action, activityActions); err != nil {
 			return errorResult(err), manageActivityOutput{}, nil
 		}
 		in.DryRun = in.DryRun || dryRun
@@ -278,7 +288,7 @@ func manageActivityHandler(c activitiesClient, companyDomain string, dryRun bool
 			res *mcp.CallToolResult
 			out manageActivityOutput
 		)
-		if in.Action == "create" {
+		if activityActions[in.Action].creates {
 			res, out = createActivityAction(ctx, c, companyDomain, in)
 		} else {
 			res, out = writeActivityAction(ctx, c, companyDomain, in)
@@ -340,9 +350,9 @@ func writeActivityAction(ctx context.Context, c activitiesClient, companyDomain 
 		Resource:      fmt.Sprintf("activity %d", in.ActivityID),
 		ExpectVersion: in.ExpectVersion,
 		Version:       func(a *pipedrive.Activity) string { return a.UpdateTime },
-		// complete and reopen name the field they land on, so they
-		// authorise themselves the way a deal transition does.
-		Overwrite: in.Overwrite || in.Action != "update",
+		// complete and reopen authorise their own overwrite; see
+		// activityAction.
+		Overwrite: in.Overwrite || activityActions[in.Action].transition,
 		DryRun:    in.DryRun,
 		Get: func(ctx context.Context) (*pipedrive.Activity, error) {
 			// The guard read deliberately does not ask for attendees:

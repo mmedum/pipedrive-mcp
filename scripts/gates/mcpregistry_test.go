@@ -211,3 +211,73 @@ func TestTheVersionMayCarryItsVOrNot(t *testing.T) {
 		t.Error("v1.2.0 and 1.2.0 produced different entries")
 	}
 }
+
+// ------------------------------------------- registry schema conformance
+//
+// A registry entry cannot be withdrawn once published, so "it failed in
+// somebody else's tool" is not a recoverable outcome. serverJSON now
+// holds the entry against the schema it cites before printing it; these
+// watch that check fail, the way the rest of this package's checks are.
+
+func registrySchemaBytes(t *testing.T) []byte {
+	t.Helper()
+	data, err := os.ReadFile(repoPath(t, registrySchemaPath))
+	if err != nil {
+		t.Fatalf("read %s: %v", registrySchemaPath, err)
+	}
+	return data
+}
+
+// The vendored bytes are the bytes the constant names.
+func TestRegistrySchemaMatchesItsRecordedHash(t *testing.T) {
+	if got := schemaSHA256(registrySchemaBytes(t)); got != registrySchemaSHA256 {
+		t.Errorf("%s hashes to %s; the recorded hash is %s", registrySchemaPath, got, registrySchemaSHA256)
+	}
+}
+
+func TestRegistryEntrySchemaCatchesABrokenEntry(t *testing.T) {
+	schema := registrySchemaBytes(t)
+
+	// A entry that is valid, as the shape serverJSON emits.
+	good := map[string]any{
+		"$schema":     registrySchema,
+		"name":        "io.github.example/thing",
+		"description": "A server.",
+		"version":     "1.0.0",
+	}
+	if err := validateDocument(good, schema); err != nil {
+		t.Fatalf("a valid entry was refused: %v", err)
+	}
+
+	cases := []struct {
+		name   string
+		breaks func(map[string]any)
+		want   string
+	}{
+		{"a missing required field", func(d map[string]any) { delete(d, "version") }, "version"},
+		{"a field of the wrong type", func(d map[string]any) { d["name"] = 42 }, "name"},
+		// The registry caps the description at 100 characters. The gate
+		// has its own descriptionMax for a better message; this is the
+		// authority it was copied from, and the two can now disagree
+		// only loudly.
+		{"an over-long description", func(d map[string]any) {
+			d["description"] = strings.Repeat("x", descriptionMax+1)
+		}, "description"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			entry := map[string]any{}
+			for k, v := range good {
+				entry[k] = v
+			}
+			tc.breaks(entry)
+			err := validateDocument(entry, schema)
+			if err == nil {
+				t.Fatal("a broken entry satisfied the schema")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("the refusal does not say %q: %v", tc.want, err)
+			}
+		})
+	}
+}

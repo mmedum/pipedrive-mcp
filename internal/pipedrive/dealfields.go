@@ -20,6 +20,14 @@ func (c *Client) ResolveDealCustomFields(ctx context.Context, raw map[string]any
 	return c.dealFields.Resolve(ctx, raw)
 }
 
+// EncodeDealCustomFields turns a caller's custom-field map — workspace
+// names, dropdown labels — into the hash keys and option ids a write
+// body carries. What it refuses, and how, is FieldCache.Encode's to
+// say — do not restate it here.
+func (c *Client) EncodeDealCustomFields(ctx context.Context, in map[string]any) (CustomFieldWrite, error) {
+	return c.dealFields.Encode(ctx, in)
+}
+
 // WarmDealFields eagerly triggers the deal-field cache load so the
 // first user-facing get_deal/list_deals call doesn't pay the
 // /dealFields round-trip on the critical path. Errors are silently

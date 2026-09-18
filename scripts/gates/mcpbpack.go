@@ -52,7 +52,7 @@ func stampedManifest(version string) ([]byte, error) {
 	if version == "" || version == placeholderVersion {
 		return nil, fmt.Errorf("pack needs the real version; %q is the committed placeholder", version)
 	}
-	m, err := readManifest(manifestPath)
+	m, document, err := readManifestBoth(manifestPath)
 	if err != nil {
 		return nil, err
 	}
@@ -69,15 +69,15 @@ func stampedManifest(version string) ([]byte, error) {
 			strings.Join(problems, "\n  "))
 	}
 
-	raw, err := os.ReadFile(manifestPath) //nolint:gosec // a repository path from a constant
-	if err != nil {
-		return nil, err
-	}
-	var document map[string]any
-	if err := json.Unmarshal(raw, &document); err != nil {
-		return nil, err
-	}
 	document["version"] = version
+
+	// After the substitution, not before: the committed manifest is
+	// checked by the gate on every commit, and what ships is this
+	// document, with a version that came from a tag rather than from the
+	// file somebody reviewed.
+	if err := checkAgainstSchema(document); err != nil {
+		return nil, fmt.Errorf("the stamped manifest would not satisfy the schema it cites: %w", err)
+	}
 	return json.MarshalIndent(document, "", "  ")
 }
 

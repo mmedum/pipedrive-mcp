@@ -35,11 +35,6 @@ type ListDealsOptions struct {
 // token's user, status = open, stage_id = first stage of the default
 // pipeline, ...). The tool layer enforces title non-empty client-side
 // so a typo surfaces as [validation] instead of an upstream 400.
-//
-// Custom fields are intentionally omitted from this v0 — writing
-// them needs the inverse name→hash resolver on FieldCache, which is
-// a separate slice. Callers wanting to set custom fields today can
-// edit the deal in the Pipedrive UI after creation.
 type CreateDealRequest struct {
 	Title             string  `json:"title"`
 	Value             float64 `json:"value,omitempty"`
@@ -51,6 +46,12 @@ type CreateDealRequest struct {
 	OrgID             int64   `json:"org_id,omitempty"`
 	ExpectedCloseDate string  `json:"expected_close_date,omitempty"` // YYYY-MM-DD
 	Probability       *int    `json:"probability,omitempty"`         // 0-100; nil = use stage default
+
+	// CustomFields is keyed by the 40-char hash Pipedrive stores,
+	// with dropdown values as option ids: the shape FieldCache.Encode
+	// produces from what the caller actually typed. Nil omits the
+	// object, leaving every custom field as it is.
+	CustomFields map[string]any `json:"custom_fields,omitempty"`
 }
 
 // UpdateDealRequest is the JSON body for PATCH /api/v2/deals/{id}.
@@ -88,6 +89,11 @@ type UpdateDealRequest struct {
 	Probability       *int     `json:"probability,omitempty"`
 	Status            *string  `json:"status,omitempty"`
 	LostReason        *string  `json:"lost_reason,omitempty"`
+
+	// CustomFields is what FieldCache.Encode produces; see
+	// CustomFieldWrite.Values for the shape. Nil omits the object,
+	// leaving every custom field as it is.
+	CustomFields map[string]any `json:"custom_fields,omitempty"`
 }
 
 // UpdateDeal edits a deal via PATCH /api/v2/deals/{id} and returns it
