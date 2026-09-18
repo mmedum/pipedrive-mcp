@@ -152,8 +152,15 @@ exactly the one that would override it.
 Validation still runs in dry-run mode, so a rehearsal catches the same
 input errors a real call would.
 
-Dry-run invocations are logged at `info` level with `dry_run=true` so an
-operator can audit what the LLM tried to do.
+**Dry-run invocations are not logged.** No tool handler emits a log
+record of any kind, so there is no operator-readable trail of what the
+LLM tried — rehearsed or otherwise. This sentence used to promise one;
+it never existed. The per-request log line with tool name and outcome is
+on the roadmap in `docs/architecture.md`, "Logging", and the caveat
+above about the transport not carrying the LLM's intent is the reason it
+would still be a partial record if it shipped. Audit what the LLM
+actually did through Pipedrive's own record of the change, not through
+this server.
 
 ## Supply chain
 

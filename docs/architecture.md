@@ -501,6 +501,7 @@ Versioning is strict semver. The MCP tool surface is the public contract.
 | --- | --- | --- |
 | `v0.1.0` | Phase 1 | The read surface, the notes v1 carve-out, `create_note` / `delete_note`, `refresh_field_cache`. Phase 0's scaffolding folded in rather than cut as `v0.0.1`. |
 | `v0.2.0` – `v0.3.2` | — | Release and supply-chain engineering, no tool-surface change: the gate scripts rewritten as one Go command, every action pinned by commit SHA, cosign signing, CycloneDX SBOMs, build provenance, reproducible builds, `--version`. |
+| `v0.5.0` | Phase 4 prep | Custom fields answer to their names in both directions — readable by name with dropdowns as labels, and writable the same way. The bundle manifest and the MCP registry entry are held against the schemas they cite. The hand-rolled-versus-generated spike was answered, and answering it found three upstream-type defects that had shipped; the mirror is now checked against Pipedrive's own description. Archived deals stopped being invisible. |
 | `v0.4.0` | Phases 2, 3 and 3.5 | The write and workflow surface in one release — five `manage_*` tools with guarded writes, plus `whoami` and MCP resource templates — and the whole surface aligned to the Google Workspace MCP conventions. It also absorbed work that was planned for 0.5.0 and landed before the tag: the live integration suite, `internal/app`, a Claude Desktop bundle with an MCP registry entry, and the supply-chain fixes the release review turned up. |
 
 The middle tags went to release engineering rather than to phases, so the
@@ -511,24 +512,22 @@ table above says what actually happened rather than what was planned.
 
 | Tag | Phase | What it needs |
 | --- | --- | --- |
-| `v0.5.0` | Phase 4 prep | Custom-field **writes** — they are readable everywhere and writable nowhere — and the items below that a second workspace or a decision unblocks. Phase 3.5's own work shipped inside `v0.4.0`. |
-| `v0.9.0` → `v1.0.0-rc.N` | Phase 4 | An eval suite (a release gate from Phase 4 onwards, and it does not exist yet), polish, and validation against a second workspace. |
+| `v0.9.0` → `v1.0.0-rc.N` | Phase 4 | An eval suite (a release gate from Phase 4 onwards, and it does not exist yet), polish, and validation against a second workspace — which is also what unblocks the 403 spike. |
 | `v1.0.0` | Phase 5 | A stable surface and a supported-version table. |
 
 ### v0.5.0 in detail
 
-0.5.0 closes the gaps 0.4.0 knowingly shipped with. Ordered by what would
-hurt most to leave undone.
+0.5.0 closed the gaps 0.4.0 knowingly shipped with, except the two that
+need a second Pipedrive workspace. Those are **not** deferred quietly:
+items 3 and 4 below could not be started, so they moved to Phase 4,
+where the second workspace lives. A scope item nobody can begin is not
+scope.
 
-**1. Custom-field writes.** They are readable everywhere and writable
-nowhere, which is the first wall a user hits — a CRM whose custom fields
-are read-only is a CRM you still have to open a browser for. `FieldCache`
-has `Resolve` (hash → workspace name) and no inverse, so a write cannot
-accept `"Renewal owner"` and turn it into the 40-char key Pipedrive
-stores. Touches `internal/pipedrive/fieldcache.go`, every `manage_*`
-input, and — per the invariant in `fieldtable_test.go` — the field tables,
-since a field a write can set must be tabled or it is written unguarded
-and unreported.
+**1. Custom-field writes.** *Shipped.* Readable by the workspace's own
+names with dropdowns as labels, and writable the same way:
+`FieldCache.Encode` is `Resolve` run backwards, and the guard reaches a
+custom field exactly as it reaches a typed one. See "Writing a custom
+field" above.
 
 **2. An integration suite.** *Shipped in `v0.4.0`*, not here —
 `internal/integration/`, behind `//go:build integration`, run with
@@ -545,9 +544,11 @@ It is left in this list rather than deleted because the reasoning is the
 argument for the suite existing at all, and a reader asking "why is
 there a live suite" should find it here.
 
-**3. A second workspace.** Everything so far ran against one. Custom-field
-configurations, pipeline shapes and permission levels vary, and the 403
-spike below needs a second account regardless.
+**3. A second workspace.** *Moved to Phase 4.* Everything so far has run
+against one. Custom-field configurations, pipeline shapes and permission
+levels vary, and the 403 spike needs a second account regardless — it is
+the same unblock, so both now live where the second workspace does
+rather than sitting in a shipped release's scope unstarted.
 
 **4. The remaining Phase 0 spike**, in `CONTRIBUTING.md`: 403
 disambiguation, which needs a permission-denied and a business-rule 403
@@ -555,9 +556,13 @@ from a real account to tighten `businessRule403Signals`. The hand-rolled
 HTTP versus OpenAPI-generator question was answered on 2026-09-18 — see
 "Hand-rolled HTTP" above.
 
-**5. A Claude Desktop smoke.** Still open. 0.4.0 was driven through stdio and Claude
-Code. The runbook accepts either, so this is a gap in coverage rather than
-in process.
+**5. A Claude Desktop smoke.** *Still open, and now open across two
+releases.* 0.4.0 and 0.5.0 were both driven through stdio — a 42-assertion
+rundown against the built binary, including a real reversible write on
+each release. The runbook accepts a stdio client, so this is a gap in
+coverage rather than in process, but it is the second release in a row
+where the Desktop path has been exercised by nobody. Worth doing before
+a third.
 
 **Deferred review findings.** Each was raised by a `/simplify` pass during
 0.4.0 and judged not worth blocking that release. All were taken during
