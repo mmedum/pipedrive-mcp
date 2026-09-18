@@ -13,6 +13,135 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Changed
+
+- **The `/simplify` findings 0.4.0 deferred are taken.** `dealRequestFor`
+  returns an `error` like every other validator in the package rather
+  than a `*mcp.CallToolResult`. `manage_deal` and `manage_activity` each
+  have one action table saying whether an action creates and whether it
+  authorises its own overwrite — the guard used to read
+  `in.Action != "update"`, which states the rule by exclusion, so a new
+  action was a transition unless it happened to be named update.
+  `testutil.CallTool` and `CallToolInto` replaced 57 of the 91
+  hand-rolled connect-call-decode blocks in the tests. `projectString`,
+  an identity function wrapped at 19 table entries, is gone, and
+  `populatedFields` scans the handful of names a write touches instead
+  of building a set to search them.
+
+### Added
+
+- **Custom fields are writable.** `manage_deal`, `manage_person` and
+  `manage_organization` take a `custom_fields` object keyed by the names
+  the matching `get_` tool reports, with a dropdown given its label:
+  `{"Renewal owner": "Acme Partners", "Segment": "Enterprise"}`. It is
+  the shape a read returns, so the model writes back what it just read.
+  Until now a CRM's own fields were readable everywhere and writable
+  nowhere, which is the first wall a user hits.
+
+  `FieldCache.Encode` is `Resolve` run backwards — names to hash keys,
+  labels to option ids — and it refuses rather than guesses. An unknown
+  name, a label that is not one of the choices, a name two custom fields
+  share, a built-in named by either its label or its key, a field
+  Pipedrive reports as read-only, and an attempt to null a field out are
+  each refused with what the caller should do instead: the choices are
+  listed, the colliding field keys are named, and a stale cache is
+  answered with `refresh_field_cache`. A refusal names **every** field
+  that was wrong, not the first one a map range happened to yield, and
+  **one bad field refuses the whole map** — encoding the rest would
+  report success over a record that never got the field the caller cared
+  about. Naming one field twice in a single write — once by name and
+  once by its key — is refused too, because ranging a map would otherwise
+  pick the winning value at random.
+
+  A workspace whose field definitions cannot be read is reported with the
+  upstream error's own class rather than as a validation failure. A 401
+  on `/dealFields` is not the caller's field name being wrong, and
+  telling the model it was would send it off to fix the one thing that
+  was fine.
+
+  The guard covers them exactly as it covers a typed field. The specs
+  are derived per call from the fields a write names, because which
+  custom fields exist is the workspace's business and a static table
+  would be a second place to add one. Extending the table and carrying
+  the fields into the predicted record are one thing, not two: they are
+  a pair of adjacent fields on `guardedWrite`, which does both or
+  neither. Done as two edits in two functions, a resource that made one
+  of them dry-ran as "nothing changes" and then changed the field
+  without reporting it. So a custom field appears in
+  `changed` under its workspace name, the `overwrite` refusal names it,
+  and filling an empty one still needs no permission. A multi-select is
+  compared as a set: the same choices in a different order are not a
+  change, and Pipedrive does not promise to echo one back in the order
+  it was sent.
+
+  Two deliberate limits. A deal transition (`mark_won`, `move_stage`,
+  ...) ignores `custom_fields` and does not even validate it, the same
+  way it already drops a title passed alongside it — a refusal over a
+  field the transition was never going to write is one the caller cannot
+  act on. And clearing is still unsupported: v2 cannot empty a field, so
+  every custom field reads "omit to leave it as it is" like every other
+  optional input.
+
+- **The MCP registry entry is validated against the schema it cites**,
+  before it is printed and therefore before anything publishes it. The
+  entry named a `$schema` that nothing parsed it against — the same gap
+  as the bundle manifest's below, and the one that matters more: a
+  registry entry cannot be withdrawn once published, so failing in
+  somebody else's tool is not a recoverable outcome. The Go struct
+  guarantees the shape we thought of; the schema is what catches a field
+  the registry requires and the type never had. Vendored and hash-pinned
+  the same way, through the same `validateAgainstVendored`.
+
+- **The bundle manifest is validated against the schema it cites.** The
+  gate checked the *declaration* — that `$schema` agrees with
+  `manifest_version`, that the ref is a release tag, that the version
+  meets a floor — and it checked referential integrity against the files
+  the packer stages. Nothing parsed the document against the schema, so
+  a wrong type, a missing required field or a misspelled top-level key
+  passed here and failed in somebody else's tool. The schema closes its
+  root with `additionalProperties: false`, which makes that last class
+  invisible to every check we had.
+
+  The schema is vendored (`packaging/mcpb/mcpb-manifest-v0.3.schema.json`)
+  rather than fetched: a gate that needs the network fails on somebody
+  else's bad day, and `make check` runs offline. Its SHA256 is recorded
+  beside the pinned URL, because a vendored copy is only worth its
+  provenance — the sibling `google-chat-mcp` validates against a vendored
+  copy and never checks that the cited URL agrees with it, which is the
+  mirror of the gap this closes. Both halves are now held: the URL by
+  `schemaFor`, the bytes by hash.
+
+  The **stamped** manifest is validated too, after the version is
+  substituted rather than before, since what ships carries a version that
+  came from a tag rather than from the file somebody reviewed.
+  `google/jsonschema-go` was already a dependency.
+
+### Changed
+
+- **A dropdown custom field now reads as its label, not its option id.**
+  `get_deal`, `get_person`, `get_organization`, the three `list_` tools
+  and the resource templates all resolved a custom field's *key* to the
+  workspace's name for it and then handed the *value* over untouched —
+  so an enum came back as `107` and a set as `[68, 69]`. A number is not
+  something the caller can repeat back to the user, cite in an answer or
+  reason about, and it was the half of "resolve to semantic names in
+  output" that had never been done. The field metadata already carried
+  the option table; nothing read it.
+
+  It lands in `FieldCache.Resolve`, the pass that already renames the
+  key, so one fetch, one reload and one soft-failure policy cover both
+  halves and `refresh_field_cache` picks up a newly added option for
+  free. An option id the cache has not heard of passes through as
+  itself, the same soft failure an unrecognised field key takes: a
+  workspace can add an option at any moment, and a caller seeing a
+  number is better than a caller seeing nothing. `docs/architecture.md`,
+  "Option labels", carries the design and the two decisions behind it.
+
+  No input or output changes shape — `custom_fields` was already an open
+  object — but the tool and field *descriptions* do, and descriptions are
+  part of the dumped schema, so the schema-diff gate sees this change and
+  the commit carries a `SCHEMA-CHANGE:` footer.
+
 ## [0.4.0] - 2026-09-17
 
 ### Added

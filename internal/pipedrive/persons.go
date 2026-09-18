@@ -38,6 +38,11 @@ type CreatePersonRequest struct {
 	Phones    []ContactPoint `json:"phones,omitempty"`
 	OrgID     int64          `json:"org_id,omitempty"`
 	OwnerID   int64          `json:"owner_id,omitempty"`
+
+	// CustomFields is what FieldCache.Encode produces; see
+	// CustomFieldWrite.Values for the shape. Nil omits the object,
+	// leaving every custom field as it is.
+	CustomFields map[string]any `json:"custom_fields,omitempty"`
 }
 
 // UpdatePersonRequest is the JSON body for PATCH /api/v2/persons/{id}.
@@ -53,6 +58,11 @@ type UpdatePersonRequest struct {
 	Phones    []ContactPoint `json:"phones,omitempty"`
 	OrgID     *int64         `json:"org_id,omitempty"`
 	OwnerID   *int64         `json:"owner_id,omitempty"`
+
+	// CustomFields is what FieldCache.Encode produces; see
+	// CustomFieldWrite.Values for the shape. Nil omits the object,
+	// leaving every custom field as it is.
+	CustomFields map[string]any `json:"custom_fields,omitempty"`
 }
 
 // UpdatePerson edits a person via PATCH /api/v2/persons/{id} and
@@ -139,6 +149,14 @@ func (c *Client) ListPersonFields(ctx context.Context) ([]Field, error) {
 // packages need; the underlying cache is unexported.
 func (c *Client) ResolvePersonCustomFields(ctx context.Context, raw map[string]any) map[string]any {
 	return c.personFields.Resolve(ctx, raw)
+}
+
+// EncodePersonCustomFields turns a caller's custom-field map — workspace
+// names, dropdown labels — into the hash keys and option ids a write
+// body carries. What it refuses, and how, is FieldCache.Encode's to
+// say — do not restate it here.
+func (c *Client) EncodePersonCustomFields(ctx context.Context, in map[string]any) (CustomFieldWrite, error) {
+	return c.personFields.Encode(ctx, in)
 }
 
 // WarmPersonFields eagerly triggers the cache load.

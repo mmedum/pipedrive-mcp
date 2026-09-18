@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +12,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/google/jsonschema-go/jsonschema"
 )
 
 // The bundle gate and the packer (§12, and the standard's §10b).
@@ -128,11 +132,14 @@ type manifest struct {
 
 // mcpbGate runs the referential checks against the committed manifest.
 func mcpbGate() error {
-	m, err := readManifest(manifestPath)
+	m, document, err := readManifestBoth(manifestPath)
 	if err != nil {
 		return err
 	}
 	problems := validateManifest(m, bundleFiles, launcherNames())
+	if err := checkAgainstSchema(document); err != nil {
+		problems = append(problems, err.Error())
+	}
 
 	// The version placeholder, so a committed manifest cannot claim a
 	// version that shipped.
@@ -165,8 +172,9 @@ func mcpbGate() error {
 		return fmt.Errorf("%s", strings.Join(problems, "\n"))
 	}
 
-	fmt.Printf("  %s: %d staged files, %d platforms, %d user_config keys: every name resolves\n",
-		manifestPath, len(bundleFiles), len(m.Compatibility.Platforms), len(m.UserConfig))
+	fmt.Printf("  %s: %d staged files, %d platforms, %d user_config keys: every name resolves, and the document satisfies %s\n",
+		manifestPath, len(bundleFiles), len(m.Compatibility.Platforms), len(m.UserConfig),
+		vendoredSchemaPath(m.ManifestVersion))
 	return nil
 }
 
@@ -286,6 +294,138 @@ func checkManifestShape(m manifest) []string {
 			"server with no repository around it to find one in")
 	}
 	return problems
+}
+
+// The schema half of the manifest checks.
+//
+// checkManifestShape above asks whether the DECLARATION is right: that
+// $schema agrees with manifest_version and that neither is stale. This
+// asks the other half — whether the document actually satisfies the
+// schema it cites. Neither substitutes for the other, and neither
+// substitutes for the referential checks at the top of this file: a
+// manifest can satisfy the schema and still name an entry point nobody
+// stages, which is why that comment says a schema would not catch any
+// of THOSE. It catches a different set, including every unknown or
+// misspelled top-level key, because the schema closes the root with
+// additionalProperties: false.
+//
+// The schema is VENDORED rather than fetched. A gate that needs the
+// network fails on somebody else's bad day, and `make check` runs
+// offline. But a vendored copy is only worth its provenance — the
+// sibling google-chat-mcp validates against a vendored copy and never
+// checks that the cited URL agrees with it, which is the exact mirror of
+// the gap this closes — so the bytes are pinned by hash here while the
+// URL is pinned by schemaFor.
+//
+// What the hash proves is bounded, and worth stating: that these bytes
+// are the ones somebody reviewed, not that they still match what the URL
+// serves. Nothing here can tell you upstream retagged — only a re-fetch
+// can, which is why re-pinning is a step in docs/release.md beside the
+// schemaRef bump rather than a promise made in a comment.
+
+// vendoredSchemaSHA256 is the SHA256 of the vendored schema for each
+// manifest version. See the block comment above for what it buys.
+var vendoredSchemaSHA256 = map[string]string{
+	"0.3": "3a0ac9d845711a1b9b17dfa5a52f8b60628239d6a86a9db417206a9efc78592d",
+}
+
+// vendoredSchemaPath is where the copy for a manifest version lives,
+// named after the version so bumping manifest_version without vendoring
+// the matching schema fails loudly rather than validating against the
+// old shape.
+func vendoredSchemaPath(manifestVersion string) string {
+	return "packaging/mcpb/mcpb-manifest-v" + manifestVersion + ".schema.json"
+}
+
+// checkAgainstSchema validates a decoded manifest against the vendored
+// copy of the schema its own manifest_version names.
+func checkAgainstSchema(document map[string]any) error {
+	version, _ := document["manifest_version"].(string)
+	if version == "" {
+		return fmt.Errorf("no manifest_version, so there is no schema to check the document against")
+	}
+	want, ok := vendoredSchemaSHA256[version]
+	if !ok {
+		return fmt.Errorf(
+			"manifest_version is %q and no copy of its schema is vendored; fetch %s into %s and record its SHA256 in vendoredSchemaSHA256",
+			version, schemaFor(version), vendoredSchemaPath(version))
+	}
+	return validateAgainstVendored(document, vendoredSchemaPath(version), want, schemaFor(version))
+}
+
+// validateAgainstVendored holds a document against this repository's copy
+// of a schema, having first checked the copy is the one that was
+// reviewed. Two callers: the bundle manifest and the registry entry,
+// which cite different schemas and have the same gap without it.
+func validateAgainstVendored(document any, path, wantSHA256, sourceURL string) error {
+	data, err := os.ReadFile(path) //nolint:gosec // a repository path from a constant or a pinned version
+	if err != nil {
+		return fmt.Errorf("cannot read the vendored schema: %w", err)
+	}
+	if got := schemaSHA256(data); got != wantSHA256 {
+		return fmt.Errorf("%s hashes to %s and this repository records %s; it is no longer the reviewed copy of %s",
+			path, got, wantSHA256, sourceURL)
+	}
+	return validateDocument(document, data)
+}
+
+func schemaSHA256(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// validateDocument validates one decoded document against one schema.
+//
+// Split from the loading above so a test can hold a real schema against
+// a broken document without a file on disk — every check in this file is
+// watched failing before it is believed.
+func validateDocument(document any, schemaJSON []byte) error {
+	var schema jsonschema.Schema
+	if err := json.Unmarshal(schemaJSON, &schema); err != nil {
+		return fmt.Errorf("the vendored schema is not valid JSON Schema: %w", err)
+	}
+	// Resolve(nil) does no network fetch: every $ref in this schema is a
+	// local fragment. Worth knowing that the schema declares draft-07
+	// while this library implements 2020-12 — the constraints that carry
+	// the weight here (additionalProperties, required, enum) mean the
+	// same in both, but a future upstream schema leaning on draft-07's
+	// $ref sibling semantics could validate differently than its
+	// publisher intended.
+	resolved, err := schema.Resolve(nil)
+	if err != nil {
+		return fmt.Errorf("the vendored schema does not resolve: %w", err)
+	}
+	if err := resolved.Validate(document); err != nil {
+		return fmt.Errorf("the manifest does not satisfy the schema it cites: %w", err)
+	}
+	return nil
+}
+
+// readManifestDocument decodes the manifest as a plain JSON value, which
+// is what a schema validates. The typed readManifest cannot stand in:
+// decoding into a struct silently drops every key the struct does not
+// declare, and those keys are most of what a schema is there to check.
+// readManifestBoth reads the manifest once and decodes it twice.
+//
+// Both shapes are needed and they answer different questions: the struct
+// for field access, the plain document for the schema. The typed decode
+// cannot stand in for the document — it silently drops every key the
+// struct does not declare, and those keys are most of what a schema is
+// there to check. But there is no reason to read the file, or spell the
+// error, twice to get them.
+func readManifestBoth(path string) (manifest, map[string]any, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // a repository path from a constant
+	if err != nil {
+		return manifest{}, nil, err
+	}
+	var m manifest
+	var document map[string]any
+	for _, into := range []any{&m, &document} {
+		if err := json.Unmarshal(data, into); err != nil {
+			return manifest{}, nil, fmt.Errorf("%s is not valid JSON: %w", path, err)
+		}
+	}
+	return m, document, nil
 }
 
 // resolveStaged strips the ${__dirname} a manifest command carries.
@@ -458,15 +598,8 @@ func launcherNamesIn(body string) []string {
 }
 
 func readManifest(path string) (manifest, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // a repository path from a constant
-	if err != nil {
-		return manifest{}, err
-	}
-	var m manifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		return manifest{}, fmt.Errorf("%s is not valid JSON: %w", path, err)
-	}
-	return m, nil
+	m, _, err := readManifestBoth(path)
+	return m, err
 }
 
 // licenceOf reads the SPDX identifier the repository's LICENSE file

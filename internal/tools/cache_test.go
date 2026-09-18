@@ -57,18 +57,9 @@ func TestRefreshFieldCache_HappyPath(t *testing.T) {
 	fake := &fakeCacheClient{
 		dealCount: 18, personCount: 12, orgCount: 7,
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterCache(s, fake)
-	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "refresh_field_cache",
-		Arguments: map[string]any{},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
+	}, "refresh_field_cache", map[string]any{})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -102,15 +93,9 @@ func TestRefreshFieldCache_PartialFailure(t *testing.T) {
 		personErr: &pipedrive.APIError{Class: pipedrive.ErrServerError, Status: 503, Message: "upstream down"},
 		orgCount:  7,
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterCache(s, fake)
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "refresh_field_cache",
-		Arguments: map[string]any{},
-	})
+	}, "refresh_field_cache", map[string]any{})
 	if res.IsError {
 		t.Fatalf("unexpected isError on partial failure (per-resource errors are surfaced in the row, not isError): %+v", res.Content)
 	}

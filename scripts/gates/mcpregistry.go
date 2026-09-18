@@ -31,6 +31,18 @@ import (
 
 const registrySchema = "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json"
 
+// The vendored copy of that schema, and the hash that says it is the one
+// somebody reviewed. Same arrangement, and same bounded claim, as the
+// bundle manifest's — see the block comment in mcpb.go.
+//
+// This entry needs it more than the manifest does: a registry entry
+// cannot be withdrawn once published, so "it failed in somebody else's
+// tool" is not a recoverable outcome here.
+const (
+	registrySchemaPath   = "packaging/registry/server.schema.json"
+	registrySchemaSHA256 = "3fba09590c99f61735d234822279f4223fab9e300c0a81e81c91ab62a4114de0"
+)
+
 // descriptionMax is the registry's cap.
 const descriptionMax = 100
 
@@ -196,12 +208,35 @@ func serverJSON(version, checksums string, stdout io.Writer) error {
 			Transport:  registryTransport{Type: "stdio"},
 		}},
 	}
-	out, err := json.MarshalIndent(entry, "", "  ")
+	out, err := marshalRegistryEntry(entry)
 	if err != nil {
 		return err
 	}
 	_, err = fmt.Fprintln(stdout, string(out))
 	return err
+}
+
+// marshalRegistryEntry renders the entry and holds it against the schema
+// it cites, before it goes anywhere.
+//
+// The Go struct guarantees the shape we thought of; the schema is what
+// catches a field the registry requires and the type never had. It runs
+// here rather than as a separate gate because the entry is built at
+// release time and published moments later — and a registry entry cannot
+// be withdrawn.
+func marshalRegistryEntry(entry registryEntry) ([]byte, error) {
+	out, err := json.MarshalIndent(entry, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	var document map[string]any
+	if err := json.Unmarshal(out, &document); err != nil {
+		return nil, err
+	}
+	if err := validateAgainstVendored(document, registrySchemaPath, registrySchemaSHA256, registrySchema); err != nil {
+		return nil, fmt.Errorf("the registry entry would not satisfy the schema it cites: %w", err)
+	}
+	return out, nil
 }
 
 // registryPublishCmd is the release-time entry point.

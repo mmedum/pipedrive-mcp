@@ -416,11 +416,11 @@ func noteAfterUpdate(before pipedrive.Note, req pipedrive.UpdateNoteRequest) pip
 // active_flag is deliberately absent: no update request can set it, so
 // an update can never report it. delete names it directly instead.
 var noteFields = []fieldSpec[pipedrive.Note]{
-	{"content", func(n *pipedrive.Note) string { return projectString(n.Content) }},
+	{"content", func(n *pipedrive.Note) string { return n.Content }},
 	{"deal_id", func(n *pipedrive.Note) string { return projectOptID(n.DealID) }},
 	{"person_id", func(n *pipedrive.Note) string { return projectOptID(n.PersonID) }},
 	{"org_id", func(n *pipedrive.Note) string { return projectOptID(n.OrgID) }},
-	{"lead_id", func(n *pipedrive.Note) string { return projectString(n.LeadID) }},
+	{"lead_id", func(n *pipedrive.Note) string { return n.LeadID }},
 	{"project_id", func(n *pipedrive.Note) string { return projectOptID(n.ProjectID) }},
 }
 

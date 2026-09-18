@@ -33,6 +33,8 @@ type fakeDealsClient struct {
 	lastUpdateID  int64
 	updateCalls   int
 	getCalls      int
+
+	encodeErr error
 }
 
 func (f *fakeDealsClient) UpdateDeal(_ context.Context, id int64, req pipedrive.UpdateDealRequest) (*pipedrive.Deal, error) {
@@ -66,6 +68,9 @@ func (f *fakeDealsClient) ResolveDealCustomFields(_ context.Context, raw map[str
 		return f.resolver(raw)
 	}
 	return raw
+}
+func (f *fakeDealsClient) EncodeDealCustomFields(_ context.Context, in map[string]any) (pipedrive.CustomFieldWrite, error) {
+	return fakeEncode(in, f.encodeErr)
 }
 
 // dealRow mirrors the JSON shape RegisterDeals emits. Carrying a
@@ -109,18 +114,9 @@ func TestGetDeal_HappyPath(t *testing.T) {
 			return map[string]any{"Account Manager": raw["abc123"]}
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterDeals(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "get_deal",
-		Arguments: map[string]any{"deal_id": 42},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
+	}, "get_deal", map[string]any{"deal_id": 42})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -140,18 +136,9 @@ func TestGetDeal_HappyPath(t *testing.T) {
 }
 
 func TestGetDeal_RejectsZeroID(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "get_deal",
-		Arguments: map[string]any{"deal_id": 0},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
+	}, "get_deal", map[string]any{"deal_id": 0})
 	if !res.IsError {
 		t.Fatalf("expected isError on zero deal_id, got: %+v", res.Content)
 	}
@@ -170,18 +157,9 @@ func TestGetDeal_UpstreamNotFound(t *testing.T) {
 			Endpoint: "/api/v2/deals/99999",
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterDeals(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "get_deal",
-		Arguments: map[string]any{"deal_id": 99999},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
+	}, "get_deal", map[string]any{"deal_id": 99999})
 	if !res.IsError {
 		t.Fatalf("expected isError on upstream 404, got: %+v", res.Content)
 	}
@@ -199,22 +177,13 @@ func TestListDeals_HappyPath(t *testing.T) {
 		},
 		dealsNext: "cursor-page-2",
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterDeals(s, fake, "acme", tools.RegisterOptions{})
+	}, "list_deals", map[string]any{
+		"status":      "open",
+		"pipeline_id": 2,
+		"limit":       50,
 	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "list_deals",
-		Arguments: map[string]any{
-			"status":      "open",
-			"pipeline_id": 2,
-			"limit":       50,
-		},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -272,15 +241,9 @@ func TestListDeals_PassesUpdatedWindowAndSort(t *testing.T) {
 }
 
 func TestListDeals_RejectsBadSortBy(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_deals",
-		Arguments: map[string]any{"sort_by": "title"},
-	})
+	}, "list_deals", map[string]any{"sort_by": "title"})
 	if !res.IsError {
 		t.Fatal("expected isError on unsupported sort_by")
 	}
@@ -290,15 +253,9 @@ func TestListDeals_RejectsBadSortBy(t *testing.T) {
 }
 
 func TestListDeals_RejectsBadSortDirection(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_deals",
-		Arguments: map[string]any{"sort_direction": "sideways"},
-	})
+	}, "list_deals", map[string]any{"sort_direction": "sideways"})
 	if !res.IsError {
 		t.Fatal("expected isError on unsupported sort_direction")
 	}
@@ -404,26 +361,17 @@ func TestCreateDeal_HappyPath(t *testing.T) {
 			OrgID:      59,
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterDeals(s, fake, "acme", tools.RegisterOptions{})
+	}, "manage_deal", map[string]any{
+		"action":      "create",
+		"title":       "Acme — VisitorPass renewal",
+		"value":       75000,
+		"currency":    "DKK",
+		"pipeline_id": 2,
+		"stage_id":    3,
+		"org_id":      59,
 	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "manage_deal",
-		Arguments: map[string]any{
-			"action":      "create",
-			"title":       "Acme — VisitorPass renewal",
-			"value":       75000,
-			"currency":    "DKK",
-			"pipeline_id": 2,
-			"stage_id":    3,
-			"org_id":      59,
-		},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -539,22 +487,13 @@ func TestCreateDeal_PropagatesUpstreamError(t *testing.T) {
 			Endpoint: "/api/v2/deals",
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterDeals(s, fake, "acme", tools.RegisterOptions{})
+	}, "manage_deal", map[string]any{
+		"action":      "create",
+		"title":       "Bad pipeline test",
+		"pipeline_id": 999,
 	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "manage_deal",
-		Arguments: map[string]any{
-			"action":      "create",
-			"title":       "Bad pipeline test",
-			"pipeline_id": 999,
-		},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
 	if !res.IsError {
 		t.Fatalf("expected isError on upstream 400, got: %+v", res.Content)
 	}

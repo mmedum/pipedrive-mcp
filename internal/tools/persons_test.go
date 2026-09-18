@@ -32,6 +32,8 @@ type fakePersonsClient struct {
 	lastUpdateID  int64
 	updateCalls   int
 	getCalls      int
+
+	encodeErr error
 }
 
 func (f *fakePersonsClient) UpdatePerson(_ context.Context, id int64, req pipedrive.UpdatePersonRequest) (*pipedrive.Person, error) {
@@ -65,6 +67,9 @@ func (f *fakePersonsClient) ResolvePersonCustomFields(_ context.Context, raw map
 		return f.resolver(raw)
 	}
 	return raw
+}
+func (f *fakePersonsClient) EncodePersonCustomFields(_ context.Context, in map[string]any) (pipedrive.CustomFieldWrite, error) {
+	return fakeEncode(in, f.encodeErr)
 }
 
 type personRow struct {
@@ -108,18 +113,9 @@ func TestGetPerson_HappyPath(t *testing.T) {
 			return map[string]any{"VIP Tier": raw["abc123"]}
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "get_person",
-		Arguments: map[string]any{"person_id": 42},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
+	}, "get_person", map[string]any{"person_id": 42})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -143,15 +139,9 @@ func TestGetPerson_HappyPath(t *testing.T) {
 }
 
 func TestGetPerson_RejectsZeroID(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterPersons(s, &fakePersonsClient{}, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "get_person",
-		Arguments: map[string]any{"person_id": 0},
-	})
+	}, "get_person", map[string]any{"person_id": 0})
 	if !res.IsError {
 		t.Fatal("expected isError on zero person_id")
 	}
@@ -169,15 +159,9 @@ func TestGetPerson_UpstreamNotFound(t *testing.T) {
 			Endpoint: "/api/v2/persons/99999",
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "get_person",
-		Arguments: map[string]any{"person_id": 99999},
-	})
+	}, "get_person", map[string]any{"person_id": 99999})
 	if !res.IsError {
 		t.Fatal("expected isError on upstream 404")
 	}
@@ -200,15 +184,9 @@ func TestListPersons_HappyPath(t *testing.T) {
 			return raw
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_persons",
-		Arguments: map[string]any{"org_id": 7, "limit": 50},
-	})
+	}, "list_persons", map[string]any{"org_id": 7, "limit": 50})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -239,15 +217,9 @@ func TestListPersons_HappyPath(t *testing.T) {
 }
 
 func TestListPersons_RejectsBadSortBy(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterPersons(s, &fakePersonsClient{}, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_persons",
-		Arguments: map[string]any{"sort_by": "name"},
-	})
+	}, "list_persons", map[string]any{"sort_by": "name"})
 	if !res.IsError {
 		t.Fatal("expected isError on unsupported sort_by")
 	}
@@ -302,26 +274,17 @@ func TestCreatePerson_HappyPath(t *testing.T) {
 			OwnerID:   13,
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{})
+	}, "manage_person", map[string]any{
+		"action":     "create",
+		"name":       "Helle Steffenauer",
+		"first_name": "Helle",
+		"last_name":  "Steffenauer",
+		"emails":     []map[string]any{{"value": "hanna.s@example.com", "primary": true, "label": "work"}},
+		"phones":     []map[string]any{{"value": "+45 99 34 11 48", "primary": true, "label": "work"}},
+		"org_id":     59,
 	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "manage_person",
-		Arguments: map[string]any{
-			"action":     "create",
-			"name":       "Helle Steffenauer",
-			"first_name": "Helle",
-			"last_name":  "Steffenauer",
-			"emails":     []map[string]any{{"value": "hanna.s@example.com", "primary": true, "label": "work"}},
-			"phones":     []map[string]any{{"value": "+45 99 34 11 48", "primary": true, "label": "work"}},
-			"org_id":     59,
-		},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -376,18 +339,12 @@ func TestCreatePerson_RejectsEmptyName(t *testing.T) {
 
 func TestCreatePerson_DryRunSkipsUpstream(t *testing.T) {
 	fake := &fakePersonsClient{}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{DryRun: true}) // dryRun = true
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "manage_person",
-		Arguments: map[string]any{
-			"action": "create",
-			"name":   "Dry run probe",
-			"org_id": 59,
-		},
+	}, "manage_person", map[string]any{
+		"action": "create",
+		"name":   "Dry run probe",
+		"org_id": 59,
 	})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
@@ -420,18 +377,12 @@ func TestCreatePerson_PropagatesUpstreamError(t *testing.T) {
 			Endpoint: "/api/v2/persons",
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "manage_person",
-		Arguments: map[string]any{
-			"action":   "create",
-			"name":     "Bad owner",
-			"owner_id": 999999,
-		},
+	}, "manage_person", map[string]any{
+		"action":   "create",
+		"name":     "Bad owner",
+		"owner_id": 999999,
 	})
 	if !res.IsError {
 		t.Fatal("expected isError on upstream 400")

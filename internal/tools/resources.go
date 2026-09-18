@@ -57,7 +57,7 @@ func RegisterResources(s *mcp.Server, c resourcesClient, companyDomain string) {
 		{
 			collection:  "deals",
 			title:       "Pipedrive deal",
-			description: "One deal by id, with its custom fields resolved to the names the workspace gives them. The same record get_deal returns.",
+			description: "One deal by id, with its custom fields under the names the workspace gives them and dropdown values under their labels. The same record get_deal returns.",
 			fetch: func(ctx context.Context, id int64) (any, error) {
 				d, err := c.GetDeal(ctx, id)
 				if err != nil {
@@ -69,7 +69,7 @@ func RegisterResources(s *mcp.Server, c resourcesClient, companyDomain string) {
 		{
 			collection:  "persons",
 			title:       "Pipedrive person",
-			description: "One contact by id, with emails, phones, the organization they belong to, and custom fields resolved by name. The same record get_person returns.",
+			description: "One contact by id, with emails, phones, the organization they belong to, and custom fields under their workspace names with dropdown values as labels. The same record get_person returns.",
 			fetch: func(ctx context.Context, id int64) (any, error) {
 				p, err := c.GetPerson(ctx, id)
 				if err != nil {
@@ -81,7 +81,7 @@ func RegisterResources(s *mcp.Server, c resourcesClient, companyDomain string) {
 		{
 			collection:  "organizations",
 			title:       "Pipedrive organization",
-			description: "One organization by id, with its parsed address and custom fields resolved by name. The same record get_organization returns.",
+			description: "One organization by id, with its parsed address, and custom fields under their workspace names with dropdown values as labels. The same record get_organization returns.",
 			fetch: func(ctx context.Context, id int64) (any, error) {
 				o, err := c.GetOrganization(ctx, id)
 				if err != nil {

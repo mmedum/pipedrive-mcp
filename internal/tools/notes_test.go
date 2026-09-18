@@ -95,15 +95,9 @@ func TestGetNote_HappyPath(t *testing.T) {
 			PinnedToDealFlag: true,
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterNotes(s, fake, tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "get_note",
-		Arguments: map[string]any{"note_id": 77},
-	})
+	}, "get_note", map[string]any{"note_id": 77})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -120,15 +114,9 @@ func TestGetNote_HappyPath(t *testing.T) {
 }
 
 func TestGetNote_RejectsZeroID(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterNotes(s, &fakeNotesClient{}, tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "get_note",
-		Arguments: map[string]any{"note_id": 0},
-	})
+	}, "get_note", map[string]any{"note_id": 0})
 	if !res.IsError {
 		t.Fatal("expected isError on zero note_id")
 	}
@@ -146,15 +134,9 @@ func TestGetNote_UpstreamNotFound(t *testing.T) {
 			Endpoint: "/api/v1/notes/99999",
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterNotes(s, fake, tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "get_note",
-		Arguments: map[string]any{"note_id": 99999},
-	})
+	}, "get_note", map[string]any{"note_id": 99999})
 	if !res.IsError {
 		t.Fatal("expected isError on upstream 404")
 	}
@@ -173,15 +155,9 @@ func TestListNotes_HappyPath_WithCursor(t *testing.T) {
 			Start: 0, Limit: 2, MoreItemsInCollection: true, NextStart: 2,
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterNotes(s, fake, tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_notes",
-		Arguments: map[string]any{"deal_id": 42, "limit": 2},
-	})
+	}, "list_notes", map[string]any{"deal_id": 42, "limit": 2})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -211,15 +187,9 @@ func TestListNotes_LastPage_OmitsCursor(t *testing.T) {
 			Start: 0, Limit: 25, MoreItemsInCollection: false,
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterNotes(s, fake, tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_notes",
-		Arguments: map[string]any{},
-	})
+	}, "list_notes", map[string]any{})
 	var out struct {
 		NextCursor string `json:"next_cursor"`
 	}
@@ -269,15 +239,9 @@ func TestListNotes_CursorRoundTripDecodesToOffset(t *testing.T) {
 }
 
 func TestListNotes_RejectsBadCursor(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterNotes(s, &fakeNotesClient{}, tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_notes",
-		Arguments: map[string]any{"cursor": "not-base64-xyz!"},
-	})
+	}, "list_notes", map[string]any{"cursor": "not-base64-xyz!"})
 	if !res.IsError {
 		t.Fatal("expected isError on garbage cursor")
 	}
@@ -287,15 +251,9 @@ func TestListNotes_RejectsBadCursor(t *testing.T) {
 }
 
 func TestListNotes_RejectsBadSortBy(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterNotes(s, &fakeNotesClient{}, tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_notes",
-		Arguments: map[string]any{"sort_by": "bogus"},
-	})
+	}, "list_notes", map[string]any{"sort_by": "bogus"})
 	if !res.IsError {
 		t.Fatal("expected isError on unsupported sort_by")
 	}
@@ -316,15 +274,9 @@ func callManageNote(t *testing.T, fake *fakeNotesClient, args map[string]any) (*
 
 func callManageNoteOpts(t *testing.T, fake *fakeNotesClient, opts tools.RegisterOptions, args map[string]any) (*mcp.CallToolResult, manageNoteOut) {
 	t.Helper()
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterNotes(s, fake, opts)
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "manage_note",
-		Arguments: args,
-	})
+	}, "manage_note", args)
 	var out manageNoteOut
 	if res != nil && !res.IsError && res.StructuredContent != nil {
 		testutil.DecodeStructured(t, res.StructuredContent, &out)

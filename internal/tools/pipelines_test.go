@@ -53,17 +53,9 @@ func TestListPipelines_HappyPath(t *testing.T) {
 			{ID: 2, Name: "Renewals", OrderNr: 1, Active: false},
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterPipelines(s, fake, "acme")
-	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "list_pipelines",
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
+	}, "list_pipelines", nil)
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -91,17 +83,9 @@ func TestListPipelines_UpstreamError(t *testing.T) {
 			Endpoint: "/api/v2/pipelines",
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterPipelines(s, fake, "acme")
-	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "list_pipelines",
-	})
-	if err != nil {
-		t.Fatalf("CallTool transport error: %v", err)
-	}
+	}, "list_pipelines", nil)
 	if !res.IsError {
 		t.Fatalf("expected isError=true on upstream 401, got: %+v", res.Content)
 	}
@@ -120,18 +104,9 @@ func TestListStages_FilterPassedThrough(t *testing.T) {
 			{ID: 10, Name: "Lead In", OrderNr: 0, Active: true, PipelineID: 5, DealProbability: 10},
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterPipelines(s, fake, "acme")
-	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_stages",
-		Arguments: map[string]any{"pipeline_id": 5},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
+	}, "list_stages", map[string]any{"pipeline_id": 5})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}
@@ -157,18 +132,9 @@ func TestListStages_PipelineNotFound(t *testing.T) {
 			{ID: 10, Name: "Should Not Be Returned", PipelineID: 1},
 		},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterPipelines(s, fake, "acme")
-	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_stages",
-		Arguments: map[string]any{"pipeline_id": 99999},
-	})
-	if err != nil {
-		t.Fatalf("CallTool transport error: %v", err)
-	}
+	}, "list_stages", map[string]any{"pipeline_id": 99999})
 	if !res.IsError {
 		t.Fatalf("expected isError=true on unknown pipeline, got: %+v", res.Content)
 	}
@@ -188,18 +154,9 @@ func TestListStages_OmittedFilterMeansAll(t *testing.T) {
 	fake := &fakePipelinesClient{
 		stages: []pipedrive.Stage{},
 	}
-	h := testutil.Connect(t, func(s *mcp.Server) {
+	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterPipelines(s, fake, "acme")
-	})
-	defer h.Close()
-
-	res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_stages",
-		Arguments: map[string]any{},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
+	}, "list_stages", map[string]any{})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
 	}

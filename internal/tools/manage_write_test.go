@@ -1,7 +1,7 @@
 package tools_test
 
 import (
-	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -17,22 +17,47 @@ import (
 // report, and the transitions. The per-resource files still own their
 // reads and their create-specific validation.
 
+// fakeEncode stands in for FieldCache.Encode. It keeps the two
+// properties the tools layer depends on — a name becomes a stored key,
+// and every key carries a name to report it by — and nothing else: what
+// Encode does with labels, ambiguity and read-only fields is tested
+// against the real thing in internal/pipedrive.
+//
+// A non-nil err lets a test drive the refusal path, which is the one
+// branch of the tools layer that cares what Encode decided.
+func fakeEncode(in map[string]any, err error) (pipedrive.CustomFieldWrite, error) {
+	// Empty first, like the real Encode: nothing to encode cannot fail,
+	// which is what lets a transition pass custom_fields it ignores.
+	if len(in) == 0 {
+		return pipedrive.CustomFieldWrite{}, nil
+	}
+	if err != nil {
+		return pipedrive.CustomFieldWrite{}, err
+	}
+	out := pipedrive.CustomFieldWrite{
+		Values: make(map[string]any, len(in)),
+		Names:  make(map[string]string, len(in)),
+	}
+	for name, v := range in {
+		key := "cf_" + strings.ToLower(name)
+		out.Values[key] = v
+		out.Names[key] = name
+	}
+	return out, nil
+}
+
 type writeOut struct {
 	Action  string   `json:"action"`
 	Changed []string `json:"changed,omitempty"`
 	DryRun  bool     `json:"dry_run,omitempty"`
 }
 
+// callTool is testutil.CallToolInto under the name this package's tests
+// already use. The helper itself moved to internal/server/testutil,
+// where the other suites can reach it.
 func callTool(t *testing.T, register func(*mcp.Server), name string, args map[string]any, out any) *mcp.CallToolResult {
 	t.Helper()
-	h := testutil.Connect(t, register)
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{Name: name, Arguments: args})
-	if out != nil && res != nil && !res.IsError && res.StructuredContent != nil {
-		testutil.DecodeStructured(t, res.StructuredContent, out)
-	}
-	return res
+	return testutil.CallToolInto(t, register, name, args, out)
 }
 
 func changedSet(c []string) map[string]bool {
@@ -852,5 +877,211 @@ func TestManageWrite_CustomFieldsAreResolvedOnEveryPath(t *testing.T) {
 				t.Errorf("custom fields = %v; want the hash resolved to its workspace name", out.Deal.CustomFields)
 			}
 		})
+	}
+}
+
+// ------------------------------------------------- custom-field writes
+//
+// The fake's encoder keys a field as "cf_<lowercased name>" and reports
+// it under the name the caller used, so these assert the tools layer's
+// half: that the encoded values reach the request body, that the field
+// is diffed and guarded like a typed one, and that a refusal from the
+// encoder stops the write.
+
+func TestManageDeal_CustomFieldReachesTheRequestAndTheReport(t *testing.T) {
+	fake := &fakeDealsClient{
+		deal: &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "open", UpdateTime: "t0"},
+		updateDeal: &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "open", UpdateTime: "t1",
+			CustomFields: map[string]any{"cf_segment": "Enterprise"}},
+	}
+	var out writeOut
+	res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal",
+		map[string]any{"action": "update", "deal_id": 9,
+			"custom_fields": map[string]any{"Segment": "Enterprise"}}, &out)
+	if res.IsError {
+		t.Fatalf("unexpected isError: %s", contentText(res))
+	}
+	if got := fake.lastUpdateReq.CustomFields["cf_segment"]; got != "Enterprise" {
+		t.Errorf("request custom_fields = %v; want the encoded value under its stored key", fake.lastUpdateReq.CustomFields)
+	}
+	// Reported under the name the caller can act on, not the stored key.
+	if !changedSet(out.Changed)["Segment"] {
+		t.Errorf("changed = %v; want Segment", out.Changed)
+	}
+}
+
+func TestManageDeal_CustomFieldRefusesToClobberWithoutOverwrite(t *testing.T) {
+	fake := &fakeDealsClient{
+		deal: &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "open", UpdateTime: "t0",
+			CustomFields: map[string]any{"cf_segment": "Mid-market"}},
+	}
+	res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal",
+		map[string]any{"action": "update", "deal_id": 9,
+			"custom_fields": map[string]any{"Segment": "Enterprise"}}, nil)
+	if !res.IsError {
+		t.Fatal("expected a refusal over a populated custom field")
+	}
+	text := contentText(res)
+	if !strings.Contains(text, "Segment") {
+		t.Errorf("refusal does not name the field: %s", text)
+	}
+	if !strings.Contains(text, "overwrite") {
+		t.Errorf("refusal does not name the argument that allows it: %s", text)
+	}
+	if fake.updateCalls != 0 {
+		t.Errorf("a refused write still sent %d updates", fake.updateCalls)
+	}
+}
+
+// Filling a custom field that holds nothing destroys nothing, so it
+// needs no permission — the same rule every typed field follows.
+func TestManageDeal_CustomFieldFillsAnEmptyOneWithoutOverwrite(t *testing.T) {
+	fake := &fakeDealsClient{
+		deal: &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "open", UpdateTime: "t0"},
+		updateDeal: &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "open", UpdateTime: "t1",
+			CustomFields: map[string]any{"cf_segment": "Enterprise"}},
+	}
+	res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal",
+		map[string]any{"action": "update", "deal_id": 9,
+			"custom_fields": map[string]any{"Segment": "Enterprise"}}, nil)
+	if res.IsError {
+		t.Fatalf("filling an empty custom field was refused: %s", contentText(res))
+	}
+	if fake.updateCalls != 1 {
+		t.Errorf("update calls = %d; want 1", fake.updateCalls)
+	}
+}
+
+func TestManageDeal_CustomFieldEncodeRefusalStopsTheWrite(t *testing.T) {
+	fake := &fakeDealsClient{
+		deal:      &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "open", UpdateTime: "t0"},
+		encodeErr: fmt.Errorf("%w: this workspace has no custom field named \"Nope\"", pipedrive.ErrValidation),
+	}
+	res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal",
+		map[string]any{"action": "update", "deal_id": 9,
+			"custom_fields": map[string]any{"Nope": "x"}}, nil)
+	if !res.IsError {
+		t.Fatal("expected the encoder's refusal to surface")
+	}
+	if !strings.Contains(contentText(res), "no custom field named") {
+		t.Errorf("refusal lost its reason: %s", contentText(res))
+	}
+	// Refused before the read, so nothing upstream was touched at all.
+	if fake.getCalls != 0 || fake.updateCalls != 0 {
+		t.Errorf("a refused encode still made %d reads and %d writes", fake.getCalls, fake.updateCalls)
+	}
+}
+
+// A transition is "status=won and nothing else". It already ignores
+// every descriptive field, and custom_fields is one — a caller who sends
+// both should not have the field written as a side effect of closing.
+func TestManageDeal_TransitionIgnoresCustomFields(t *testing.T) {
+	fake := &fakeDealsClient{
+		deal:       &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "open", UpdateTime: "t0"},
+		updateDeal: &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "won", UpdateTime: "t1"},
+	}
+	res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal",
+		map[string]any{"action": "mark_won", "deal_id": 9,
+			"custom_fields": map[string]any{"Segment": "Enterprise"}}, nil)
+	if res.IsError {
+		t.Fatalf("unexpected isError: %s", contentText(res))
+	}
+	if len(fake.lastUpdateReq.CustomFields) != 0 {
+		t.Errorf("mark_won sent custom fields: %v", fake.lastUpdateReq.CustomFields)
+	}
+}
+
+// ...and it must not be validated either: refusing to close a deal over
+// a custom field the close ignores would be a refusal the caller cannot
+// act on except by deleting an argument that did nothing.
+func TestManageDeal_TransitionDoesNotValidateCustomFields(t *testing.T) {
+	fake := &fakeDealsClient{
+		deal:       &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "open", UpdateTime: "t0"},
+		updateDeal: &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "won", UpdateTime: "t1"},
+		encodeErr:  fmt.Errorf("%w: this workspace has no custom field named \"Nope\"", pipedrive.ErrValidation),
+	}
+	res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal",
+		map[string]any{"action": "mark_won", "deal_id": 9,
+			"custom_fields": map[string]any{"Nope": "x"}}, nil)
+	if res.IsError {
+		t.Fatalf("mark_won was refused over a field it ignores: %s", contentText(res))
+	}
+}
+
+func TestManageDeal_CustomFieldDryRunSendsNothing(t *testing.T) {
+	fake := &fakeDealsClient{
+		deal: &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "open", UpdateTime: "t0"},
+	}
+	var out writeOut
+	res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal",
+		map[string]any{"action": "update", "deal_id": 9, "dry_run": true,
+			"custom_fields": map[string]any{"Segment": "Enterprise"}}, &out)
+	if res.IsError {
+		t.Fatalf("unexpected isError: %s", contentText(res))
+	}
+	if !changedSet(out.Changed)["Segment"] {
+		t.Errorf("a rehearsal must still report what would change: %v", out.Changed)
+	}
+	if fake.updateCalls != 0 {
+		t.Errorf("dry run sent %d updates", fake.updateCalls)
+	}
+}
+
+func TestManagePerson_CustomFieldReachesTheRequest(t *testing.T) {
+	fake := &fakePersonsClient{
+		person:       &pipedrive.Person{ID: 5, Name: "Ada", UpdateTime: "t0"},
+		updatePerson: &pipedrive.Person{ID: 5, Name: "Ada", UpdateTime: "t1", CustomFields: map[string]any{"cf_tier": "Gold"}},
+	}
+	var out writeOut
+	res := callTool(t, personsReg(fake), "manage_person",
+		map[string]any{"action": "update", "person_id": 5,
+			"custom_fields": map[string]any{"Tier": "Gold"}}, &out)
+	if res.IsError {
+		t.Fatalf("unexpected isError: %s", contentText(res))
+	}
+	if got := fake.lastUpdateReq.CustomFields["cf_tier"]; got != "Gold" {
+		t.Errorf("request custom_fields = %v", fake.lastUpdateReq.CustomFields)
+	}
+	if !changedSet(out.Changed)["Tier"] {
+		t.Errorf("changed = %v; want Tier", out.Changed)
+	}
+}
+
+func TestManageOrganization_CustomFieldReachesTheRequest(t *testing.T) {
+	fake := &fakeOrganizationsClient{
+		org:       &pipedrive.Organization{ID: 3, Name: "Acme", UpdateTime: "t0"},
+		updateOrg: &pipedrive.Organization{ID: 3, Name: "Acme", UpdateTime: "t1", CustomFields: map[string]any{"cf_region": "EMEA"}},
+	}
+	var out writeOut
+	res := callTool(t, orgsReg(fake), "manage_organization",
+		map[string]any{"action": "update", "org_id": 3,
+			"custom_fields": map[string]any{"Region": "EMEA"}}, &out)
+	if res.IsError {
+		t.Fatalf("unexpected isError: %s", contentText(res))
+	}
+	if got := fake.lastUpdateReq.CustomFields["cf_region"]; got != "EMEA" {
+		t.Errorf("request custom_fields = %v", fake.lastUpdateReq.CustomFields)
+	}
+	if !changedSet(out.Changed)["Region"] {
+		t.Errorf("changed = %v; want Region", out.Changed)
+	}
+}
+
+// A create carries its custom fields too, and the rehearsal reports them
+// under the same names the real create would.
+func TestManageDeal_CreateCarriesCustomFields(t *testing.T) {
+	fake := &fakeDealsClient{}
+	var out writeOut
+	res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal",
+		map[string]any{"action": "create", "title": "New deal", "dry_run": true,
+			"custom_fields": map[string]any{"Segment": "Enterprise"}}, &out)
+	if res.IsError {
+		t.Fatalf("unexpected isError: %s", contentText(res))
+	}
+	if !changedSet(out.Changed)["Segment"] {
+		t.Errorf("changed = %v; want Segment on the rehearsal", out.Changed)
+	}
+	if fake.createCallSeen {
+		t.Error("a dry-run create still called upstream")
 	}
 }

@@ -11,9 +11,10 @@ A single Go binary that speaks [Model Context Protocol](https://modelcontextprot
 over stdio. It runs as a subprocess of your client, on your own machine,
 against one Pipedrive workspace: search by name and get back the ids
 everything else needs, read deals, people, organisations, activities and
-notes with their custom fields under the names your workspace gives them,
-create and edit any of them, and move a deal through its pipeline — won,
-lost, reopened, or into another stage.
+notes with their custom fields under the names your workspace gives them
+and dropdown values under their labels, create and edit any of them, and
+move a deal through its pipeline — won, lost, reopened, or into another
+stage.
 
 ## Why pipedrive-mcp
 
@@ -167,15 +168,15 @@ match names.
 |---|---|
 | `search` | Free text across deals, people, organisations, products, files and leads — the way to turn a name into an id |
 | `whoami` | Which account the token acts as and which workspace it points at, plus the timezone an activity's due time is written in |
-| `get_deal` | One deal: value, currency, status, stage, the people and company on it, and custom fields under their workspace names |
+| `get_deal` | One deal: value, currency, status, stage, the people and company on it, and custom fields under their workspace names, dropdowns as labels |
 | `list_deals` | Deals by status, pipeline, stage, owner, person, organisation or update window, cursor-paginated |
-| `manage_deal` | Create or edit a deal, move it between stages, or close it — `create`, `update`, `move_stage`, `mark_won`, `mark_lost`, `reopen` |
+| `manage_deal` | Create or edit a deal, move it between stages, or close it — `create`, `update`, `move_stage`, `mark_won`, `mark_lost`, `reopen`. Custom fields by name, dropdowns by label |
 | `get_person` | One contact: names, every email and phone with its label, the company they belong to, and custom fields |
 | `list_persons` | People by owner, linked organisation or update window, cursor-paginated |
-| `manage_person` | Create or edit a contact — `create`, `update` |
+| `manage_person` | Create or edit a contact — `create`, `update`. Custom fields by name, dropdowns by label |
 | `get_organization` | One company: the address Pipedrive parsed, how many people hang off it, and custom fields |
 | `list_organizations` | Companies by owner or update window, cursor-paginated |
-| `manage_organization` | Create or edit a company — `create`, `update` |
+| `manage_organization` | Create or edit a company — `create`, `update`. Custom fields by name, dropdowns by label |
 | `get_activity` | One call, email, meeting or task, with its location, participants and conference details |
 | `list_activities` | Activities by status, owner, deal, person, organisation, lead or update window; notes stripped unless asked for |
 | `manage_activity` | Create or edit an activity, or tick it off — `create`, `update`, `complete`, `reopen` |
@@ -184,7 +185,7 @@ match names.
 | `manage_note` | Create, edit or remove a note — `create`, `update`, `delete` |
 | `list_pipelines` | Every pipeline the token can see; no paging, a workspace rarely has twenty |
 | `list_stages` | The stages of a pipeline, with the deal probability Pipedrive gives each |
-| `refresh_field_cache` | Re-read custom-field names after somebody adds or renames one in the Pipedrive UI |
+| `refresh_field_cache` | Re-read custom-field names and dropdown labels after somebody adds, renames or extends one in the Pipedrive UI |
 
 Five resource templates mirror the `get_` tools, for a client that
 attaches a record rather than calling a tool:
