@@ -48,6 +48,29 @@ A release lands a verified state of `main`. Don't tag from a branch.
 - [ ] Bump any pinned tool versions in `.github/workflows/*.yml`
       that drifted (govulncheck, go-licenses) — not strictly required
       but worth doing on the release commit.
+- [ ] Re-fetch the vendored bundle-manifest schema if `schemaRef` in
+      `scripts/gates/mcpb.go` has moved, or if you want to know the pin
+      is still honest. The gate validates the manifest against
+      `packaging/mcpb/mcpb-manifest-v<version>.schema.json` and checks
+      that file against the SHA256 recorded in `vendoredSchemaSHA256` —
+      which proves the bytes are the ones somebody reviewed, NOT that
+      they still match what the URL serves. Only a re-fetch shows that:
+
+      ```sh
+      ref=$(grep -oP 'schemaRef = "\K[^"]+' scripts/gates/mcpb.go)
+      curl -sSL -o packaging/mcpb/mcpb-manifest-v0.3.schema.json \
+        "https://raw.githubusercontent.com/anthropics/mcpb/$ref/schemas/mcpb-manifest-v0.3.schema.json"
+      sha256sum packaging/mcpb/mcpb-manifest-v0.3.schema.json
+      ```
+
+      A changed hash means upstream retagged under a ref that is
+      supposed to be immutable — worth understanding before updating
+      the constant.
+- [ ] The same for the vendored MCP registry schema
+      (`packaging/registry/server.schema.json`, hash in
+      `registrySchemaSHA256`). Its URL is dated rather than tagged, so
+      it is the likelier of the two to move under you — and a registry
+      entry cannot be withdrawn once published.
 
 ## Tagging
 

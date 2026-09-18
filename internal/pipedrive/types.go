@@ -24,13 +24,38 @@ type Stage struct {
 }
 
 // Field is a Pipedrive field-metadata record (the subset the field
-// caches need: hash-key → human-name resolution). Returned by
-// /dealFields, /personFields, /organizationFields. v2 renamed
-// `key` → `field_code` and `name` → `field_name` from v1; this
-// struct is v2-shaped.
+// caches need: hash-key → human-name resolution, and the option table
+// that turns a stored option id back into the label the workspace
+// shows). Returned by /dealFields, /personFields, /organizationFields.
+// v2 renamed `key` → `field_code` and `name` → `field_name` from v1;
+// this struct is v2-shaped.
 type Field struct {
-	Key  string `json:"field_code"` // 40-char hash for custom fields; plain identifier for built-ins ("id", "title", ...)
-	Name string `json:"field_name"` // human-readable label
+	Key     string        `json:"field_code"`        // 40-char hash for custom fields; plain identifier for built-ins ("id", "title", ...)
+	Name    string        `json:"field_name"`        // human-readable label
+	Options []FieldOption `json:"options,omitempty"` // enum/set and a few built-ins; empty for everything else
+
+	// IsCustom separates a workspace's own fields from Pipedrive's
+	// built-ins. Only the former belong in a `custom_fields` body, so a
+	// write that names a built-in is refused rather than sent.
+	IsCustom bool `json:"is_custom_field"`
+
+	// IsWritable is Pipedrive's own answer to whether a write may set
+	// this field. Some built-ins and some derived custom fields are
+	// read-only, and the workspace is the only thing that knows which —
+	// a hand-maintained list here would go stale the first time somebody
+	// adds a formula field.
+	IsWritable bool `json:"is_writable"`
+}
+
+// FieldOption is one choice of an enum or set field.
+//
+// ID is `any` because Pipedrive does not spell it one way: custom fields
+// carry numeric ids, built-ins like `status` carry strings, and a write
+// has to keep those apart. docs/architecture.md, "Option labels", has
+// the rest — including what this does not preserve.
+type FieldOption struct {
+	ID    any    `json:"id"`
+	Label string `json:"label"`
 }
 
 // Deal is a Pipedrive deal record (subset). Custom fields are nested

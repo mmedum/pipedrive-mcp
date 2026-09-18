@@ -295,3 +295,108 @@ func TestOlderThanComparesNumerically(t *testing.T) {
 		}
 	}
 }
+
+// ------------------------------------------------ schema conformance
+//
+// The referential checks above ask whether the manifest's names resolve
+// to things this repository stages. These ask the other question: does
+// the document satisfy the schema it cites. Each case below is watched
+// failing, for the same reason the rest of this file is.
+
+// goodDocument is the committed manifest as a plain JSON value; see
+// readManifestDocument for why the typed struct will not do.
+func goodDocument(t *testing.T) map[string]any {
+	t.Helper()
+	var document map[string]any
+	if err := json.Unmarshal(repoFile(t, manifestPath), &document); err != nil {
+		t.Fatalf("the committed manifest is not valid JSON: %v", err)
+	}
+	return document
+}
+
+func vendoredSchema(t *testing.T) []byte {
+	t.Helper()
+	version, _ := goodDocument(t)["manifest_version"].(string)
+	return repoFile(t, vendoredSchemaPath(version))
+}
+
+// The committed manifest satisfies the schema it points at. This is the
+// assertion the whole vendored copy exists for, so it goes through the
+// composition the gate actually runs — path, read, hash, validate —
+// rather than assembling the schema bytes itself and testing only the
+// pure half.
+func TestCommittedManifestSatisfiesItsSchema(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	if err := checkAgainstSchema(goodDocument(t)); err != nil {
+		t.Errorf("the committed manifest does not satisfy its own schema: %v", err)
+	}
+}
+
+// The vendored bytes are the bytes the hash names. checkAgainstSchema
+// enforces this too; here it gets its own test for the sharper message.
+func TestVendoredSchemaMatchesItsRecordedHash(t *testing.T) {
+	version, _ := goodDocument(t)["manifest_version"].(string)
+	want, ok := vendoredSchemaSHA256[version]
+	if !ok {
+		t.Fatalf("manifest_version %q has no recorded schema hash", version)
+	}
+	if got := schemaSHA256(vendoredSchema(t)); got != want {
+		t.Errorf("%s hashes to %s; vendoredSchemaSHA256 says %s", vendoredSchemaPath(version), got, want)
+	}
+}
+
+func TestSchemaConformanceCatchesABrokenDocument(t *testing.T) {
+	schema := vendoredSchema(t)
+
+	cases := []struct {
+		name   string
+		breaks func(map[string]any)
+		want   string
+	}{
+		// The root closes with additionalProperties: false, so a
+		// misspelled or invented key is caught here and nowhere else —
+		// the referential checks never look at keys they do not know.
+		{"an unknown top-level key", func(d map[string]any) { d["totally_unknown_key"] = 1 },
+			"unexpected additional properties"},
+		{"a field of the wrong type", func(d map[string]any) { d["keywords"] = "not-an-array" },
+			"keywords"},
+		{"a missing required field", func(d map[string]any) { delete(d, "author") },
+			"missing properties"},
+		// server.type is a closed enum, and "binary" is what this bundle
+		// is. A typo here packs and installs and then does nothing.
+		{"a server type off the enum", func(d map[string]any) {
+			d["server"].(map[string]any)["type"] = "not-a-real-type"
+		}, "server"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			document := goodDocument(t)
+			tc.breaks(document)
+			err := validateDocument(document, schema)
+			if err == nil {
+				t.Fatal("a broken document satisfied the schema")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("the refusal does not say %q: %v", tc.want, err)
+			}
+		})
+	}
+}
+
+// A manifest_version with no vendored schema is refused with the two
+// things needed to fix it: where to get the schema and where to put it.
+func TestSchemaConformanceRefusesAnUnvendoredVersion(t *testing.T) {
+	t.Chdir(repoRoot(t))
+
+	document := goodDocument(t)
+	document["manifest_version"] = "9.9"
+	err := checkAgainstSchema(document)
+	if err == nil {
+		t.Fatal("a manifest_version with no vendored schema was accepted")
+	}
+	for _, want := range []string{"no copy of its schema is vendored", schemaFor("9.9"), vendoredSchemaPath("9.9")} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not say %q: %v", want, err)
+		}
+	}
+}
