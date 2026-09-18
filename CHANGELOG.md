@@ -15,6 +15,16 @@ breaking changes require a MAJOR bump.
 
 ### Security
 
+- The Claude Desktop bundle is a subject of the build-provenance
+  attestation in its own right. It was covered only transitively, by its
+  row in `SHA256SUMS` — so a verifier needed the checksum file and its
+  signature to say anything about the `.mcpb`, and
+  `gh attestation verify` run against the bundle itself answered "no
+  attestation found". That is the one artifact most people install
+  without opening a terminal, and the one the MCP registry points at.
+
+### Security
+
 - The MCP registry publish verifies the checksum file's signature before
   reading it. `publish-mcp.yml` took `SHA256SUMS` from the published
   release and fed it straight to `gates registry-publish`, which lifts
