@@ -3,22 +3,27 @@ package pipedrive
 // Pipeline is a Pipedrive pipeline (a deal flow grouping). Subset of the
 // /api/v2/pipelines response that we surface to LLM clients.
 type Pipeline struct {
-	ID      int64  `json:"id"`
-	Name    string `json:"name"`
-	OrderNr int    `json:"order_nr"`
-	Active  bool   `json:"active"`
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	OrderNr   int    `json:"order_nr"`
+	IsDeleted bool   `json:"is_deleted"`
 }
 
 // Stage is a Pipedrive stage within a pipeline. Subset of /api/v2/stages.
 //
-// Note: Active maps to the upstream `active_flag` field, while Pipeline
-// uses `active`. This is Pipedrive's API, not a copy-paste error —
-// confirmed against /api/v2/stages and /api/v2/pipelines responses.
+// IsDeleted, not an active flag. A comment here used to say that
+// Pipeline reads `active` while Stage reads `active_flag`, and that both
+// had been confirmed against the live endpoints. Neither field exists on
+// v2 — both resources carry is_deleted — so both decoded to false for
+// every record and the tools reported every pipeline and stage in the
+// workspace as inactive. Both spellings are v1 vocabulary that came
+// across in the port. TestUpstreamTypesMatchTheSpec is what now holds
+// this against Pipedrive's own description of the response.
 type Stage struct {
 	ID              int64  `json:"id"`
 	Name            string `json:"name"`
 	OrderNr         int    `json:"order_nr"`
-	Active          bool   `json:"active_flag"`
+	IsDeleted       bool   `json:"is_deleted"`
 	PipelineID      int64  `json:"pipeline_id"`
 	DealProbability int    `json:"deal_probability"`
 }
@@ -68,24 +73,30 @@ type FieldOption struct {
 // so it can pattern-match without timezone surprises; callers that
 // need time.Time should parse explicitly.
 type Deal struct {
-	ID                int64          `json:"id"`
-	Title             string         `json:"title"`
-	Value             float64        `json:"value"`
-	Currency          string         `json:"currency"`
-	Status            string         `json:"status"` // open | won | lost | deleted
-	StageID           int64          `json:"stage_id"`
-	PipelineID        int64          `json:"pipeline_id"`
-	OwnerID           int64          `json:"owner_id"`
-	PersonID          int64          `json:"person_id"`
-	OrgID             int64          `json:"org_id"`
-	ExpectedCloseDate string         `json:"expected_close_date"`
-	WonTime           string         `json:"won_time,omitempty"`
-	LostTime          string         `json:"lost_time,omitempty"`
-	LostReason        string         `json:"lost_reason,omitempty"`
-	AddTime           string         `json:"add_time"`
-	UpdateTime        string         `json:"update_time"`
-	Probability       *int           `json:"probability,omitempty"`
-	CustomFields      map[string]any `json:"custom_fields,omitempty"`
+	ID                int64    `json:"id"`
+	Title             string   `json:"title"`
+	Value             float64  `json:"value"`
+	Currency          string   `json:"currency"`
+	Status            string   `json:"status"` // open | won | lost | deleted
+	StageID           int64    `json:"stage_id"`
+	PipelineID        int64    `json:"pipeline_id"`
+	OwnerID           int64    `json:"owner_id"`
+	PersonID          int64    `json:"person_id"`
+	OrgID             int64    `json:"org_id"`
+	ExpectedCloseDate string   `json:"expected_close_date"`
+	WonTime           string   `json:"won_time,omitempty"`
+	LostTime          string   `json:"lost_time,omitempty"`
+	LostReason        string   `json:"lost_reason,omitempty"`
+	AddTime           string   `json:"add_time"`
+	UpdateTime        string   `json:"update_time"`
+	Probability       *float64 `json:"probability,omitempty"`
+	// IsArchived is not the same as a status. Pipedrive stopped
+	// returning archived deals from /deals on 2025-07-15 and moved them
+	// to /deals/archived, so a list that does not ask for them is
+	// quietly short rather than wrong — and an archived deal cannot be
+	// edited at all.
+	IsArchived   bool           `json:"is_archived"`
+	CustomFields map[string]any `json:"custom_fields,omitempty"`
 }
 
 // AdditionalData is the paging envelope returned alongside `data`

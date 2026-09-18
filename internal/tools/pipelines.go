@@ -26,7 +26,7 @@ type pipelineSummary struct {
 	ID      int64  `json:"id" jsonschema:"the pipeline's numeric id"`
 	Name    string `json:"name" jsonschema:"human-readable pipeline name"`
 	OrderNr int    `json:"order_nr" jsonschema:"display order; lower numbers come first in Pipedrive's UI"`
-	Active  bool   `json:"active" jsonschema:"true if the pipeline is currently active"`
+	Active  bool   `json:"active" jsonschema:"false if the pipeline has been deleted; deleted pipelines still resolve by id so a stale id reads as inactive rather than missing"`
 	URL     string `json:"url" jsonschema:"link to the pipeline in the Pipedrive web UI"`
 }
 
@@ -34,7 +34,7 @@ type stageSummary struct {
 	ID              int64  `json:"id" jsonschema:"the stage's numeric id"`
 	Name            string `json:"name" jsonschema:"human-readable stage name"`
 	OrderNr         int    `json:"order_nr" jsonschema:"display order within the pipeline; lower comes first"`
-	Active          bool   `json:"active" jsonschema:"true if the stage is currently active"`
+	Active          bool   `json:"active" jsonschema:"false if the stage has been deleted; a deal cannot be moved into a deleted stage"`
 	PipelineID      int64  `json:"pipeline_id" jsonschema:"id of the pipeline this stage belongs to"`
 	DealProbability int    `json:"deal_probability" jsonschema:"Pipedrive's default deal-probability for this stage (0-100)"`
 }
@@ -76,7 +76,7 @@ func RegisterPipelines(s *mcp.Server, c pipelinesClient, companyDomain string) {
 				ID:      p.ID,
 				Name:    p.Name,
 				OrderNr: p.OrderNr,
-				Active:  p.Active,
+				Active:  !p.IsDeleted,
 				URL:     pipedrive.WebURL(companyDomain, pipedrive.WebURLPipeline, p.ID),
 			})
 		}
@@ -104,7 +104,7 @@ func RegisterPipelines(s *mcp.Server, c pipelinesClient, companyDomain string) {
 				ID:              st.ID,
 				Name:            st.Name,
 				OrderNr:         st.OrderNr,
-				Active:          st.Active,
+				Active:          !st.IsDeleted,
 				PipelineID:      st.PipelineID,
 				DealProbability: st.DealProbability,
 			})

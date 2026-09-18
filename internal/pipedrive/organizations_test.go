@@ -115,8 +115,11 @@ func TestClient_ListOrganizations_NoFiltersOmitsParams(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListOrganizations: %v", err)
 	}
-	if sawQuery != "" {
-		t.Errorf("expected empty query for zero filters, got %q", sawQuery)
+	// include_fields is not a filter: every organization read asks for
+	// people_count, because v2 omits it otherwise and the tools promise
+	// it. Zero filters means nothing beyond that.
+	if sawQuery != "include_fields=people_count" {
+		t.Errorf("zero filters should send include_fields alone, got %q", sawQuery)
 	}
 }
 

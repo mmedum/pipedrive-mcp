@@ -117,11 +117,16 @@ func projectMoney(v float64) string {
 	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
-func projectOptInt(p *int) string {
+// projectOptFloat renders an optional field Pipedrive declares as
+// `number`. Probability is the one: it reads as a whole percentage in
+// the UI and arrives as a JSON number, which is not the same thing —
+// this used to be an int projection over an int field, and a deal with
+// a fractional probability failed the whole page's decode.
+func projectOptFloat(p *float64) string {
 	if p == nil || *p == 0 {
 		return ""
 	}
-	return strconv.Itoa(*p)
+	return strconv.FormatFloat(*p, 'f', -1, 64)
 }
 
 // projectCollection renders a collection as every element's full

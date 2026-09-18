@@ -66,6 +66,15 @@ A release lands a verified state of `main`. Don't tag from a branch.
       A changed hash means upstream retagged under a ref that is
       supposed to be immutable — worth understanding before updating
       the constant.
+- [ ] Refresh `internal/pipedrive/testdata/v2-response-fields.json` from
+      Pipedrive's v2 description, so the upstream-type check is holding
+      the mirror against a current document rather than a stale one. It
+      is derived from
+      <https://developers.pipedrive.com/docs/api/v1/openapi-v2.yaml>;
+      the file records the source URL, the spec's SHA256 and the capture
+      date. A field appearing or disappearing is a finding, not a chore —
+      `is_archived` and the archived-deals split were both invisible
+      until somebody looked.
 - [ ] The same for the vendored MCP registry schema
       (`packaging/registry/server.schema.json`, hash in
       `registrySchemaSHA256`). Its URL is dated rather than tagged, so
