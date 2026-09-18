@@ -22,6 +22,21 @@ in full.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`manage_deal` offered six actions and dispatched on eight.** The
+  `action` field's description read "create, update, move_stage,
+  mark_won, mark_lost or reopen" while `dealActions` also held `archive`
+  and `unarchive` — in the same schema whose tool description names "the
+  six transitions ... archive and unarchive". A model reads the field's
+  description as the allowed-value list, so it never tried either.
+
+  This is the third place the same drift has surfaced: v0.5.0 fixed it
+  in the MCP instructions, the previous release fixed it in `README.md`,
+  and this is the tool schema itself — the one a model actually reads.
+  `TestActionFieldDescribesEveryAction` now holds every `manage_` tool's
+  action map against its own field description.
+
 ### Added
 
 - **A `[gone]` error class, and a canary on the v1 carve-out.**

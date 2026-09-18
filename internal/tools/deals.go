@@ -214,7 +214,7 @@ var dealBaseFields = []fieldSpec[pipedrive.Deal]{
 // express "unlink this person", and a bare float64 could never express
 // "this deal is worth nothing after all".
 type manageDealInput struct {
-	Action            string         `json:"action" jsonschema:"create, update, move_stage, mark_won, mark_lost or reopen"`
+	Action            string         `json:"action" jsonschema:"create, update, move_stage, mark_won, mark_lost, reopen, archive or unarchive"`
 	DealID            int64          `json:"deal_id,omitempty" jsonschema:"the deal to act on, required by every action except create"`
 	Title             *string        `json:"title,omitempty" jsonschema:"the deal's title, required by create. Give it a name a human would recognise; if the user did not supply one, ask rather than inventing it"`
 	Value             *float64       `json:"value,omitempty" jsonschema:"monetary value in the deal's currency"`
