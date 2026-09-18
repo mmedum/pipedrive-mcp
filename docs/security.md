@@ -67,7 +67,7 @@ Threats this server defends against:
   - Default tool-side `limit=25` on list operations to prevent runaway
     fanout.
 - **Token leakage via logs.** Mitigated by: logging never captures the
-  token; only request IDs and metadata.
+  token; only the URL, method, status and duration.
 
 Threats this server **does not** defend against:
 
@@ -85,18 +85,26 @@ Threats this server **does not** defend against:
 
 ## LLM audit trail
 
-The MCP transport carries tool calls and responses. It does not carry
-the user's original prompt or the LLM's reasoning. This server logs
-every tool call with a request ID, but the logs cannot answer "why did
-the LLM call this tool?".
+**This server keeps no record of tool calls.** `internal/tools` holds no
+logger at all, so a successful read or write produces no log line. The
+four log sites in the binary are two startup lines, a debug line per
+HTTP response (suppressed at the default level) and a warning on
+transport failure — none carries a tool name, and there is no request id
+to correlate on.
 
-To reconstruct intent after a surprising action, correlate the
-`request_id` field in the server's stderr with the corresponding turn in
-your MCP client's prompt log:
+That matters more than a missing convenience, because the MCP transport
+carries tool calls and responses but NOT the user's prompt or the
+model's reasoning. Even a complete per-call log could answer "what" and
+never "why".
 
-- Claude Desktop logs MCP calls under `~/Library/Logs/Claude/mcp*.log`
-  (macOS) or `%APPDATA%\Claude\logs\mcp*.log` (Windows). The request ID
-  appears in both places.
+To reconstruct what happened after a surprising action, use the two
+trails that do exist:
+
+- **Pipedrive's own change record.** It is the authority on what
+  actually changed, and it survives regardless of what this server did
+  or did not write down.
+- **Your MCP client's transcript**, which is the only place the prompt
+  and the tool call sit together:
 - Claude Code logs MCP calls in its session transcript.
 
 Document this in your team's incident-response run book. The server
@@ -152,15 +160,10 @@ exactly the one that would override it.
 Validation still runs in dry-run mode, so a rehearsal catches the same
 input errors a real call would.
 
-**Dry-run invocations are not logged.** No tool handler emits a log
-record of any kind, so there is no operator-readable trail of what the
-LLM tried — rehearsed or otherwise. This sentence used to promise one;
-it never existed. The per-request log line with tool name and outcome is
-on the roadmap in `docs/architecture.md`, "Logging", and the caveat
-above about the transport not carrying the LLM's intent is the reason it
-would still be a partial record if it shipped. Audit what the LLM
-actually did through Pipedrive's own record of the change, not through
-this server.
+**Dry-run invocations are not logged either**, for the reason above: no
+tool handler logs anything. A rehearsal leaves no trace here and none in
+Pipedrive, so the only record of what a model attempted is the client
+transcript.
 
 ## Supply chain
 

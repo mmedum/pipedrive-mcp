@@ -39,7 +39,7 @@ Three things no amount of retrying will fix. Activity type (call, email, meeting
 
 Resources pipedrive://deals/{id}, and the same for persons, organizations, activities and notes, carry what the matching get_ tool returns, for attaching a record rather than calling a tool. They take no options, so include_attendees and include_notes still need the tool.
 
-Everything here is Pipedrive v2 except notes, which v2 does not expose at all; those come from v1 and behave the same way, except that deleting one is soft — it clears active_flag, and nothing here sets it back. Custom fields are writable on deals, people and organizations: pass custom_fields keyed by the names a get_ reports, and give a dropdown its label rather than an option id. Archived deals are not in list_deals — they are their own collection, so pass archived to read them — and an archived deal accepts no edit until you unarchive it. Products, leads, files, projects and goals are not here.`
+Everything here is Pipedrive v2 except notes, which v2 does not expose at all; those come from v1 and behave the same way, except that deleting one is soft — it clears active_flag, and nothing here sets it back. Custom fields are writable on deals, people and organizations: pass custom_fields keyed by the names a get_ reports, and give a dropdown its label rather than an option id. ARCHIVING IS NOT CLOSING: archive takes a deal out of the pipeline and out of list_deals — they are their own collection, so pass archived to read them — and an archived deal accepts no edit until you unarchive it. mark_lost is what 'we lost it' means. Products, leads, files, projects and goals are not here.`
 
 // Name is the server's MCP implementation name, and the binary's.
 const Name = "pipedrive-mcp"
