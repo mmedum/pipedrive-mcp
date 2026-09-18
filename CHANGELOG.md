@@ -13,47 +13,7 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
-### Security
-
-- The Claude Desktop bundle is a subject of the build-provenance
-  attestation in its own right. It was covered only transitively, by its
-  row in `SHA256SUMS` — so a verifier needed the checksum file and its
-  signature to say anything about the `.mcpb`, and
-  `gh attestation verify` run against the bundle itself answered "no
-  attestation found". That is the one artifact most people install
-  without opening a terminal, and the one the MCP registry points at.
-
-### Security
-
-- The MCP registry publish verifies the checksum file's signature before
-  reading it. `publish-mcp.yml` took `SHA256SUMS` from the published
-  release and fed it straight to `gates registry-publish`, which lifts
-  the bundle's row out of it and writes that digest into the registry
-  entry as `fileSha256` — the number a registry-driven client verifies
-  the download against. Nothing checked it. `SHA256SUMS.bundle`, the
-  cosign signature goreleaser makes over exactly that artifact, was
-  never downloaded, and the workflow's `cosign verify-blob` ran only
-  against the `mcp-publisher` tarball, while the file's own header
-  asserted the opposite.
-
-  Exploiting it needs `contents: write` — replace the `.mcpb` asset,
-  edit `SHA256SUMS` to match. The signature and the attestation both
-  break, which is the detection the release pipeline exists to provide,
-  but neither was consulted here, so a re-publish would have written the
-  attacker's digest into a registry whose entries cannot be withdrawn.
-  The job now verifies `SHA256SUMS` against its bundle, identity pinned
-  to this repository's `release.yml` on a tag ref, before anything reads
-  it.
-
-### Fixed
-
-- `app.Settings` implements `String()`, so `%v` and `%+v` cannot print
-  the API token. It was unexported with a redacting `LogValue`, and the
-  comment claimed that covered `fmt` too — it did not, because `fmt`
-  reads unexported fields by reflection. No call site formatted a
-  Settings, which is why it would have gone unnoticed until one did. The
-  test now asserts the fmt verbs alongside the slog path, and fails
-  without the method.
+## [0.4.0] - 2026-09-17
 
 ### Added
 
@@ -115,63 +75,6 @@ breaking changes require a MAJOR bump.
   `config.DefaultHTTPTimeout` replace the literals that had been spelled
   out in three files.
 
-### Fixed
-
-- `pipedrive-mcp status` now loads the configuration the server loads. It
-  had resolved the domain and the token and stopped, so a typo in
-  `LOG_LEVEL`, `LOG_FORMAT`, `PIPEDRIVE_DRY_RUN` or `PIPEDRIVE_HTTP_TIMEOUT`
-  reported green from the one command whose job is answering "can this
-  start" — and the server then refused to start on it. Its auth probe also
-  honours `PIPEDRIVE_HTTP_TIMEOUT` now instead of a hard-coded 30s.
-
-- The CHANGELOG gate watches `internal/app/`, and the 80% coverage gate
-  covers it. The startup assembly moved out of `cmd/`, which the gate
-  watched, into a package it did not — so the next change to it, including
-  one that dropped the dry-run floor again, would have shipped with no
-  entry and nothing firing.
-
-## [0.4.0] - 2026-09-17
-
-
-### Changed
-
-- The bundle manifest is brought to the shape four of the seven sibling
-  MCP servers already used, and the gate now enforces it. `manifest_version`
-  goes 0.2 → 0.3, `support` is added, and `$schema` is pinned to the
-  versioned `mcpb-manifest-v0.3.schema.json` rather than the `dist/` path
-  that serves whatever is current.
-
-  The pinning is the part that matters. The manifest declared conformance
-  to 0.2 while validating against a URL that by then served 0.3 — a
-  document disagreeing with its own schema, in a repository whose pins
-  gate exists because "latest" drifts. `checkManifestShape` now fails when
-  `$schema` is absent or disagrees with the declared `manifest_version`,
-  and when `support` is missing. Nothing read either field before, which
-  is why three of the seven drifted onto 0.2 and nobody found out.
-
-  Two further pins on the same thought. The schema ref is the tag
-  `v2.1.2` rather than `main`: the version in the PATH pins the format,
-  the ref pins the BYTES, and `main` can change under a path that still
-  reads as pinned — the two are byte-identical today, which is the
-  argument for the tag rather than against it, because nothing would
-  show that changing. And `manifest_version` has a floor, because a
-  check that only asks whether the document agrees with its own schema
-  is satisfied by a stale-but-self-consistent 0.2, which is precisely
-  what three repositories were shipping. 0.3 rather than 0.4 on purpose:
-  upstream serves 0.2, 0.3 and 0.4, and 0.4 differs from 0.3 only by a
-  `uv` value in the `server.type` enum, which a `binary` server cannot
-  use.
-
-- The Linux launcher is generated from `bundleFiles` at pack time instead
-  of being committed at `packaging/mcpb/launch-linux.sh`. A committed
-  launcher is a second list of the packer's binary names, and a second
-  list can disagree with the first — so the gate had to read the script
-  back and compare the two. Generating it makes the disagreement
-  unrepresentable rather than detected. The script the packer writes is
-  byte-equivalent to the one deleted.
-
-### Added
-
 - Tests for `scripts/gates/mcpb.go`, `mcpbpack.go` and `mcpregistry.go`,
   which arrived with none. This was the only one of the seven repositories
   running all three of those gates and the only one testing any of them,
@@ -200,8 +103,6 @@ breaking changes require a MAJOR bump.
   failing means a fine release with no entry, recoverable by dispatching
   `publish-mcp.yml` against the tag that already shipped.
 
-### Added
-
 - A **Claude Desktop bundle** (`.mcpb`) on every release, and the MCP
   registry entry that points at it. This server shipped archives and
   nothing else, so installing it meant hand-editing a config file and it
@@ -232,27 +133,6 @@ breaking changes require a MAJOR bump.
   else, and `mcp-publisher` verified with cosign before it is unpacked.
   A prerelease tag skips it: an entry cannot be taken back.
 
-### Fixed
-
-- The CHANGELOG and schema-diff CI gates measure against the base branch
-  as it is now, rather than against `github.event.pull_request.base.sha`.
-  That value is a snapshot taken when the event fired and does not follow
-  the base branch afterwards, so in a stack of pull requests — the normal
-  case here, not an edge one — merging the PR underneath leaves the one
-  above comparing a diff that contains its own dependency. The changelog
-  gate reads that as "no new lines under [Unreleased]" and the schema gate
-  reads it as a breaking tool-surface change, both on branches where
-  neither is true.
-
-  Reopening a PR does not refresh it; only a push to the head branch does,
-  and a push is the one thing that cannot be done here without displacing
-  the `BREAKING CHANGE:` footer the schema gate greps for on the head
-  commit. Both gates now take the merge-base of the current base branch
-  and the head, via `.github/merge-base.sh`, which is what they both meant
-  by "what this PR adds" all along.
-
-### Added
-
 - A **Claude Desktop bundle** (`.mcpb`) on every release, and the MCP
   registry entry that points at it. This server shipped archives and
   nothing else, so installing it meant hand-editing a config file and it
@@ -282,78 +162,6 @@ breaking changes require a MAJOR bump.
   own workflow with `id-token: write` and `contents: read` and nothing
   else, and `mcp-publisher` verified with cosign before it is unpacked.
   A prerelease tag skips it: an entry cannot be taken back.
-
-### Changed
-
-- **BREAKING.** The tool surface follows the shipped Google Workspace MCP
-  servers — `google-drive`, `google-sheets`, `google-docs`, `google-chat` —
-  instead of a house style of its own. Those four are the MCP servers a
-  model has most likely already seen, so matching their conventions is
-  what makes this one legible without being explained. `CLAUDE.md` records
-  the standard, and what was dropped to reach it.
-
-  Reads stay discrete, because that is what Google actually does:
-  `get_file`, `list_folder` and `search_files` are three tools, not one
-  with a mode switch. Mutations of a single noun collapse behind one
-  `manage_` tool taking an `action`, which is `manage_sheet`,
-  `manage_labels` and `manage_revision`.
-
-  So the five `create_*` tools and `delete_note` are gone, replaced by
-  five `manage_` tools:
-
-  | Tool | Actions |
-  | --- | --- |
-  | `manage_deal` | `create`, `update`, `move_stage`, `mark_won`, `mark_lost`, `reopen` |
-  | `manage_person` | `create`, `update` |
-  | `manage_organization` | `create`, `update` |
-  | `manage_activity` | `create`, `update`, `complete`, `reopen` |
-  | `manage_note` | `create`, `update`, `delete` |
-
-  Nothing is a one-way door that did not have to be. `reopen` undoes
-  both `mark_lost` and `complete`, which is why `done` and the deal
-  status are pointers on the request: a bare `bool` cannot tell "reopen
-  this" from "say nothing about done", and the tool that could close a
-  record but not open it would be the worst of both.
-
-- **BREAKING.** `PIPEDRIVE_ENABLE_DESTRUCTIVE` is retired, and the
-  registration-time gate it drove with it. Registration was never the
-  right enforcement point: a tool that does not exist cannot explain
-  itself, so an operator who left the flag off handed the model a missing
-  capability to guess at rather than a refusal telling it why. The Google
-  servers register `trash_file` and `delete_message` unconditionally and
-  guard the call instead.
-
-  What replaces it is per-call, and narrower. `dry_run` is an input on
-  every reshaped write and reports what the write would find and change
-  without sending anything — the server-wide `PIPEDRIVE_DRY_RUN` it
-  supersedes decided for the whole process, which is the wrong grain,
-  since the caller is who knows whether a given write is a rehearsal.
-  `overwrite` is required before an update may replace content that is
-  already there. `expect_version` carries the `update_time` from the read
-  that informed the write, and refuses if the record moved since.
-
-  A guard is only added where the caller cannot already see what they
-  would lose. A v1 note delete just clears `active_flag`, so it takes
-  `dry_run` and nothing more — the same call `trash_file` makes for a
-  reversible trash. Nothing in this server sets that flag back, which the
-  tool description says outright rather than implying with a flag.
-
-  An operator upgrading with `PIPEDRIVE_ENABLE_DESTRUCTIVE` still set in
-  their MCP client config is not warned: the variable is simply no longer
-  read. It was only ever a registration gate, and nothing it used to
-  withhold is withheld now, so a stale `=false` does not make the server
-  less safe than the flag promised — but it does not do anything either,
-  and can be deleted.
-
-  `PIPEDRIVE_DRY_RUN` is **not** retired, and is now documented as what
-  it has to be: a floor. Every write tool ORs it with the per-call input,
-  so a call can turn a rehearsal on and nothing on the wire can turn one
-  off. `docs/security.md` answers the "malicious tool selection" threat
-  with "use `PIPEDRIVE_DRY_RUN` for speculative LLM work", and a flag the
-  one delete-capable tool could override would have made that promise
-  false.
-
-### Added
 
 - `manage_note` can edit a note. There was no update path anywhere in the
   client before this — `postV1`, `postV2` and `deleteV1` existed and no
@@ -408,8 +216,6 @@ breaking changes require a MAJOR bump.
   promising an unlink the API will not perform, and
   `docs/architecture.md` keeps the request-by-request evidence under
   "Clearing a field".
-
-### Added
 
 - Every mutation now runs the guarded-write contract, not just notes.
   `manage_deal`, `manage_person`, `manage_organization` and
@@ -496,7 +302,150 @@ breaking changes require a MAJOR bump.
   tools do, so a resource read and a tool call cannot drift into
   describing one record two ways.
 
+### Changed
+
+- The bundle manifest is brought to the shape four of the seven sibling
+  MCP servers already used, and the gate now enforces it. `manifest_version`
+  goes 0.2 → 0.3, `support` is added, and `$schema` is pinned to the
+  versioned `mcpb-manifest-v0.3.schema.json` rather than the `dist/` path
+  that serves whatever is current.
+
+  The pinning is the part that matters. The manifest declared conformance
+  to 0.2 while validating against a URL that by then served 0.3 — a
+  document disagreeing with its own schema, in a repository whose pins
+  gate exists because "latest" drifts. `checkManifestShape` now fails when
+  `$schema` is absent or disagrees with the declared `manifest_version`,
+  and when `support` is missing. Nothing read either field before, which
+  is why three of the seven drifted onto 0.2 and nobody found out.
+
+  Two further pins on the same thought. The schema ref is the tag
+  `v2.1.2` rather than `main`: the version in the PATH pins the format,
+  the ref pins the BYTES, and `main` can change under a path that still
+  reads as pinned — the two are byte-identical today, which is the
+  argument for the tag rather than against it, because nothing would
+  show that changing. And `manifest_version` has a floor, because a
+  check that only asks whether the document agrees with its own schema
+  is satisfied by a stale-but-self-consistent 0.2, which is precisely
+  what three repositories were shipping. 0.3 rather than 0.4 on purpose:
+  upstream serves 0.2, 0.3 and 0.4, and 0.4 differs from 0.3 only by a
+  `uv` value in the `server.type` enum, which a `binary` server cannot
+  use.
+
+- The Linux launcher is generated from `bundleFiles` at pack time instead
+  of being committed at `packaging/mcpb/launch-linux.sh`. A committed
+  launcher is a second list of the packer's binary names, and a second
+  list can disagree with the first — so the gate had to read the script
+  back and compare the two. Generating it makes the disagreement
+  unrepresentable rather than detected. The script the packer writes is
+  byte-equivalent to the one deleted.
+
+- **BREAKING.** The tool surface follows the shipped Google Workspace MCP
+  servers — `google-drive`, `google-sheets`, `google-docs`, `google-chat` —
+  instead of a house style of its own. Those four are the MCP servers a
+  model has most likely already seen, so matching their conventions is
+  what makes this one legible without being explained. `CLAUDE.md` records
+  the standard, and what was dropped to reach it.
+
+  Reads stay discrete, because that is what Google actually does:
+  `get_file`, `list_folder` and `search_files` are three tools, not one
+  with a mode switch. Mutations of a single noun collapse behind one
+  `manage_` tool taking an `action`, which is `manage_sheet`,
+  `manage_labels` and `manage_revision`.
+
+  So the five `create_*` tools and `delete_note` are gone, replaced by
+  five `manage_` tools:
+
+  | Tool | Actions |
+  | --- | --- |
+  | `manage_deal` | `create`, `update`, `move_stage`, `mark_won`, `mark_lost`, `reopen` |
+  | `manage_person` | `create`, `update` |
+  | `manage_organization` | `create`, `update` |
+  | `manage_activity` | `create`, `update`, `complete`, `reopen` |
+  | `manage_note` | `create`, `update`, `delete` |
+
+  Nothing is a one-way door that did not have to be. `reopen` undoes
+  both `mark_lost` and `complete`, which is why `done` and the deal
+  status are pointers on the request: a bare `bool` cannot tell "reopen
+  this" from "say nothing about done", and the tool that could close a
+  record but not open it would be the worst of both.
+
+- **BREAKING.** `PIPEDRIVE_ENABLE_DESTRUCTIVE` is retired, and the
+  registration-time gate it drove with it. Registration was never the
+  right enforcement point: a tool that does not exist cannot explain
+  itself, so an operator who left the flag off handed the model a missing
+  capability to guess at rather than a refusal telling it why. The Google
+  servers register `trash_file` and `delete_message` unconditionally and
+  guard the call instead.
+
+  What replaces it is per-call, and narrower. `dry_run` is an input on
+  every reshaped write and reports what the write would find and change
+  without sending anything — the server-wide `PIPEDRIVE_DRY_RUN` it
+  supersedes decided for the whole process, which is the wrong grain,
+  since the caller is who knows whether a given write is a rehearsal.
+  `overwrite` is required before an update may replace content that is
+  already there. `expect_version` carries the `update_time` from the read
+  that informed the write, and refuses if the record moved since.
+
+  A guard is only added where the caller cannot already see what they
+  would lose. A v1 note delete just clears `active_flag`, so it takes
+  `dry_run` and nothing more — the same call `trash_file` makes for a
+  reversible trash. Nothing in this server sets that flag back, which the
+  tool description says outright rather than implying with a flag.
+
+  An operator upgrading with `PIPEDRIVE_ENABLE_DESTRUCTIVE` still set in
+  their MCP client config is not warned: the variable is simply no longer
+  read. It was only ever a registration gate, and nothing it used to
+  withhold is withheld now, so a stale `=false` does not make the server
+  less safe than the flag promised — but it does not do anything either,
+  and can be deleted.
+
+  `PIPEDRIVE_DRY_RUN` is **not** retired, and is now documented as what
+  it has to be: a floor. Every write tool ORs it with the per-call input,
+  so a call can turn a rehearsal on and nothing on the wire can turn one
+  off. `docs/security.md` answers the "malicious tool selection" threat
+  with "use `PIPEDRIVE_DRY_RUN` for speculative LLM work", and a flag the
+  one delete-capable tool could override would have made that promise
+  false.
+
 ### Fixed
+
+- `app.Settings` implements `String()`, so `%v` and `%+v` cannot print
+  the API token. It was unexported with a redacting `LogValue`, and the
+  comment claimed that covered `fmt` too — it did not, because `fmt`
+  reads unexported fields by reflection. No call site formatted a
+  Settings, which is why it would have gone unnoticed until one did. The
+  test now asserts the fmt verbs alongside the slog path, and fails
+  without the method.
+
+- `pipedrive-mcp status` now loads the configuration the server loads. It
+  had resolved the domain and the token and stopped, so a typo in
+  `LOG_LEVEL`, `LOG_FORMAT`, `PIPEDRIVE_DRY_RUN` or `PIPEDRIVE_HTTP_TIMEOUT`
+  reported green from the one command whose job is answering "can this
+  start" — and the server then refused to start on it. Its auth probe also
+  honours `PIPEDRIVE_HTTP_TIMEOUT` now instead of a hard-coded 30s.
+
+- The CHANGELOG gate watches `internal/app/`, and the 80% coverage gate
+  covers it. The startup assembly moved out of `cmd/`, which the gate
+  watched, into a package it did not — so the next change to it, including
+  one that dropped the dry-run floor again, would have shipped with no
+  entry and nothing firing.
+
+- The CHANGELOG and schema-diff CI gates measure against the base branch
+  as it is now, rather than against `github.event.pull_request.base.sha`.
+  That value is a snapshot taken when the event fired and does not follow
+  the base branch afterwards, so in a stack of pull requests — the normal
+  case here, not an edge one — merging the PR underneath leaves the one
+  above comparing a diff that contains its own dependency. The changelog
+  gate reads that as "no new lines under [Unreleased]" and the schema gate
+  reads it as a breaking tool-surface change, both on branches where
+  neither is true.
+
+  Reopening a PR does not refresh it; only a push to the head branch does,
+  and a push is the one thing that cannot be done here without displacing
+  the `BREAKING CHANGE:` footer the schema gate greps for on the head
+  commit. Both gates now take the merge-base of the current base branch
+  and the head, via `.github/merge-base.sh`, which is what they both meant
+  by "what this PR adds" all along.
 
 - The dry run under-reports when Pipedrive derives a field. Changing a
   person's `first_name` reports `["name", "first_name"]`, because the
@@ -555,6 +504,36 @@ breaking changes require a MAJOR bump.
   constant is stamped into the schema dump so a surface diff caused by an
   SDK upgrade can be classified as PATCH rather than as a breaking change;
   left stale, it would have misattributed the next one.
+
+### Security
+
+- The Claude Desktop bundle is a subject of the build-provenance
+  attestation in its own right. It was covered only transitively, by its
+  row in `SHA256SUMS` — so a verifier needed the checksum file and its
+  signature to say anything about the `.mcpb`, and
+  `gh attestation verify` run against the bundle itself answered "no
+  attestation found". That is the one artifact most people install
+  without opening a terminal, and the one the MCP registry points at.
+
+- The MCP registry publish verifies the checksum file's signature before
+  reading it. `publish-mcp.yml` took `SHA256SUMS` from the published
+  release and fed it straight to `gates registry-publish`, which lifts
+  the bundle's row out of it and writes that digest into the registry
+  entry as `fileSha256` — the number a registry-driven client verifies
+  the download against. Nothing checked it. `SHA256SUMS.bundle`, the
+  cosign signature goreleaser makes over exactly that artifact, was
+  never downloaded, and the workflow's `cosign verify-blob` ran only
+  against the `mcp-publisher` tarball, while the file's own header
+  asserted the opposite.
+
+  Exploiting it needs `contents: write` — replace the `.mcpb` asset,
+  edit `SHA256SUMS` to match. The signature and the attestation both
+  break, which is the detection the release pipeline exists to provide,
+  but neither was consulted here, so a re-publish would have written the
+  attacker's digest into a registry whose entries cannot be withdrawn.
+  The job now verifies `SHA256SUMS` against its bundle, identity pinned
+  to this repository's `release.yml` on a tag ref, before anything reads
+  it.
 
 ## [0.3.2] - 2026-09-15
 
