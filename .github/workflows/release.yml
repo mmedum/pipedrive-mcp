@@ -105,9 +105,17 @@ jobs:
           # paths separated by NEWLINES. Space-separated values are
           # treated as one literal path glob and the action fails with
           # "Could not find subject at path …".
+          #
+          # The bundle is a subject in its own right. It was covered only
+          # transitively, through its row in SHA256SUMS, which means a
+          # verifier had to hold the checksum file AND its signature to
+          # say anything about the .mcpb. `gh attestation verify` on the
+          # bundle itself answered "no attestation found" — for the one
+          # artifact most people install without ever seeing a terminal.
           subject-path: |
             dist/pipedrive-mcp-*.tar.gz
             dist/pipedrive-mcp-*.zip
+            dist/pipedrive-mcp-*.mcpb
             dist/SHA256SUMS
 
   # The registry entry, in its own workflow so it can also be run by hand
