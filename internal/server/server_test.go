@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -140,21 +142,43 @@ func TestInstructionsNameEverySelfAuthorisingAction(t *testing.T) {
 	// closing — so a check written that way stays green while the
 	// transition list is wrong, which is the exact bug it is here to
 	// catch.
-	const (
-		opener = "The named transitions — "
-		closer = " — take no overwrite"
-	)
-	i := strings.Index(instructions, opener)
-	j := strings.Index(instructions, closer)
-	if i < 0 || j < i {
-		t.Fatalf("the instructions no longer carry a %q ... %q sentence; this test is asserting on nothing", opener, closer)
+	assertTransitionSentenceIsComplete(t, "the MCP instructions", instructions,
+		"The named transitions — ", " — take no overwrite")
+}
+
+// The README carries the same sentence for a human reader, and nothing
+// watched it: it named five of the seven transitions from the release
+// that added `archive` and `unarchive` until 2026-09-18, telling a
+// reader those two needed an `overwrite` they do not take. That is the
+// same defect the test above exists for, one document over, so it is
+// the same assertion rather than a second mechanism.
+func TestREADMENamesEverySelfAuthorisingAction(t *testing.T) {
+	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	if err != nil {
+		t.Fatalf("reading README.md: %v", err)
 	}
-	sentence := instructions[i+len(opener) : j]
+	assertTransitionSentenceIsComplete(t, "README.md", string(readme),
+		"The named transitions — ", " — take no `overwrite`")
+}
+
+// assertTransitionSentenceIsComplete fails when the sentence between
+// opener and closer does not name every action that grants its own
+// overwrite. Both documents phrase it the same way and differ only in
+// whether they set `overwrite` in backticks.
+func assertTransitionSentenceIsComplete(t *testing.T, where, doc, opener, closer string) {
+	t.Helper()
+
+	i := strings.Index(doc, opener)
+	j := strings.Index(doc, closer)
+	if i < 0 || j < i {
+		t.Fatalf("%s no longer carries a %q ... %q sentence; this test is asserting on nothing", where, opener, closer)
+	}
+	sentence := doc[i+len(opener) : j]
 
 	for _, action := range tools.SelfAuthorisingActions() {
 		if !strings.Contains(sentence, action) {
-			t.Errorf("the transition sentence does not name %q, which grants its own overwrite; "+
-				"a caller reading it asks permission the tool does not require. Sentence: %q", action, sentence)
+			t.Errorf("%s: the transition sentence does not name %q, which grants its own overwrite; "+
+				"a caller reading it asks permission the tool does not require. Sentence: %q", where, action, sentence)
 		}
 	}
 }

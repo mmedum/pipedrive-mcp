@@ -45,6 +45,11 @@ A release lands a verified state of `main`. Don't tag from a branch.
 - [ ] CHANGELOG `[Unreleased]` heading renamed to the version,
       with the date, in a release-prep commit. The release workflow's
       changelog excerpt step depends on this.
+- [ ] `SECURITY.md`'s supported-versions table names the version being
+      tagged as current, and drops whatever fell out of the window.
+      It is a published promise about which releases get patches, and
+      it was written forward once and left that way for five releases,
+      telling every user of the shipped release it got none.
 - [ ] Bump any pinned tool versions in `.github/workflows/*.yml`
       that drifted (govulncheck, go-licenses) — not strictly required
       but worth doing on the release commit.

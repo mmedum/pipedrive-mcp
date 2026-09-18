@@ -219,8 +219,8 @@ write — a refusal you cannot act on is a bug.
   edit, not a determined race.
 
 The named transitions — `mark_won`, `mark_lost`, `move_stage`, `reopen`,
-`complete` — take no `overwrite`, because the field they change is the
-field you named. Nothing is a one-way door on purpose: `reopen` undoes
+`archive`, `unarchive` and `complete` — take no `overwrite`, because the
+field they change is the field you named. Nothing is a one-way door on purpose: `reopen` undoes
 both `mark_lost` and `complete`. The exception is `manage_note`'s
 `delete`, which is soft — Pipedrive v1 clears `active_flag`, `get_note`
 still returns the note, and **nothing here sets the flag back**.
