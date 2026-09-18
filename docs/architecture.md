@@ -10,6 +10,27 @@ itself.
 The server speaks the [Model Context Protocol](https://modelcontextprotocol.io)
 over stdio. There is no HTTP, no socket, no IPC of any other kind.
 
+**Protocol revisions served:** `2026-07-28` (the current revision),
+`2025-11-25`, `2025-06-18`, `2025-03-26` and `2024-11-05`. The SDK
+negotiates; `server/discover` reports the list, and `make smoke` asserts
+the current revision is in it.
+
+`2026-07-28` is an era boundary rather than an increment. It drops the
+`initialize` handshake — the protocol version and the client's
+capabilities ride in `_meta` on every request — makes `server/discover`
+mandatory, and has every result carry a `resultType`. A server that
+serves only the handshake-based revisions is legacy, and the spec's
+compatibility matrix rates a modern client against one as *"Fails."*
+This server was legacy-only through v0.5.0.
+
+Nothing here implements any of that: it is the SDK's, which is the
+argument for keeping the SDK current rather than pinning it. The
+staleness gate watches the pin, and it reported v1.8.0 available for two
+weeks while the server could not answer a modern client — an available
+upgrade and a protocol era change look identical from a version number,
+which is why the smoke asserts the revision list rather than the
+dependency version.
+
 The process is a single Go binary with no persistent state. Memory
 footprint is bounded (target < 50 MB resident). The only background
 goroutines are the MCP SDK's transport reader and a one-shot
