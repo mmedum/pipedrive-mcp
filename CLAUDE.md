@@ -14,9 +14,7 @@ tables under "Phase plan" in `docs/architecture.md` for what each tag
 shipped and what is left, and "Phases and approvals" in
 `CONTRIBUTING.md` for the approval rule. It used to live in a plan file
 outside the repo; that file is gone, which is why it now lives somewhere
-a contributor can actually read. (This pointer said `README.md` until
-v0.5.0, and no such section had ever been there — the same drift the
-"Definition of done" note below records.)
+a contributor can actually read.
 
 ## Hard rules
 

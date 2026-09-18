@@ -15,6 +15,17 @@ breaking changes require a MAJOR bump.
 
 ### Added
 
+- **Two gates against documentation drifting from code**, both watched
+  failing before being believed. `TestInstructionsNameEverySelfAuthorisingAction`
+  holds the MCP instructions' transition sentence against the actions
+  that actually grant their own overwrite — the first version of that
+  test searched the whole instructions string and passed while the bug
+  was present, because "archive" also appears in the paragraph warning
+  that archiving is not closing. And `gates changelog-links`, now in
+  `make check`, asserts every `## [x.y.z]` heading has its link
+  definition and that `[Unreleased]` compares from the newest release;
+  v0.4.0 shipped with neither and it took a release to notice.
+
 - **The upstream types are held against Pipedrive's own OpenAPI
   description.** `internal/pipedrive/spec_test.go` walks the `json` tags
   in this package against a fixture derived from the published v2
@@ -161,6 +172,21 @@ breaking changes require a MAJOR bump.
   the commit carries a `SCHEMA-CHANGE:` footer.
 
 ### Fixed
+
+- **The docs promised an audit trail that has never existed, in three
+  places.** `docs/security.md` said dry-run invocations are logged at
+  `info` for an operator to audit, and its "LLM audit trail" section
+  documented an incident-response procedure built on correlating a
+  `request_id` in the server's stderr — a field that appears nowhere in
+  the source. `docs/configuration.md` carried the same dry-run promise,
+  and `docs/operations.md` asked bug reporters to supply that
+  `request_id`. `internal/tools` holds no logger at all, so a successful
+  write produces no log line and a rehearsal leaves no trace. An
+  operator following that run book after a surprising write would have
+  found nothing, and an absent log reads as a quiet period rather than a
+  missing feature. All three now say so and point at the two trails that
+  do exist: Pipedrive's own change record, and the MCP client's
+  transcript.
 
 - **The server's own MCP instructions told every client that custom
   fields were "not yet writable".** That is the first thing a connecting
