@@ -247,10 +247,11 @@ tool.
 
 ### What is not here
 
-Products, leads, files, projects and goals have no tools yet. Custom
-fields are readable everywhere and **not writable** — edit them in the
-Pipedrive UI. Two things the API itself cannot do, which no retry will
-fix: activity type cannot be filtered server-side (ask for the rows and
+Products, leads, files, projects and goals have no tools yet. **No field
+can be cleared** once it holds a value — Pipedrive v2 rejects a null and
+stores an empty string as a value, so a field can be changed but not
+emptied. Two more the API itself cannot do, which no retry will fix:
+activity type cannot be filtered server-side (ask for the rows and
 filter on their `type`), and activities are not indexed by `search`
 (reach them through `list_activities`).
 
