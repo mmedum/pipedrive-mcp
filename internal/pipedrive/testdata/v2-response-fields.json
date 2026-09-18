@@ -1,0 +1,166 @@
+{
+  "_source": "https://developers.pipedrive.com/docs/api/v1/openapi-v2.yaml",
+  "_spec_sha256": "8cf6d47de54957b5247d3673a9eaa57e7e789fa7c748eea65dbf72c65bcb0496",
+  "_captured": "2026-09-18",
+  "types": {
+    "Deal": {
+      "endpoint": "/deals",
+      "fields": {
+        "acv": "number",
+        "add_time": "string",
+        "arr": "number",
+        "channel": "integer",
+        "channel_id": "string",
+        "close_time": "string",
+        "currency": "string",
+        "custom_fields": "object",
+        "expected_close_date": "string",
+        "id": "integer",
+        "is_archived": "boolean",
+        "is_deleted": "boolean",
+        "label_ids": "array",
+        "lost_reason": "string",
+        "lost_time": "string",
+        "mrr": "number",
+        "org_id": "integer",
+        "origin": "string",
+        "origin_id": "string",
+        "owner_id": "integer",
+        "person_id": "integer",
+        "pipeline_id": "integer",
+        "probability": "number",
+        "source_lead_id": "string",
+        "stage_change_time": "string",
+        "stage_id": "integer",
+        "status": "string",
+        "title": "string",
+        "update_time": "string",
+        "value": "number",
+        "visible_to": "integer",
+        "won_time": "string"
+      }
+    },
+    "Person": {
+      "endpoint": "/persons",
+      "fields": {
+        "add_time": "string",
+        "birthday": "string",
+        "custom_fields": "object",
+        "emails": "array",
+        "first_name": "string",
+        "id": "integer",
+        "im": "array",
+        "is_deleted": "boolean",
+        "job_title": "string",
+        "label_ids": "array",
+        "last_name": "string",
+        "name": "string",
+        "notes": "string",
+        "org_id": "integer",
+        "owner_id": "integer",
+        "phones": "array",
+        "picture_id": "integer",
+        "postal_address": "object",
+        "update_time": "string",
+        "visible_to": "integer"
+      }
+    },
+    "Organization": {
+      "endpoint": "/organizations",
+      "fields": {
+        "add_time": "string",
+        "address": "object",
+        "annual_revenue": "integer",
+        "custom_fields": "object",
+        "employee_count": "integer",
+        "id": "integer",
+        "industry": "integer",
+        "is_deleted": "boolean",
+        "label_ids": "array",
+        "linkedin": "string",
+        "name": "string",
+        "owner_id": "integer",
+        "update_time": "string",
+        "visible_to": "integer",
+        "website": "string"
+      }
+    },
+    "Activity": {
+      "endpoint": "/activities",
+      "fields": {
+        "add_time": "string",
+        "attendees": "array",
+        "busy": "boolean",
+        "conference_meeting_client": "string",
+        "conference_meeting_id": "string",
+        "conference_meeting_url": "string",
+        "creator_user_id": "integer",
+        "deal_id": "integer",
+        "done": "boolean",
+        "due_date": "string",
+        "due_time": "string",
+        "duration": "string",
+        "id": "integer",
+        "is_deleted": "boolean",
+        "lead_id": "string",
+        "location": "object",
+        "marked_as_done_time": "string",
+        "note": "string",
+        "org_id": "integer",
+        "outcome": "integer",
+        "owner_id": "integer",
+        "participants": "array",
+        "person_id": "integer",
+        "priority": "integer",
+        "project_id": "integer",
+        "public_description": "string",
+        "subject": "string",
+        "type": "string",
+        "update_time": "string"
+      }
+    },
+    "Pipeline": {
+      "endpoint": "/pipelines",
+      "fields": {
+        "add_time": "string",
+        "id": "integer",
+        "is_deal_probability_enabled": "boolean",
+        "is_deleted": "boolean",
+        "name": "string",
+        "order_nr": "integer",
+        "update_time": "string"
+      }
+    },
+    "Stage": {
+      "endpoint": "/stages",
+      "fields": {
+        "add_time": "string",
+        "days_to_rotten": "integer",
+        "deal_probability": "integer",
+        "id": "integer",
+        "is_deal_rot_enabled": "boolean",
+        "is_deleted": "boolean",
+        "name": "string",
+        "order_nr": "integer",
+        "pipeline_id": "integer",
+        "update_time": "string"
+      }
+    },
+    "Field": {
+      "endpoint": "/dealFields",
+      "fields": {
+        "description": "string",
+        "field_code": "string",
+        "field_name": "string",
+        "field_type": "string",
+        "important_fields": "object",
+        "is_custom_field": "boolean",
+        "is_optional_response_field": "boolean",
+        "options": "array",
+        "required_fields": "object",
+        "subfields": "array",
+        "ui_visibility": "object"
+      }
+    }
+  }
+}

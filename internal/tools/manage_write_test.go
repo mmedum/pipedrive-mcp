@@ -544,7 +544,7 @@ func TestManageWrite_RejectsZeroID(t *testing.T) {
 func TestManageDeal_UpdateOverlayCoversEveryField(t *testing.T) {
 	// dealAfterUpdate has a branch per field. Set them all at once so a
 	// copy-paste slip in one branch cannot hide behind the others.
-	prob := 60
+	prob := 60.0
 	fake := &fakeDealsClient{
 		deal: &pipedrive.Deal{ID: 9, Status: "open", UpdateTime: "t0"},
 		updateDeal: &pipedrive.Deal{
@@ -1083,5 +1083,46 @@ func TestManageDeal_CreateCarriesCustomFields(t *testing.T) {
 	}
 	if fake.createCallSeen {
 		t.Error("a dry-run create still called upstream")
+	}
+}
+
+// Pipedrive accepts no edit to an archived deal and answers with a bare
+// 403. The read the write already does can say so first, and name the
+// action that fixes it — a refusal the caller cannot act on is a bug.
+func TestManageDeal_RefusesToEditAnArchivedDeal(t *testing.T) {
+	fake := &fakeDealsClient{
+		deal: &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "open", UpdateTime: "t0", IsArchived: true},
+	}
+	res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal",
+		map[string]any{"action": "update", "deal_id": 9, "value": 5000}, nil)
+	if !res.IsError {
+		t.Fatal("editing an archived deal was allowed")
+	}
+	if text := contentText(res); !strings.Contains(text, "unarchive") {
+		t.Errorf("the refusal does not name the action that fixes it: %s", text)
+	}
+	if fake.updateCalls != 0 {
+		t.Errorf("a refused write still sent %d updates", fake.updateCalls)
+	}
+}
+
+// ...and unarchive itself must get past that guard, or an archived deal
+// would be unreachable through this tool.
+func TestManageDeal_UnarchiveReachesAnArchivedDeal(t *testing.T) {
+	fake := &fakeDealsClient{
+		deal:       &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "open", UpdateTime: "t0", IsArchived: true},
+		updateDeal: &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "open", UpdateTime: "t1"},
+	}
+	var out writeOut
+	res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal",
+		map[string]any{"action": "unarchive", "deal_id": 9}, &out)
+	if res.IsError {
+		t.Fatalf("unarchive was refused: %s", contentText(res))
+	}
+	if fake.lastUpdateReq.IsArchived == nil || *fake.lastUpdateReq.IsArchived {
+		t.Errorf("unarchive sent %v; want is_archived false", fake.lastUpdateReq.IsArchived)
+	}
+	if !changedSet(out.Changed)["is_archived"] {
+		t.Errorf("changed = %v; want is_archived", out.Changed)
 	}
 }

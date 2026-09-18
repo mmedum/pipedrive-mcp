@@ -67,8 +67,10 @@ func (c *Client) UpdateOrganization(ctx context.Context, id int64, req UpdateOrg
 // are nested under the org's `custom_fields` object per Pipedrive v2 —
 // caller resolves hash keys to names via the per-Client FieldCache.
 func (c *Client) GetOrganization(ctx context.Context, id int64) (*Organization, error) {
+	q := url.Values{}
+	q.Set("include_fields", orgIncludeFields)
 	var resp itemEnvelope[Organization]
-	if err := c.do(ctx, "/organizations/"+strconv.FormatInt(id, 10), &resp); err != nil {
+	if err := c.do(ctx, buildPath("/organizations/"+strconv.FormatInt(id, 10), q), &resp); err != nil {
 		return nil, err
 	}
 	o := resp.Data
@@ -109,6 +111,7 @@ func (c *Client) ListOrganizations(ctx context.Context, opts ListOrganizationsOp
 	if opts.SortDirection != "" {
 		q.Set("sort_direction", opts.SortDirection)
 	}
+	q.Set("include_fields", orgIncludeFields)
 	setLimitCursor(q, opts.Limit, opts.Cursor)
 
 	var resp listEnvelope[Organization]
@@ -117,6 +120,18 @@ func (c *Client) ListOrganizations(ctx context.Context, opts ListOrganizationsOp
 	}
 	return resp.Data, resp.AdditionalData.NextCursor, nil
 }
+
+// orgIncludeFields is the include_fields value every organization read
+// sends.
+//
+// people_count is NOT part of v2's default organization response — it is
+// one value of an include_fields enum, and a read that does not ask for
+// it gets a row without the key. This client declared PeopleCount and
+// never asked, so the field was absent from every record while three
+// tool descriptions promised it. Asking is the fix rather than dropping
+// the field: "how many people are at this company" is a question the
+// tool exists to answer.
+const orgIncludeFields = "people_count"
 
 // ListOrganizationFields returns the field metadata for organizations.
 func (c *Client) ListOrganizationFields(ctx context.Context) ([]Field, error) {

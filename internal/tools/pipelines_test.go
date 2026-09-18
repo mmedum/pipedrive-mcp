@@ -49,8 +49,8 @@ type pipelineRow struct {
 func TestListPipelines_HappyPath(t *testing.T) {
 	fake := &fakePipelinesClient{
 		pipelines: []pipedrive.Pipeline{
-			{ID: 1, Name: "Sales", OrderNr: 0, Active: true},
-			{ID: 2, Name: "Renewals", OrderNr: 1, Active: false},
+			{ID: 1, Name: "Sales", OrderNr: 0},
+			{ID: 2, Name: "Renewals", OrderNr: 1, IsDeleted: true},
 		},
 	}
 	res := testutil.CallTool(t, func(s *mcp.Server) {
@@ -98,10 +98,10 @@ func TestListPipelines_UpstreamError(t *testing.T) {
 func TestListStages_FilterPassedThrough(t *testing.T) {
 	fake := &fakePipelinesClient{
 		pipelines: []pipedrive.Pipeline{
-			{ID: 5, Name: "Sales", Active: true},
+			{ID: 5, Name: "Sales"},
 		},
 		stages: []pipedrive.Stage{
-			{ID: 10, Name: "Lead In", OrderNr: 0, Active: true, PipelineID: 5, DealProbability: 10},
+			{ID: 10, Name: "Lead In", OrderNr: 0, PipelineID: 5, DealProbability: 10},
 		},
 	}
 	res := testutil.CallTool(t, func(s *mcp.Server) {
@@ -121,7 +121,7 @@ func TestListStages_FilterPassedThrough(t *testing.T) {
 func TestListStages_PipelineNotFound(t *testing.T) {
 	fake := &fakePipelinesClient{
 		pipelines: []pipedrive.Pipeline{
-			{ID: 1, Name: "Sales", Active: true},
+			{ID: 1, Name: "Sales"},
 		},
 		// Stages slice is intentionally non-empty: even though
 		// list_stages now fans the validation and the listing out in
