@@ -10,6 +10,27 @@ itself.
 The server speaks the [Model Context Protocol](https://modelcontextprotocol.io)
 over stdio. There is no HTTP, no socket, no IPC of any other kind.
 
+**Protocol revisions served:** `2026-07-28` (the current revision),
+`2025-11-25`, `2025-06-18`, `2025-03-26` and `2024-11-05`. The SDK
+negotiates; `server/discover` reports the list, and `make smoke` asserts
+the current revision is in it.
+
+`2026-07-28` is an era boundary rather than an increment. It drops the
+`initialize` handshake — the protocol version and the client's
+capabilities ride in `_meta` on every request — makes `server/discover`
+mandatory, and has every result carry a `resultType`. A server that
+serves only the handshake-based revisions is legacy, and the spec's
+compatibility matrix rates a modern client against one as *"Fails."*
+This server was legacy-only through v0.5.0.
+
+Nothing here implements any of that: it is the SDK's, which is the
+argument for keeping the SDK current rather than pinning it. The
+staleness gate watches the pin, and it reported v1.8.0 available for two
+weeks while the server could not answer a modern client — an available
+upgrade and a protocol era change look identical from a version number,
+which is why the smoke asserts the revision list rather than the
+dependency version.
+
 The process is a single Go binary with no persistent state. Memory
 footprint is bounded (target < 50 MB resident). The only background
 goroutines are the MCP SDK's transport reader and a one-shot
@@ -647,14 +668,16 @@ Where that leaves 1.0:
   release gate, so the cadence is per tag. A slow watchdog beats a
   sentence, but it is a slow watchdog: a retirement between tags is
   found by a user before it is found here.
-- **Still open, and a decision for 1.0:** from 1.0.0 a breaking change
-  needs a MAJOR bump, and these four tools sit on an API a third party
-  can retire at will — which hands that third party the power to force
-  one. This document does not yet say what the project does on the day.
-  Pre-committing (for instance: the v1 carve-out tools sit outside the
-  1.0 compatibility promise and are removed in a MINOR if v1 stops
-  answering) would turn a forced MAJOR into a disclosed carve-out. That
-  is a maintainer decision and has not been made.
+- **Decided 2026-09-19: the four carve-out tools sit outside the 1.0
+  compatibility promise.** From 1.0.0 a breaking change needs a MAJOR
+  bump, and these four sit on an API a third party can retire at will —
+  which would hand that third party the power to force one. So the
+  promise excludes them: if v1 stops answering, `get_note`,
+  `list_notes`, `manage_note` and `whoami` are removed in a MINOR
+  release. That is what makes a 1.0 honest here rather than optimistic.
+  It is a disclosed exception, written into the versioning contract at
+  the top of `CHANGELOG.md`, not a silent one. Everything else on the
+  surface is covered in full.
 
 Each phase boundary requires explicit maintainer approval before the next
 phase starts.

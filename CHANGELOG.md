@@ -11,6 +11,15 @@ error message wording, and log line formats are not part of the contract.
 Pre-1.0 minor releases may break the tool surface. From 1.0.0 onwards,
 breaking changes require a MAJOR bump.
 
+**One carve-out, and it is deliberate.** `get_note`, `list_notes`,
+`manage_note` and `whoami` run on Pipedrive API v1, whose 2026-07-31
+sunset has passed, because v2 exposes no `/notes` and no `/users` — so
+there is no equivalent to move them to. Those four sit **outside** the
+compatibility promise: if v1 stops answering they are removed in a
+MINOR release. The alternative is letting a third party decide when
+this project cuts a MAJOR. Every other tool is covered by the promise
+in full.
+
 ## [Unreleased]
 
 ### Added
@@ -72,10 +81,69 @@ breaking changes require a MAJOR bump.
   and a comment in `internal/pipedrive/deals.go` — including the
   paragraph gating 1.0 on it, which said "if that date passes" for seven
   weeks after it did. The evidence behind the "no v2 equivalent" claim
-  now carries the date it was measured, and the section names the one
-  thing still undecided for 1.0: what the project does on the day v1
-  stops answering, given that from 1.0.0 a third party could otherwise
-  force a MAJOR bump.
+  now carries the date it was measured.
+
+- **The versioning contract names one carve-out.** `get_note`,
+  `list_notes`, `manage_note` and `whoami` sit outside the 1.0
+  compatibility promise: if Pipedrive v1 stops answering they are
+  removed in a MINOR, rather than a third party's retirement schedule
+  forcing this project into a MAJOR. Decided 2026-09-19; the contract
+  at the top of this file and `docs/architecture.md` both say so.
+
+- **The server speaks the current MCP protocol revision, `2026-07-28`.**
+  `go-sdk` v1.6.0 → v1.8.0; v1.7.0 is the release that added it. The
+  revision replaces the `initialize` handshake with per-request `_meta`
+  carrying the protocol version and the client's capabilities, and makes
+  `server/discover` a mandatory RPC. Until now this server answered only
+  the handshake-based revisions, which the spec's own compatibility
+  matrix puts on the legacy side of an era boundary: a modern-only
+  client **fails** against a legacy-only server.
+
+  The SDK negotiates, so the bump is the whole migration — no handler
+  changed. Verified against the built binary: `server/discover` now
+  answers with `supportedVersions` `2026-07-28, 2025-11-25, 2025-06-18,
+  2025-03-26, 2024-11-05`, a `tools/list` sent with no handshake at all
+  is answered at the new revision, and the `2025-06-18` handshake still
+  works. Nothing is dropped; five revisions are served.
+
+  `make smoke` now asserts this rather than trusting it. It sends
+  `server/discover` as a fourth frame and fails unless the current
+  revision is in the list — watched failing against the v0.5.0 binary,
+  which refuses the method. The assertion is on the returned list
+  because the SDK answers `server/discover` with method-not-found unless
+  the request carries the new `_meta`, so a frame sent the old way gets
+  a refusal that looks nothing like a missing feature.
+
+- **Six tools report annotation hints they previously left unset.**
+  `manage_deal`, `manage_person`, `manage_organization`,
+  `manage_activity` and `manage_note` now state
+  `idempotentHint: false` and `readOnlyHint: false` alongside the
+  `destructiveHint: true` they already carried, and
+  `refresh_field_cache` states `readOnlyHint: false`. This comes from
+  the SDK, not from a change here. It is additive and not a permissive
+  flip — `false` is what the spec already assumes for an absent hint —
+  but it is a tool-surface diff, so it is named here rather than left
+  for the schema gate to surprise somebody with. Tool names, input
+  schemas and the tool count (20) are unchanged.
+
+### Fixed
+
+- **`SECURITY.md` said the shipped release was unsupported.** The
+  supported-versions table was written forward — `1.x (current)`,
+  `0.9.x`, `< 0.9 → no` — and stood that way through five releases, so
+  the published security policy told every user of every shipped
+  release that it received no patches. It now describes what is
+  shipped, and updating it is a step in the release runbook rather than
+  something to remember.
+
+- **`README.md` named five of the seven self-authorising transitions**,
+  omitting `archive` and `unarchive` and so telling a reader those two
+  need an `overwrite` they do not take. This is the defect v0.5.0 added
+  `TestInstructionsNameEverySelfAuthorisingAction` to catch, one
+  document over: that gate reads the MCP instructions string and
+  nothing read the README. The check is now one helper asserting the
+  same sentence against the same `tools.SelfAuthorisingActions()` in
+  both documents.
 
 ## [0.5.0] - 2026-09-18
 
