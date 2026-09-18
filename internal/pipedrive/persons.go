@@ -174,3 +174,16 @@ func (c *Client) ReloadPersonFields(ctx context.Context) (int, error) {
 	}
 	return c.personFields.Count(), nil
 }
+
+// DeletePerson marks a person as deleted. Pipedrive's delete is SOFT and
+// time-boxed — its documentation says "Marks a person as deleted.
+// After 30 days, the person will be permanently deleted." Within that
+// window the row still exists, carrying is_deleted; nothing in this
+// server puts it back, and Pipedrive's own UI is what can.
+//
+// The response carries only the id, so there is nothing typed to
+// return: a caller that wants the record's final state reads it before
+// deleting, which the guarded-write path does anyway.
+func (c *Client) DeletePerson(ctx context.Context, id int64) error {
+	return c.deleteV2(ctx, "/persons/"+strconv.FormatInt(id, 10))
+}

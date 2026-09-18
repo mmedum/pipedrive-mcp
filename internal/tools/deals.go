@@ -14,6 +14,7 @@ type dealsClient interface {
 	ListDeals(ctx context.Context, opts pipedrive.ListDealsOptions) ([]pipedrive.Deal, string, error)
 	CreateDeal(ctx context.Context, req pipedrive.CreateDealRequest) (*pipedrive.Deal, error)
 	UpdateDeal(ctx context.Context, id int64, req pipedrive.UpdateDealRequest) (*pipedrive.Deal, error)
+	DeleteDeal(ctx context.Context, id int64) error
 	ResolveDealCustomFields(ctx context.Context, raw map[string]any) map[string]any
 	EncodeDealCustomFields(ctx context.Context, in map[string]any) (pipedrive.CustomFieldWrite, error)
 }
@@ -169,6 +170,7 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string, opts Regi
 type dealAction struct {
 	creates    bool
 	transition bool
+	deletes    bool
 }
 
 // dealActions is the closed enum manage_deal dispatches on.
@@ -181,6 +183,7 @@ var dealActions = map[string]dealAction{
 	"reopen":     {transition: true},
 	"archive":    {transition: true},
 	"unarchive":  {transition: true},
+	"delete":     {deletes: true},
 }
 
 // dealBaseFields is the table of LLM-facing field names a write can
@@ -214,7 +217,7 @@ var dealBaseFields = []fieldSpec[pipedrive.Deal]{
 // express "unlink this person", and a bare float64 could never express
 // "this deal is worth nothing after all".
 type manageDealInput struct {
-	Action            string         `json:"action" jsonschema:"create, update, move_stage, mark_won, mark_lost, reopen, archive or unarchive"`
+	Action            string         `json:"action" jsonschema:"create, update, move_stage, mark_won, mark_lost, reopen, archive, unarchive or delete"`
 	DealID            int64          `json:"deal_id,omitempty" jsonschema:"the deal to act on, required by every action except create"`
 	Title             *string        `json:"title,omitempty" jsonschema:"the deal's title, required by create. Give it a name a human would recognise; if the user did not supply one, ask rather than inventing it"`
 	Value             *float64       `json:"value,omitempty" jsonschema:"monetary value in the deal's currency"`
@@ -244,7 +247,7 @@ func registerManageDeal(s *mcp.Server, c dealsClient, companyDomain string, opts
 
 	AddTool(s, &mcp.Tool{
 		Name:        "manage_deal",
-		Description: "Create a deal, edit one, move it between stages, or close it won or lost. One call, whichever action: create takes title, every other action takes deal_id. Writing is guarded, and every action except create reads the deal before it writes, so a write is two API calls. An update refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the deal moved under you. The six transitions — move_stage, mark_won, mark_lost, reopen, archive and unarchive — take no overwrite, because you named the transition and the field it changes is the field you named. ARCHIVING IS NOT CLOSING: an archived deal leaves the pipeline entirely, stops appearing in list_deals unless you pass archived, and accepts no edit at all until it is unarchived — mark_lost is what 'we lost it' means. IMPORTANT: lost_reason on mark_lost is free text Pipedrive keeps and reports on, so if the user did not give you a reason, leave it blank — do NOT invent one. Closing a deal is reversible here: reopen puts it back to open and clears the lost reason, though Pipedrive keeps its own record of won_time and lost_time, which you cannot set from this tool. Custom fields ARE writable here, on create and update: pass custom_fields keyed by the names get_deal reports, and give a dropdown its label rather than an option id. One thing this cannot do: NO FIELD CAN BE CLEARED once it holds a value — Pipedrive v2 rejects a null and treats an empty string as a value, so a field can be changed but not emptied. Use search to turn a company or person name into the person_id or org_id a new deal needs, and list_stages to find a stage_id.",
+		Description: "Create a deal, edit one, move it between stages, close it won or lost, or delete it. One call, whichever action: create takes title, every other action takes deal_id. Writing is guarded, and every action except create reads the deal before it writes, so a write is two API calls. An update refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the deal moved under you. The six transitions — move_stage, mark_won, mark_lost, reopen, archive and unarchive — take no overwrite, because you named the transition and the field it changes is the field you named. ARCHIVING IS NOT CLOSING: an archived deal leaves the pipeline entirely, stops appearing in list_deals unless you pass archived, and accepts no edit at all until it is unarchived — mark_lost is what 'we lost it' means. IMPORTANT: lost_reason on mark_lost is free text Pipedrive keeps and reports on, so if the user did not give you a reason, leave it blank — do NOT invent one. Closing a deal is reversible here: reopen puts it back to open and clears the lost reason, though Pipedrive keeps its own record of won_time and lost_time, which you cannot set from this tool. Custom fields ARE writable here, on create and update: pass custom_fields keyed by the names get_deal reports, and give a dropdown its label rather than an option id. One thing this cannot do: NO FIELD CAN BE CLEARED once it holds a value — Pipedrive v2 rejects a null and treats an empty string as a value, so a field can be changed but not emptied. Deleting is soft and time-boxed: Pipedrive marks the deal deleted and removes it permanently after 30 days, so it takes dry_run and expect_version and no permitting flag beyond them — within the window Pipedrive's own UI can restore it, but NOTHING HERE PUTS IT BACK, so treat it as one-way and rehearse with dry_run first. What becomes of the notes and activities hanging off a deleted deal is not documented by Pipedrive and is not verified here, so read list_notes and list_activities for the deal before deleting one that has history on it. Use search to turn a company or person name into the person_id or org_id a new deal needs, and list_stages to find a stage_id.",
 		Annotations: mutatingAnnotations(),
 	}, manageDealHandler(c, companyDomain, opts.DryRun))
 }
@@ -262,9 +265,12 @@ func manageDealHandler(c dealsClient, companyDomain string, dryRun bool) mcp.Too
 			res *mcp.CallToolResult
 			out manageDealOutput
 		)
-		if dealActions[in.Action].creates {
+		switch {
+		case dealActions[in.Action].creates:
 			res, out = createDealAction(ctx, c, companyDomain, in)
-		} else {
+		case dealActions[in.Action].deletes:
+			res, out = deleteDealAction(ctx, c, companyDomain, in)
+		default:
 			res, out = writeDealAction(ctx, c, companyDomain, in)
 		}
 		if res == nil {
@@ -523,4 +529,42 @@ func summarizeDeal(domain string, d *pipedrive.Deal, customFields map[string]any
 		CustomFields:      customFields,
 		URL:               pipedrive.WebURL(domain, pipedrive.WebURLDeal, d.ID),
 	}
+}
+
+// deleteDealAction marks a deal deleted.
+//
+// No permitting argument beyond dry_run and expect_version, and that is
+// the rule rather than an oversight: Pipedrive's delete is soft and
+// time-boxed, which is the reversible case, and a guard is only added
+// where the caller cannot see what they are about to lose. The read
+// this performs puts the deal on screen first.
+//
+// What it does NOT do is pretend to know what becomes of the notes and
+// activities hanging off the deal. Pipedrive does not document that and
+// nothing here has verified it, so the description warns rather than
+// the code guarding against a behaviour nobody has established.
+func deleteDealAction(ctx context.Context, c dealsClient, companyDomain string, in manageDealInput) (*mcp.CallToolResult, manageDealOutput) {
+	if err := validatePositiveID(in.DealID, "deal_id"); err != nil {
+		return errorResult(err), manageDealOutput{}
+	}
+	before, err := c.GetDeal(ctx, in.DealID)
+	if err != nil {
+		return errorResult(err), manageDealOutput{}
+	}
+	if err := checkExpectVersion(in.ExpectVersion, before.UpdateTime, fmt.Sprintf("deal %d", in.DealID)); err != nil {
+		return errorResult(err), manageDealOutput{}
+	}
+	// Pipedrive models a deleted deal as a status rather than a flag —
+	// open | won | lost | deleted — so this is the already-gone check.
+	if before.Status == "deleted" {
+		// Report the state rather than firing a second DELETE that
+		// changes nothing.
+		return nil, manageDealOutput{Deal: resolvedDeal(ctx, c, companyDomain, before)}
+	}
+	if !in.DryRun {
+		if err := c.DeleteDeal(ctx, in.DealID); err != nil {
+			return errorResult(err), manageDealOutput{}
+		}
+	}
+	return nil, manageDealOutput{Deal: resolvedDeal(ctx, c, companyDomain, before), Changed: []string{"status"}}
 }

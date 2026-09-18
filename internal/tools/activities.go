@@ -14,6 +14,7 @@ type activitiesClient interface {
 	ListActivities(ctx context.Context, opts pipedrive.ListActivitiesOptions) ([]pipedrive.Activity, string, error)
 	CreateActivity(ctx context.Context, req pipedrive.CreateActivityRequest) (*pipedrive.Activity, error)
 	UpdateActivity(ctx context.Context, id int64, req pipedrive.UpdateActivityRequest) (*pipedrive.Activity, error)
+	DeleteActivity(ctx context.Context, id int64) error
 }
 
 const (
@@ -195,6 +196,7 @@ func RegisterActivities(s *mcp.Server, c activitiesClient, companyDomain string,
 type activityAction struct {
 	creates    bool
 	transition bool
+	deletes    bool
 }
 
 var activityActions = map[string]activityAction{
@@ -202,6 +204,7 @@ var activityActions = map[string]activityAction{
 	"update":   {},
 	"complete": {transition: true},
 	"reopen":   {transition: true},
+	"delete":   {deletes: true},
 }
 
 // activityFields is the one table of LLM-facing field names a write can
@@ -238,7 +241,7 @@ var activityFields = []fieldSpec[pipedrive.Activity]{
 }
 
 type manageActivityInput struct {
-	Action            string                          `json:"action" jsonschema:"create, update, complete or reopen"`
+	Action            string                          `json:"action" jsonschema:"create, update, complete, reopen or delete"`
 	ActivityID        int64                           `json:"activity_id,omitempty" jsonschema:"the activity to act on, required by every action except create"`
 	Subject           *string                         `json:"subject,omitempty" jsonschema:"the activity's title, required by create. If the user did not give you one, ask — do NOT invent it"`
 	Type              *string                         `json:"type,omitempty" jsonschema:"the activity-type key such as call, email, meeting or task. The valid set varies per workspace, so copy an exact key off an existing activity; create defaults to task"`
@@ -272,7 +275,7 @@ func registerManageActivity(s *mcp.Server, c activitiesClient, companyDomain str
 
 	AddTool(s, &mcp.Tool{
 		Name:        "manage_activity",
-		Description: "Create an activity — a call, email, meeting or task — edit one, or tick it off. One call, whichever action: create takes subject, every other action takes activity_id. To log something that already happened, create it with done true and the note; to schedule something, give it a due_date. Writing is guarded, and every action except create reads the activity before it writes, so a write is two API calls. An update refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. complete and reopen just flip done and take no overwrite, because the field they change is the one you named — and reopen is why completing is not a one-way door. IMPORTANT: note is private and public_description is what attendees read in the calendar invite, so do not put one where the other belongs. The activity-type key varies per workspace: copy an exact one off an existing activity rather than guessing, since an unknown type is rejected upstream. A field that already holds a value can be changed but NOT cleared: Pipedrive v2 rejects a null and reads an empty string as a value. Use search to turn a company or person name into the ids this links to.",
+		Description: "Create an activity — a call, email, meeting or task — edit one, tick it off, or delete it. One call, whichever action: create takes subject, every other action takes activity_id. To log something that already happened, create it with done true and the note; to schedule something, give it a due_date. Writing is guarded, and every action except create reads the activity before it writes, so a write is two API calls. An update refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. complete and reopen just flip done and take no overwrite, because the field they change is the one you named — and reopen is why completing is not a one-way door. IMPORTANT: note is private and public_description is what attendees read in the calendar invite, so do not put one where the other belongs. The activity-type key varies per workspace: copy an exact one off an existing activity rather than guessing, since an unknown type is rejected upstream. A field that already holds a value can be changed but NOT cleared: Pipedrive v2 rejects a null and reads an empty string as a value. Deleting is soft and time-boxed: Pipedrive marks the activity deleted and removes it permanently after 30 days, so it takes dry_run and expect_version and no permitting flag beyond them — within that window Pipedrive's own UI can restore it, but NOTHING HERE PUTS IT BACK, so treat it as one-way and rehearse with dry_run first. Nothing hangs off an activity — notes anchor to deals, persons, organizations, leads and projects, never to an activity — so deleting one takes nothing with it that you have not already read. Use search to turn a company or person name into the ids this links to.",
 		Annotations: mutatingAnnotations(),
 	}, manageActivityHandler(c, companyDomain, opts.DryRun))
 }
@@ -288,9 +291,12 @@ func manageActivityHandler(c activitiesClient, companyDomain string, dryRun bool
 			res *mcp.CallToolResult
 			out manageActivityOutput
 		)
-		if activityActions[in.Action].creates {
+		switch {
+		case activityActions[in.Action].creates:
 			res, out = createActivityAction(ctx, c, companyDomain, in)
-		} else {
+		case activityActions[in.Action].deletes:
+			res, out = deleteActivityAction(ctx, c, companyDomain, in)
+		default:
 			res, out = writeActivityAction(ctx, c, companyDomain, in)
 		}
 		if res == nil {
@@ -502,4 +508,34 @@ func statusToDoneFilter(status string) *bool {
 		return &v
 	}
 	return nil
+}
+
+// deleteActivityAction marks an activity deleted.
+//
+// dry_run and expect_version, and nothing else. Pipedrive's delete is
+// soft and time-boxed, which is the reversible case, and the read this
+// performs puts the activity on screen before it goes.
+//
+// Unlike a deal, a person or an organization, an activity is a leaf:
+// notes anchor to deals, persons, organizations, leads and projects,
+// never to an activity, and nothing else hangs off one. Its entire
+// blast radius is the row the caller just read, which is the case
+// CLAUDE.md names as not needing a permitting argument at all.
+func deleteActivityAction(ctx context.Context, c activitiesClient, companyDomain string, in manageActivityInput) (*mcp.CallToolResult, manageActivityOutput) {
+	if err := validatePositiveID(in.ActivityID, "activity_id"); err != nil {
+		return errorResult(err), manageActivityOutput{}
+	}
+	before, err := c.GetActivity(ctx, in.ActivityID, pipedrive.GetActivityOptions{})
+	if err != nil {
+		return errorResult(err), manageActivityOutput{}
+	}
+	if err := checkExpectVersion(in.ExpectVersion, before.UpdateTime, fmt.Sprintf("activity %d", in.ActivityID)); err != nil {
+		return errorResult(err), manageActivityOutput{}
+	}
+	if !in.DryRun {
+		if err := c.DeleteActivity(ctx, in.ActivityID); err != nil {
+			return errorResult(err), manageActivityOutput{}
+		}
+	}
+	return nil, manageActivityOutput{Activity: summarizeActivity(companyDomain, before), Changed: []string{"deleted"}}
 }

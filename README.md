@@ -175,16 +175,16 @@ match names.
 | `whoami` | Which account the token acts as and which workspace it points at, plus the timezone an activity's due time is written in |
 | `get_deal` | One deal: value, currency, status, stage, the people and company on it, and custom fields under their workspace names, dropdowns as labels |
 | `list_deals` | Deals by status, pipeline, stage, owner, person, organisation or update window, cursor-paginated. Archived deals live in their own collection — pass `archived` |
-| `manage_deal` | Create or edit a deal, move it between stages, close it, or archive it — `create`, `update`, `move_stage`, `mark_won`, `mark_lost`, `reopen`, `archive`, `unarchive`. Custom fields by name, dropdowns by label |
+| `manage_deal` | Create or edit a deal, move it between stages, close it, archive it, or delete it — `create`, `update`, `move_stage`, `mark_won`, `mark_lost`, `reopen`, `archive`, `unarchive`, `delete`. Custom fields by name, dropdowns by label |
 | `get_person` | One contact: names, every email and phone with its label, the company they belong to, and custom fields |
 | `list_persons` | People by owner, linked organisation or update window, cursor-paginated |
-| `manage_person` | Create or edit a contact — `create`, `update`. Custom fields by name, dropdowns by label |
+| `manage_person` | Create, edit or delete a contact — `create`, `update`, `delete`. Custom fields by name, dropdowns by label |
 | `get_organization` | One company: the address Pipedrive parsed, how many people hang off it, and custom fields |
 | `list_organizations` | Companies by owner or update window, cursor-paginated |
-| `manage_organization` | Create or edit a company — `create`, `update`. Custom fields by name, dropdowns by label |
+| `manage_organization` | Create, edit or delete a company — `create`, `update`, `delete`. Custom fields by name, dropdowns by label |
 | `get_activity` | One call, email, meeting or task, with its location, participants and conference details |
 | `list_activities` | Activities by status, owner, deal, person, organisation, lead or update window; notes stripped unless asked for |
-| `manage_activity` | Create or edit an activity, or tick it off — `create`, `update`, `complete`, `reopen` |
+| `manage_activity` | Create or edit an activity, tick it off, or delete it — `create`, `update`, `complete`, `reopen`, `delete` |
 | `get_note` | One note: its HTML, who wrote it, and which record it hangs off |
 | `list_notes` | Notes by the record they hang off, author, date range or update window |
 | `manage_note` | Create, edit or remove a note — `create`, `update`, `delete` |

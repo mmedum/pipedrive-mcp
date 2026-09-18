@@ -14,6 +14,7 @@ type organizationsClient interface {
 	ListOrganizations(ctx context.Context, opts pipedrive.ListOrganizationsOptions) ([]pipedrive.Organization, string, error)
 	CreateOrganization(ctx context.Context, req pipedrive.CreateOrganizationRequest) (*pipedrive.Organization, error)
 	UpdateOrganization(ctx context.Context, id int64, req pipedrive.UpdateOrganizationRequest) (*pipedrive.Organization, error)
+	DeleteOrganization(ctx context.Context, id int64) error
 	ResolveOrganizationCustomFields(ctx context.Context, raw map[string]any) map[string]any
 	EncodeOrganizationCustomFields(ctx context.Context, in map[string]any) (pipedrive.CustomFieldWrite, error)
 }
@@ -131,7 +132,7 @@ func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain s
 	registerManageOrganization(s, c, companyDomain, opts)
 }
 
-var allowedOrganizationActions = map[string]bool{"create": true, "update": true}
+var allowedOrganizationActions = map[string]bool{"create": true, "update": true, "delete": true}
 
 // organizationBaseFields is the table of LLM-facing field names a write
 // can touch that every organization has. A workspace's own custom
@@ -150,7 +151,7 @@ var organizationBaseFields = []fieldSpec[pipedrive.Organization]{
 }
 
 type manageOrganizationInput struct {
-	Action        string         `json:"action" jsonschema:"create or update"`
+	Action        string         `json:"action" jsonschema:"create, update or delete"`
 	OrgID         int64          `json:"org_id,omitempty" jsonschema:"the organization to act on, required by update and ignored by create"`
 	Name          *string        `json:"name,omitempty" jsonschema:"the organization's display name, required by create. If the user did not give you a name, ask — do NOT invent one"`
 	Address       *string        `json:"address,omitempty" jsonschema:"a single-line address exactly as the user dictated it, such as 123 Main St, San Francisco, CA 94103. Pipedrive parses it server-side into country, locality and postal_code, so do NOT pre-parse it or split it into components"`
@@ -172,7 +173,7 @@ func registerManageOrganization(s *mcp.Server, c organizationsClient, companyDom
 
 	AddTool(s, &mcp.Tool{
 		Name:        "manage_organization",
-		Description: "Create an organization — the account or company a deal and its people hang off — or edit one. One call, either action: create takes name, update takes org_id. Writing is guarded, and update reads the organization before it writes, so a write is two API calls. It refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. IMPORTANT: send address as ONE LINE the way a person would say it and let Pipedrive parse it — the structured country, locality and postal_code you see on a read are its output, not its input, and pre-splitting them loses the parse. Custom fields ARE writable here: pass custom_fields keyed by the names get_organization reports, and give a dropdown its label rather than an option id. Use search to find an org_id from a name.",
+		Description: "Create an organization — the account or company a deal and its people hang off — edit one, or delete one. One call, whichever action: create takes name, update takes org_id. Writing is guarded, and update reads the organization before it writes, so a write is two API calls. It refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. IMPORTANT: send address as ONE LINE the way a person would say it and let Pipedrive parse it — the structured country, locality and postal_code you see on a read are its output, not its input, and pre-splitting them loses the parse. Custom fields ARE writable here: pass custom_fields keyed by the names get_organization reports, and give a dropdown its label rather than an option id. Deleting is soft and time-boxed: Pipedrive marks the organization deleted and removes it permanently after 30 days, so it takes dry_run and expect_version and no permitting flag beyond them — within that window Pipedrive's own UI can restore it, but NOTHING HERE PUTS IT BACK, so treat it as one-way and rehearse with dry_run first. An organization is the widest thing this server deletes: people, deals, notes and activities all hang off one, and what becomes of them is not documented by Pipedrive and is not verified here — read list_persons and list_deals for the org before deleting it. Use search to find an org_id from a name.",
 		Annotations: mutatingAnnotations(),
 	}, manageOrganizationHandler(c, companyDomain, opts.DryRun))
 }
@@ -188,9 +189,12 @@ func manageOrganizationHandler(c organizationsClient, companyDomain string, dryR
 			res *mcp.CallToolResult
 			out manageOrganizationOutput
 		)
-		if in.Action == "create" {
+		switch in.Action {
+		case "create":
 			res, out = createOrganizationAction(ctx, c, companyDomain, in)
-		} else {
+		case "delete":
+			res, out = deleteOrganizationAction(ctx, c, companyDomain, in)
+		default:
 			res, out = updateOrganizationAction(ctx, c, companyDomain, in)
 		}
 		if res == nil {
@@ -340,4 +344,42 @@ func summarizeOrganization(domain string, o *pipedrive.Organization, customField
 		}
 	}
 	return out
+}
+
+// deleteOrganizationAction marks a organization deleted.
+//
+// dry_run and expect_version, and nothing else. Pipedrive's delete is
+// soft and time-boxed, which is the reversible case, and a guard is
+// only added where the caller cannot see what they are about to lose —
+// the read this performs puts the organization on screen first.
+//
+// It does not pretend to know what becomes of the records hanging off
+// this one. Pipedrive does not document that and nothing here has
+// verified it, so the description warns rather than the code guarding
+// against a behaviour nobody has established.
+//
+// There is no already-deleted short-circuit, unlike manage_deal's,
+// because there is nothing here to read one from: a deal carries
+// status "deleted", but pipedrive.Organization has no deleted marker and
+// cannot grow one — the v2 response fixture spec_test.go checks against
+// does not declare is_deleted for this resource, so the tag would fail
+// the gate. A second delete reaches Pipedrive and is reported as
+// whatever Pipedrive answers.
+func deleteOrganizationAction(ctx context.Context, c organizationsClient, companyDomain string, in manageOrganizationInput) (*mcp.CallToolResult, manageOrganizationOutput) {
+	if err := validatePositiveID(in.OrgID, "orgid"); err != nil {
+		return errorResult(err), manageOrganizationOutput{}
+	}
+	before, err := c.GetOrganization(ctx, in.OrgID)
+	if err != nil {
+		return errorResult(err), manageOrganizationOutput{}
+	}
+	if err := checkExpectVersion(in.ExpectVersion, before.UpdateTime, fmt.Sprintf("organization %d", in.OrgID)); err != nil {
+		return errorResult(err), manageOrganizationOutput{}
+	}
+	if !in.DryRun {
+		if err := c.DeleteOrganization(ctx, in.OrgID); err != nil {
+			return errorResult(err), manageOrganizationOutput{}
+		}
+	}
+	return nil, manageOrganizationOutput{Organization: resolvedOrganization(ctx, c, companyDomain, before), Changed: []string{"is_deleted"}}
 }

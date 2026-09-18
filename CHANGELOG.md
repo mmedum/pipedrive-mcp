@@ -22,6 +22,45 @@ in full.
 
 ## [Unreleased]
 
+### Added
+
+- **`delete` on `manage_deal`, `manage_person`, `manage_organization`
+  and `manage_activity`**, on an explicit maintainer decision taken
+  2026-09-19 — which is what `docs/security.md` had been asking for
+  since it listed `delete_deal` as off the roadmap.
+
+  They take `dry_run` and `expect_version` and **no permitting flag
+  beyond them**. Pipedrive's v2 delete is soft and time-boxed — its
+  documentation says "Marks a <resource> as deleted. After 30 days, the
+  <resource> will be permanently deleted" — which is the reversible case
+  `trash_file` handles the same way, and the read each action performs
+  puts the record on screen before it goes. Nothing here restores one;
+  Pipedrive's own UI can, inside the window.
+
+  **What becomes of the records hanging off a deleted one is not
+  documented by Pipedrive and has not been verified here**, because the
+  only available workspace is a real one and the probe would have meant
+  creating and deleting records in it. So the descriptions tell the
+  caller to read the children first rather than the code guarding
+  against a behaviour nobody has established. If it is ever established,
+  the guard to add is `force` on the three parents; an activity is a
+  leaf — notes anchor to deals, persons, organizations, leads and
+  projects, never to an activity — and would still not need one.
+
+  A deal is the one resource whose deleted state is readable, through
+  `status: deleted`, so deleting one twice reports instead of firing
+  again. The other three have no deleted marker and cannot grow one:
+  the v2 response fixture `spec_test.go` checks against does not declare
+  `is_deleted` for them, so the tag would fail that gate.
+
+- **A `descriptions` gate**, in `make check`. It holds the tool
+  descriptions against the house-style rules that can be checked
+  mechanically — today, at most one `IMPORTANT:` per description. It
+  reads the built binary's schema dump rather than the Go source,
+  because the first version of this was a unit test walking the package
+  registry, which is empty unless something registered into it: it
+  passed while asserting on nothing.
+
 ### Fixed
 
 - **`manage_deal` offered six actions and dispatched on eight.** The

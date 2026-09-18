@@ -13,6 +13,10 @@ import (
 )
 
 type fakeActivitiesClient struct {
+	deleteErr    error
+	deleteCalls  int
+	lastDeleteID int64
+
 	activity       *pipedrive.Activity
 	activityErr    error
 	activities     []pipedrive.Activity
@@ -625,4 +629,10 @@ func TestCreateActivity_PropagatesUpstreamError(t *testing.T) {
 	if !strings.HasPrefix(contentText(res), "[validation]") {
 		t.Errorf("error text = %q; want [validation] prefix", contentText(res))
 	}
+}
+
+func (f *fakeActivitiesClient) DeleteActivity(_ context.Context, id int64) error {
+	f.deleteCalls++
+	f.lastDeleteID = id
+	return f.deleteErr
 }
