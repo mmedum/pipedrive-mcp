@@ -354,7 +354,7 @@ Versioning is strict semver. The MCP tool surface is the public contract.
 | --- | --- | --- |
 | `v0.1.0` | Phase 1 | The read surface, the notes v1 carve-out, `create_note` / `delete_note`, `refresh_field_cache`. Phase 0's scaffolding folded in rather than cut as `v0.0.1`. |
 | `v0.2.0` – `v0.3.2` | — | Release and supply-chain engineering, no tool-surface change: the gate scripts rewritten as one Go command, every action pinned by commit SHA, cosign signing, CycloneDX SBOMs, build provenance, reproducible builds, `--version`. |
-| `v0.4.0` | Phases 2 and 3 | The write and workflow surface in one release — five `manage_*` tools with guarded writes, plus `whoami` and MCP resource templates — and the whole surface aligned to the Google Workspace MCP conventions. |
+| `v0.4.0` | Phases 2, 3 and 3.5 | The write and workflow surface in one release — five `manage_*` tools with guarded writes, plus `whoami` and MCP resource templates — and the whole surface aligned to the Google Workspace MCP conventions. It also absorbed work that was planned for 0.5.0 and landed before the tag: the live integration suite, `internal/app`, a Claude Desktop bundle with an MCP registry entry, and the supply-chain fixes the release review turned up. |
 
 The middle tags went to release engineering rather than to phases, so the
 phase numbers and the version numbers stopped tracking each other. The
@@ -364,7 +364,7 @@ table above says what actually happened rather than what was planned.
 
 | Tag | Phase | What it needs |
 | --- | --- | --- |
-| `v0.5.0` | Phase 3.5 | Custom-field **writes** — they are readable everywhere and writable nowhere. The integration suite this phase also wanted has landed; see below. |
+| `v0.5.0` | Phase 4 prep | Custom-field **writes** — they are readable everywhere and writable nowhere — and the items below that a second workspace or a decision unblocks. Phase 3.5's own work shipped inside `v0.4.0`. |
 | `v0.9.0` → `v1.0.0-rc.N` | Phase 4 | An eval suite (a release gate from Phase 4 onwards, and it does not exist yet), polish, and validation against a second workspace. |
 | `v1.0.0` | Phase 5 | A stable surface and a supported-version table. |
 
@@ -383,16 +383,20 @@ input, and — per the invariant in `fieldtable_test.go` — the field tables,
 since a field a write can set must be tabled or it is written unguarded
 and unreported.
 
-**2. An integration suite.** *Landed* — `internal/integration/`, behind
-`//go:build integration`, run with `make integration` and
-`make integration-writes`. It was the highest-value item on the list and
-the ordering above understates it: **every serious defect found during
-the 0.4.0 work was found by driving the live API, and not one of them was
-visible to the unit tests**, which assert against fakes. Three guard bugs,
-a wire-format error, and Pipedrive's derived-`name` behaviour all came
-from real calls. The scratchpad probes that found them are tests now, so
-the coverage is repeatable rather than lucky. `docs/development.md` has
-the safety contract the write probes keep.
+**2. An integration suite.** *Shipped in `v0.4.0`*, not here —
+`internal/integration/`, behind `//go:build integration`, run with
+`make integration` and `make integration-writes`. It was the
+highest-value item on this list and it overtook the rest, which is why
+it is recorded as done rather than pending: **every serious defect found
+during the 0.4.0 work was found by driving the live API, and not one of
+them was visible to the unit tests**, which assert against fakes. Three
+guard bugs, a wire-format error, and Pipedrive's derived-`name`
+behaviour all came from real calls. `docs/development.md` has the safety
+contract the write probes keep.
+
+It is left in this list rather than deleted because the reasoning is the
+argument for the suite existing at all, and a reader asking "why is
+there a live suite" should find it here.
 
 **3. A second workspace.** Everything so far ran against one. Custom-field
 configurations, pipeline shapes and permission levels vary, and the 403
@@ -403,7 +407,7 @@ spike below needs a second account regardless.
 a real account, to tighten `businessRule403Signals`), and the hand-rolled
 HTTP versus OpenAPI-generator decision, which needs recording either way.
 
-**5. A Claude Desktop smoke.** 0.4.0 was driven through stdio and Claude
+**5. A Claude Desktop smoke.** Still open. 0.4.0 was driven through stdio and Claude
 Code. The runbook accepts either, so this is a gap in coverage rather than
 in process.
 
@@ -424,6 +428,17 @@ in process.
   the projection is load-bearing.
 - `populatedFields` builds a `map[string]bool` for a membership test over
   at most 18 elements.
+
+**6. The bundle manifest is never validated against its schema.** The
+gate checks the *declaration* — that `$schema` agrees with the declared
+`manifest_version`, that the ref is a complete release tag, and that the
+version meets a floor — and it checks referential integrity against the
+files the packer stages. Nothing parses the document against the schema
+it cites, so a wrong type or a missing required field would pass here
+and fail in somebody else's tool. `google/jsonschema-go` is already a
+dependency, so this costs no new one. Found while comparing notes with
+`google-chat-mcp`, which has the mirror gap: it validates against a
+vendored copy and never checks that the URL agrees with the declaration.
 
 **Explicitly not in 0.5.0.** Products, leads, files, projects and goals
 are new resources and belong to their own milestone. Field clearing is
