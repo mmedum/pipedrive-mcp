@@ -8,7 +8,8 @@
 Pipedrive CRM as MCP tools. Find deals, people and companies, write to them, and move deals through a pipeline.
 
 A single Go binary that speaks [Model Context Protocol](https://modelcontextprotocol.io)
-over stdio. It runs as a subprocess of your client, on your own machine,
+over stdio — protocol revisions `2026-07-28` (the current one) back to
+`2024-11-05`, negotiated per client. It runs as a subprocess of your client, on your own machine,
 against one Pipedrive workspace: search by name and get back the ids
 everything else needs, read deals, people, organisations, activities and
 notes with their custom fields under the names your workspace gives them
