@@ -175,9 +175,22 @@ jobs:
           /tmp/base-bin --dump-schemas > /tmp/base-schemas.json
       - name: Diff
         run: |
+          # Recomputed: each step gets a fresh shell, so the base from
+          # the step above is not in scope here. Getting that wrong made
+          # the range empty and the gate fail on a described change.
+          base=$(./.github/merge-base.sh "${{ github.event.pull_request.base.ref }}" "${{ github.event.pull_request.head.sha }}")
+          echo "base: $base"
           if [ -f /tmp/base-schemas.json ]; then
             diff -u /tmp/base-schemas.json /tmp/pr-schemas.json || {
-              msg=$(git log -1 --format=%B "${{ github.event.pull_request.head.sha }}")
+              # Every commit the pull request adds, not just the head
+              # one. Reading only the head drops the acknowledgement the
+              # moment anything lands on top of the commit that carried
+              # it — merging main into the branch is enough, and that is
+              # a routine thing to do while a pull request is open. The
+              # gate then fails on a change somebody already described,
+              # and the only ways out are a force-push or an empty
+              # commit.
+              msg=$(git log --format=%B "$base..${{ github.event.pull_request.head.sha }}")
               if echo "$msg" | grep -q "^BREAKING CHANGE:"; then
                 echo "Schema change with BREAKING CHANGE: footer — OK (treat as MAJOR)"
                 exit 0
@@ -188,7 +201,8 @@ jobs:
               fi
               echo "::error::tool schema changed without an acknowledgement footer."
               echo "::error::Add 'SCHEMA-CHANGE: <description>' for additive/non-breaking changes,"
-              echo "::error::or 'BREAKING CHANGE: <description>' for breaking ones, on the head commit."
+              echo "::error::or 'BREAKING CHANGE: <description>' for breaking ones, on any commit"
+              echo "::error::in this pull request."
               exit 1
             }
           fi

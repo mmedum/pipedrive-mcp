@@ -13,6 +13,44 @@ breaking changes require a MAJOR bump.
 
 ## [Unreleased]
 
+### Changed
+
+- **The server speaks the current MCP protocol revision, `2026-07-28`.**
+  `go-sdk` v1.6.0 → v1.8.0; v1.7.0 is the release that added it. The
+  revision replaces the `initialize` handshake with per-request `_meta`
+  carrying the protocol version and the client's capabilities, and makes
+  `server/discover` a mandatory RPC. Until now this server answered only
+  the handshake-based revisions, which the spec's own compatibility
+  matrix puts on the legacy side of an era boundary: a modern-only
+  client **fails** against a legacy-only server.
+
+  The SDK negotiates, so the bump is the whole migration — no handler
+  changed. Verified against the built binary: `server/discover` now
+  answers with `supportedVersions` `2026-07-28, 2025-11-25, 2025-06-18,
+  2025-03-26, 2024-11-05`, a `tools/list` sent with no handshake at all
+  is answered at the new revision, and the `2025-06-18` handshake still
+  works. Nothing is dropped; five revisions are served.
+
+  `make smoke` now asserts this rather than trusting it. It sends
+  `server/discover` as a fourth frame and fails unless the current
+  revision is in the list — watched failing against the v0.5.0 binary,
+  which refuses the method. The assertion is on the returned list
+  because the SDK answers `server/discover` with method-not-found unless
+  the request carries the new `_meta`, so a frame sent the old way gets
+  a refusal that looks nothing like a missing feature.
+
+- **Six tools report annotation hints they previously left unset.**
+  `manage_deal`, `manage_person`, `manage_organization`,
+  `manage_activity` and `manage_note` now state
+  `idempotentHint: false` and `readOnlyHint: false` alongside the
+  `destructiveHint: true` they already carried, and
+  `refresh_field_cache` states `readOnlyHint: false`. This comes from
+  the SDK, not from a change here. It is additive and not a permissive
+  flip — `false` is what the spec already assumes for an absent hint —
+  but it is a tool-surface diff, so it is named here rather than left
+  for the schema gate to surprise somebody with. Tool names, input
+  schemas and the tool count (20) are unchanged.
+
 ### Fixed
 
 - **`SECURITY.md` said the shipped release was unsupported.** The
