@@ -175,6 +175,11 @@ jobs:
           /tmp/base-bin --dump-schemas > /tmp/base-schemas.json
       - name: Diff
         run: |
+          # Recomputed: each step gets a fresh shell, so the base from
+          # the step above is not in scope here. Getting that wrong made
+          # the range empty and the gate fail on a described change.
+          base=$(./.github/merge-base.sh "${{ github.event.pull_request.base.ref }}" "${{ github.event.pull_request.head.sha }}")
+          echo "base: $base"
           if [ -f /tmp/base-schemas.json ]; then
             diff -u /tmp/base-schemas.json /tmp/pr-schemas.json || {
               # Every commit the pull request adds, not just the head
