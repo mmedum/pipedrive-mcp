@@ -169,8 +169,8 @@ match names.
 | `search` | Free text across deals, people, organisations, products, files and leads — the way to turn a name into an id |
 | `whoami` | Which account the token acts as and which workspace it points at, plus the timezone an activity's due time is written in |
 | `get_deal` | One deal: value, currency, status, stage, the people and company on it, and custom fields under their workspace names, dropdowns as labels |
-| `list_deals` | Deals by status, pipeline, stage, owner, person, organisation or update window, cursor-paginated |
-| `manage_deal` | Create or edit a deal, move it between stages, or close it — `create`, `update`, `move_stage`, `mark_won`, `mark_lost`, `reopen`. Custom fields by name, dropdowns by label |
+| `list_deals` | Deals by status, pipeline, stage, owner, person, organisation or update window, cursor-paginated. Archived deals live in their own collection — pass `archived` |
+| `manage_deal` | Create or edit a deal, move it between stages, close it, or archive it — `create`, `update`, `move_stage`, `mark_won`, `mark_lost`, `reopen`, `archive`, `unarchive`. Custom fields by name, dropdowns by label |
 | `get_person` | One contact: names, every email and phone with its label, the company they belong to, and custom fields |
 | `list_persons` | People by owner, linked organisation or update window, cursor-paginated |
 | `manage_person` | Create or edit a contact — `create`, `update`. Custom fields by name, dropdowns by label |

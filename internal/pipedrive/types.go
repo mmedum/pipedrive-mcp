@@ -73,24 +73,30 @@ type FieldOption struct {
 // so it can pattern-match without timezone surprises; callers that
 // need time.Time should parse explicitly.
 type Deal struct {
-	ID                int64          `json:"id"`
-	Title             string         `json:"title"`
-	Value             float64        `json:"value"`
-	Currency          string         `json:"currency"`
-	Status            string         `json:"status"` // open | won | lost | deleted
-	StageID           int64          `json:"stage_id"`
-	PipelineID        int64          `json:"pipeline_id"`
-	OwnerID           int64          `json:"owner_id"`
-	PersonID          int64          `json:"person_id"`
-	OrgID             int64          `json:"org_id"`
-	ExpectedCloseDate string         `json:"expected_close_date"`
-	WonTime           string         `json:"won_time,omitempty"`
-	LostTime          string         `json:"lost_time,omitempty"`
-	LostReason        string         `json:"lost_reason,omitempty"`
-	AddTime           string         `json:"add_time"`
-	UpdateTime        string         `json:"update_time"`
-	Probability       *float64       `json:"probability,omitempty"`
-	CustomFields      map[string]any `json:"custom_fields,omitempty"`
+	ID                int64    `json:"id"`
+	Title             string   `json:"title"`
+	Value             float64  `json:"value"`
+	Currency          string   `json:"currency"`
+	Status            string   `json:"status"` // open | won | lost | deleted
+	StageID           int64    `json:"stage_id"`
+	PipelineID        int64    `json:"pipeline_id"`
+	OwnerID           int64    `json:"owner_id"`
+	PersonID          int64    `json:"person_id"`
+	OrgID             int64    `json:"org_id"`
+	ExpectedCloseDate string   `json:"expected_close_date"`
+	WonTime           string   `json:"won_time,omitempty"`
+	LostTime          string   `json:"lost_time,omitempty"`
+	LostReason        string   `json:"lost_reason,omitempty"`
+	AddTime           string   `json:"add_time"`
+	UpdateTime        string   `json:"update_time"`
+	Probability       *float64 `json:"probability,omitempty"`
+	// IsArchived is not the same as a status. Pipedrive stopped
+	// returning archived deals from /deals on 2025-07-15 and moved them
+	// to /deals/archived, so a list that does not ask for them is
+	// quietly short rather than wrong — and an archived deal cannot be
+	// edited at all.
+	IsArchived   bool           `json:"is_archived"`
+	CustomFields map[string]any `json:"custom_fields,omitempty"`
 }
 
 // AdditionalData is the paging envelope returned alongside `data`

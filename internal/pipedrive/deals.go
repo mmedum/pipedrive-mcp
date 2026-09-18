@@ -27,6 +27,13 @@ type ListDealsOptions struct {
 	SortDirection string // asc | desc
 	Limit         int
 	Cursor        string // opaque pagination token from a previous response
+
+	// Archived reads the archive instead of the live pipeline. Since
+	// 2025-07-15 Pipedrive serves archived deals from their own
+	// endpoint and returns none of them from /deals, so this is the
+	// only way to see one — a filter would not do, because the rows are
+	// not in the collection being filtered.
+	Archived bool
 }
 
 // CreateDealRequest is the JSON body for POST /api/v2/deals. v2
@@ -89,6 +96,9 @@ type UpdateDealRequest struct {
 	Probability       *float64 `json:"probability,omitempty"`
 	Status            *string  `json:"status,omitempty"`
 	LostReason        *string  `json:"lost_reason,omitempty"`
+	// IsArchived is the one field an archived deal still accepts;
+	// Pipedrive refuses every other edit while a deal is archived.
+	IsArchived *bool `json:"is_archived,omitempty"`
 
 	// CustomFields is what FieldCache.Encode produces; see
 	// CustomFieldWrite.Values for the shape. Nil omits the object,
@@ -140,6 +150,10 @@ func (c *Client) CreateDeal(ctx context.Context, req CreateDealRequest) (*Deal, 
 // page plus the next cursor (empty string = end of results). Cursor
 // pagination is opaque; callers pass whatever NextCursor was returned
 // on the prior page.
+//
+// opts.Archived swaps the collection for /deals/archived, which takes
+// the same filters. The two are disjoint: neither endpoint returns the
+// other's rows.
 func (c *Client) ListDeals(ctx context.Context, opts ListDealsOptions) ([]Deal, string, error) {
 	q := url.Values{}
 	if opts.Status != "" {
@@ -174,8 +188,12 @@ func (c *Client) ListDeals(ctx context.Context, opts ListDealsOptions) ([]Deal, 
 	}
 	setLimitCursor(q, opts.Limit, opts.Cursor)
 
+	path := "/deals"
+	if opts.Archived {
+		path = "/deals/archived"
+	}
 	var resp listEnvelope[Deal]
-	if err := c.do(ctx, buildPath("/deals", q), &resp); err != nil {
+	if err := c.do(ctx, buildPath(path, q), &resp); err != nil {
 		return nil, "", err
 	}
 	return resp.Data, resp.AdditionalData.NextCursor, nil

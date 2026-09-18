@@ -15,6 +15,17 @@ breaking changes require a MAJOR bump.
 
 ### Fixed
 
+- **`list_deals` was quietly short.** Pipedrive moved archived deals to
+  their own collection on 2025-07-15 and stopped returning them from
+  `/deals`; nothing here knew. An archived deal was absent from every
+  list, `get_deal` could not say a deal was archived, and `manage_deal`
+  met a bare 403 with no way to explain it. Deals now carry
+  `is_archived`, `list_deals` takes `archived` to read the other
+  collection — no filter reaches it, so that is the only way in — and
+  `manage_deal` gains `archive` and `unarchive`. An edit to an archived
+  deal is refused by the read the write already does, naming the action
+  that fixes it rather than passing the 403 along.
+
 - **Every pipeline and stage reported itself inactive.** `Pipeline` read
   `active` and `Stage` read `active_flag`; v2 returns neither — both
   carry `is_deleted` — so both decoded to `false` for every record, and

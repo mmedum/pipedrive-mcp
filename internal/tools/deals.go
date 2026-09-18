@@ -51,6 +51,7 @@ type dealSummary struct {
 	AddTime           string         `json:"add_time,omitempty" jsonschema:"timestamp the deal was created"`
 	UpdateTime        string         `json:"update_time,omitempty" jsonschema:"timestamp the deal was last updated"`
 	Probability       *float64       `json:"probability,omitempty" jsonschema:"deal probability override (0-100); null when the stage default applies"`
+	IsArchived        bool           `json:"is_archived,omitempty" jsonschema:"true if the deal has been archived; an archived deal cannot be edited and does not appear in list_deals unless archived is set"`
 	CustomFields      map[string]any `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label; an unrecognised field or option falls through under its stored key"`
 	URL               string         `json:"url" jsonschema:"link to the deal in the Pipedrive web UI"`
 }
@@ -72,6 +73,7 @@ type listDealsInput struct {
 	SortBy        string `json:"sort_by,omitempty" jsonschema:"id | update_time | add_time. Default 'update_time' (most-recently-touched first)."`
 	SortDirection string `json:"sort_direction,omitempty" jsonschema:"asc | desc. Default 'desc' when sort_by is omitted; 'asc' otherwise."`
 	Limit         int    `json:"limit,omitempty" jsonschema:"page size; default 25, max 100"`
+	Archived      bool   `json:"archived,omitempty" jsonschema:"read the archive instead of the live pipeline. Archived deals are in a separate collection and NO other filter reaches them, so this is the only way to see one"`
 	Cursor        string `json:"cursor,omitempty" jsonschema:"opaque pagination token from a previous list_deals response; omit for the first page"`
 }
 
@@ -110,7 +112,7 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string, opts Regi
 
 	AddTool(s, &mcp.Tool{
 		Name:        "list_deals",
-		Description: "List deals filtered by status, pipeline, stage, owner, person, organization, or update window. Returns matching deals with id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, and any custom fields under their workspace names, dropdown values as labels rather than option ids. Default sort is update_time desc — most-recently-touched first, ideal for 'which deals have we been working on lately'. Default limit is 25, max 100. Omit `status` to include every non-deleted deal. For more results, pass the next_cursor from the previous response. To find a deal by name (rather than ID), call `search` with type=deal first — search is the natural-language gateway, list_deals is the precision filter when the IDs are already known.",
+		Description: "List deals filtered by status, pipeline, stage, owner, person, organization, or update window. Returns matching deals with id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, and any custom fields under their workspace names, dropdown values as labels rather than option ids. Default sort is update_time desc — most-recently-touched first, ideal for 'which deals have we been working on lately'. Default limit is 25, max 100. Omit `status` to include every non-deleted deal. For more results, pass the next_cursor from the previous response. Archived deals are NOT in this collection — Pipedrive moved them to their own since 2025-07-15 and no filter here reaches them, so a list that looks short may be one; pass archived to read them instead. To find a deal by name (rather than ID), call `search` with type=deal first — search is the natural-language gateway, list_deals is the precision filter when the IDs are already known.",
 		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listDealsInput) (*mcp.CallToolResult, listDealsOutput, error) {
 		if err := validateEnum(in.Status, "status", allowedDealStatuses); err != nil {
@@ -137,6 +139,7 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string, opts Regi
 			SortDirection: sortDir,
 			Limit:         clampLimit(in.Limit),
 			Cursor:        in.Cursor,
+			Archived:      in.Archived,
 		}
 		deals, next, err := c.ListDeals(ctx, opts)
 		if err != nil {
@@ -176,6 +179,8 @@ var dealActions = map[string]dealAction{
 	"mark_won":   {transition: true},
 	"mark_lost":  {transition: true},
 	"reopen":     {transition: true},
+	"archive":    {transition: true},
+	"unarchive":  {transition: true},
 }
 
 // dealBaseFields is the table of LLM-facing field names a write can
@@ -200,6 +205,7 @@ var dealBaseFields = []fieldSpec[pipedrive.Deal]{
 	{"org_id", func(d *pipedrive.Deal) string { return projectID(d.OrgID) }},
 	{"expected_close_date", func(d *pipedrive.Deal) string { return d.ExpectedCloseDate }},
 	{"probability", func(d *pipedrive.Deal) string { return projectOptFloat(d.Probability) }},
+	{"is_archived", func(d *pipedrive.Deal) string { return projectBool(d.IsArchived) }},
 	{"lost_reason", func(d *pipedrive.Deal) string { return d.LostReason }},
 }
 
@@ -238,7 +244,7 @@ func registerManageDeal(s *mcp.Server, c dealsClient, companyDomain string, opts
 
 	AddTool(s, &mcp.Tool{
 		Name:        "manage_deal",
-		Description: "Create a deal, edit one, move it between stages, or close it won or lost. One call, whichever action: create takes title, every other action takes deal_id. Writing is guarded, and every action except create reads the deal before it writes, so a write is two API calls. An update refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the deal moved under you. The four transitions — move_stage, mark_won, mark_lost and reopen — take no overwrite, because you named the transition and the field it changes is the field you named. IMPORTANT: lost_reason on mark_lost is free text Pipedrive keeps and reports on, so if the user did not give you a reason, leave it blank — do NOT invent one. Closing a deal is reversible here: reopen puts it back to open and clears the lost reason, though Pipedrive keeps its own record of won_time and lost_time, which you cannot set from this tool. Custom fields ARE writable here, on create and update: pass custom_fields keyed by the names get_deal reports, and give a dropdown its label rather than an option id. One thing this cannot do: NO FIELD CAN BE CLEARED once it holds a value — Pipedrive v2 rejects a null and treats an empty string as a value, so a field can be changed but not emptied. Use search to turn a company or person name into the person_id or org_id a new deal needs, and list_stages to find a stage_id.",
+		Description: "Create a deal, edit one, move it between stages, or close it won or lost. One call, whichever action: create takes title, every other action takes deal_id. Writing is guarded, and every action except create reads the deal before it writes, so a write is two API calls. An update refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the deal moved under you. The six transitions — move_stage, mark_won, mark_lost, reopen, archive and unarchive — take no overwrite, because you named the transition and the field it changes is the field you named. ARCHIVING IS NOT CLOSING: an archived deal leaves the pipeline entirely, stops appearing in list_deals unless you pass archived, and accepts no edit at all until it is unarchived — mark_lost is what 'we lost it' means. IMPORTANT: lost_reason on mark_lost is free text Pipedrive keeps and reports on, so if the user did not give you a reason, leave it blank — do NOT invent one. Closing a deal is reversible here: reopen puts it back to open and clears the lost reason, though Pipedrive keeps its own record of won_time and lost_time, which you cannot set from this tool. Custom fields ARE writable here, on create and update: pass custom_fields keyed by the names get_deal reports, and give a dropdown its label rather than an option id. One thing this cannot do: NO FIELD CAN BE CLEARED once it holds a value — Pipedrive v2 rejects a null and treats an empty string as a value, so a field can be changed but not emptied. Use search to turn a company or person name into the person_id or org_id a new deal needs, and list_stages to find a stage_id.",
 		Annotations: mutatingAnnotations(),
 	}, manageDealHandler(c, companyDomain, opts.DryRun))
 }
@@ -326,6 +332,10 @@ func writeDealAction(ctx context.Context, c dealsClient, companyDomain string, i
 	}
 	req.CustomFields = cf.Values
 
+	// Pipedrive refuses every edit to an archived deal except unarchiving
+	// it, and answers with a bare 403. The read this write already does
+	// can say so first, in words the caller can act on — which is the
+	// whole of the guarded-write contract.
 	deal, changed, res := guardedWrite[pipedrive.Deal]{
 		Spec:          dealBaseFields,
 		Custom:        cf,
@@ -336,9 +346,23 @@ func writeDealAction(ctx context.Context, c dealsClient, companyDomain string, i
 		// A transition authorises its own overwrite; see dealAction.
 		Overwrite: in.Overwrite || dealActions[in.Action].transition,
 		DryRun:    in.DryRun,
-		Get:       func(ctx context.Context) (*pipedrive.Deal, error) { return c.GetDeal(ctx, in.DealID) },
-		Predict:   func(d *pipedrive.Deal) pipedrive.Deal { return dealAfterUpdate(*d, req) },
-		Put:       func(ctx context.Context) (*pipedrive.Deal, error) { return c.UpdateDeal(ctx, in.DealID, req) },
+		Get: func(ctx context.Context) (*pipedrive.Deal, error) {
+			d, err := c.GetDeal(ctx, in.DealID)
+			if err != nil {
+				return nil, err
+			}
+			// Pipedrive answers every other edit to an archived deal
+			// with a bare 403. The read this write already does can say
+			// so first, and name the action that fixes it.
+			if d.IsArchived && in.Action != "unarchive" {
+				return nil, refuse(
+					fmt.Sprintf("deal %d is archived, and Pipedrive accepts no edit to an archived deal", in.DealID),
+					`action: "unarchive"`)
+			}
+			return d, nil
+		},
+		Predict: func(d *pipedrive.Deal) pipedrive.Deal { return dealAfterUpdate(*d, req) },
+		Put:     func(ctx context.Context) (*pipedrive.Deal, error) { return c.UpdateDeal(ctx, in.DealID, req) },
 	}.run(ctx)
 	if res != nil {
 		return res, manageDealOutput{}
@@ -379,6 +403,10 @@ func dealRequestFor(in manageDealInput) (pipedrive.UpdateDealRequest, map[string
 			req.LostReason = in.LostReason
 		}
 		return req, nil, nil
+	case "archive":
+		return pipedrive.UpdateDealRequest{IsArchived: ptr(true)}, nil, nil
+	case "unarchive":
+		return pipedrive.UpdateDealRequest{IsArchived: ptr(false)}, nil, nil
 	case "reopen":
 		// Clearing the lost reason with the status keeps the record
 		// honest: a deal that is open again was not lost for a reason.
@@ -427,6 +455,7 @@ func dealAfterUpdate(before pipedrive.Deal, req pipedrive.UpdateDealRequest) pip
 	setIf(&after.OrgID, req.OrgID)
 	setIf(&after.ExpectedCloseDate, req.ExpectedCloseDate)
 	setIf(&after.LostReason, req.LostReason)
+	setIf(&after.IsArchived, req.IsArchived)
 	if req.Probability != nil {
 		// Copy rather than alias, so the predicted record does not
 		// share a pointer with the request.
@@ -490,6 +519,7 @@ func summarizeDeal(domain string, d *pipedrive.Deal, customFields map[string]any
 		AddTime:           d.AddTime,
 		UpdateTime:        d.UpdateTime,
 		Probability:       clone(d.Probability),
+		IsArchived:        d.IsArchived,
 		CustomFields:      customFields,
 		URL:               pipedrive.WebURL(domain, pipedrive.WebURLDeal, d.ID),
 	}
