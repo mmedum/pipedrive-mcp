@@ -2,8 +2,11 @@ package tools
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -74,4 +77,53 @@ func TestOperationsDocListsEveryErrorClass(t *testing.T) {
 				"an operator who sees it has nothing to look it up in", doc, tag, s)
 		}
 	}
+}
+
+// Every action a manage_ tool dispatches on has to appear in the
+// description of its own `action` field, because that description is
+// the allowed-value list the model reads.
+//
+// manage_deal's said "create, update, move_stage, mark_won, mark_lost
+// or reopen" while dealActions held eight — archive and unarchive were
+// dispatchable and undocumented, in the same schema whose tool
+// description named "the six transitions" including both. A model
+// reading the field never tried them.
+//
+// Reflection on the struct tag rather than the built registry: the tag
+// IS what becomes the description, and reading it needs no client, no
+// server and no registration.
+func TestActionFieldDescribesEveryAction(t *testing.T) {
+	for _, tc := range []struct {
+		tool    string
+		input   any
+		actions []string
+	}{
+		{"manage_deal", manageDealInput{}, keysOf(dealActions)},
+		{"manage_activity", manageActivityInput{}, keysOf(activityActions)},
+		{"manage_note", manageNoteInput{}, keysOf(allowedNoteActions)},
+		{"manage_organization", manageOrganizationInput{}, keysOf(allowedOrganizationActions)},
+		{"manage_person", managePersonInput{}, keysOf(allowedPersonActions)},
+	} {
+		t.Run(tc.tool, func(t *testing.T) {
+			field, ok := reflect.TypeOf(tc.input).FieldByName("Action")
+			if !ok {
+				t.Fatalf("%s has no Action field; this test is asserting on nothing", tc.tool)
+			}
+			desc := field.Tag.Get("jsonschema")
+			if desc == "" {
+				t.Fatalf("%s's Action field carries no jsonschema description", tc.tool)
+			}
+			for _, action := range tc.actions {
+				if !strings.Contains(desc, action) {
+					t.Errorf("%s dispatches on %q but its action description does not offer it: %q",
+						tc.tool, action, desc)
+				}
+			}
+		})
+	}
+}
+
+// keysOf returns a map's keys, sorted so a failure message is stable.
+func keysOf[V any](m map[string]V) []string {
+	return slices.Sorted(maps.Keys(m))
 }
