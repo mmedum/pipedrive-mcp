@@ -79,7 +79,7 @@ func init() {
 			doc: "CLAUDE.md's make check list against the Makefile's check: target",
 		},
 		"descriptions": {
-			run: descriptionsGate, args: "SCHEMA_DUMP",
+			run: descriptionsGate, args: "SCHEMA_DUMP|-",
 			doc: "hold the tool descriptions against the mechanical house-style rules",
 		},
 	}

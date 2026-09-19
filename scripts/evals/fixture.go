@@ -168,6 +168,53 @@ func teardown(h *Harness, f Fixture) []string {
 	return left
 }
 
+// resetDeal puts the fixture deal back to how buildFixture left it.
+//
+// The tasks share one deal and several of them mutate it, so without
+// this they are not independent: the first live run had
+// won-then-reopen leave the deal won, after which
+// archiving-is-not-closing asserted "status is won, want lost" against
+// a deal that never had a chance — a cascade that reads as two
+// findings when there was one. A task must start from the state its
+// prompt assumes or it is scoring the task before it.
+//
+// Restores are reported, never swallowed: a reset that did not take
+// makes every later task's result suspect, and the run should say so
+// rather than carry on producing numbers.
+func resetDeal(h *Harness, f Fixture) string {
+	_, out, err := h.Call("get_deal", map[string]any{"deal_id": f.DealID})
+	if err != nil {
+		return fmt.Sprintf("could not read deal %d back: %v", f.DealID, err)
+	}
+	deal, _ := out["deal"].(map[string]any)
+
+	if status, _ := deal["status"].(string); status != "open" {
+		if _, _, err := h.Call("manage_deal", map[string]any{
+			"action": "reopen", "deal_id": f.DealID,
+		}); err != nil {
+			return fmt.Sprintf("deal %d left %s: %v", f.DealID, status, err)
+		}
+	}
+	if archived, _ := deal["is_archived"].(bool); archived {
+		if _, _, err := h.Call("manage_deal", map[string]any{
+			"action": "unarchive", "deal_id": f.DealID,
+		}); err != nil {
+			return fmt.Sprintf("deal %d left archived: %v", f.DealID, err)
+		}
+	}
+	if title, _ := deal["title"].(string); title != f.DealTitle {
+		// overwrite is required: the title is populated, which is the
+		// guard doing its job even on us.
+		if _, _, err := h.Call("manage_deal", map[string]any{
+			"action": "update", "deal_id": f.DealID,
+			"title": f.DealTitle, "overwrite": true,
+		}); err != nil {
+			return fmt.Sprintf("deal %d left titled %q: %v", f.DealID, title, err)
+		}
+	}
+	return ""
+}
+
 func takeCensus(h *Harness) census {
 	c := census{}
 	for _, probe := range []struct{ tool, key string }{
@@ -176,13 +223,7 @@ func takeCensus(h *Harness) census {
 		{"list_organizations", "organizations"},
 		{"list_activities", "activities"},
 	} {
-		_, out, err := h.Call(probe.tool, map[string]any{"limit": 100})
-		if err != nil {
-			c[probe.key] = -1 // unknown; reported rather than treated as zero
-			continue
-		}
-		rows, _ := out[probe.key].([]any)
-		c[probe.key] = len(rows)
+		c[probe.key] = countAll(h, probe.tool, probe.key)
 	}
 	return c
 }

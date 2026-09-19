@@ -101,3 +101,75 @@ func TestCensusDiffSaysWhenItCouldNotCount(t *testing.T) {
 		t.Fatalf("an uncountable resource was not flagged: %v", got)
 	}
 }
+
+// stubHarness answers list_ calls from fixed pages, so the census can
+// be driven without a workspace.
+func stubHarness(pages map[string][][]any) *Harness {
+	calls := map[string]int{}
+	return &Harness{Call: func(tool string, _ map[string]any) (string, map[string]any, error) {
+		key := strings.TrimPrefix(tool, "list_")
+		seq := pages[tool]
+		i := calls[tool]
+		calls[tool]++
+		if i >= len(seq) {
+			return "", map[string]any{key: []any{}}, nil
+		}
+		out := map[string]any{key: seq[i]}
+		if i+1 < len(seq) {
+			out["next_cursor"] = "more"
+		}
+		return "", out, nil
+	}}
+}
+
+func rows(n int) []any {
+	out := make([]any, n)
+	for i := range out {
+		out[i] = map[string]any{"id": i}
+	}
+	return out
+}
+
+// The defect this replaced: one page of `limit: 100` against a
+// workspace holding 100+ of a resource returned 100 on both sides, so
+// the diff saw no drift whatever the model created. A full page must be
+// followed, not counted and trusted.
+func TestCountAllFollowsTheCursorPastAFullPage(t *testing.T) {
+	h := stubHarness(map[string][][]any{
+		"list_deals": {rows(100), rows(100), rows(7)},
+	})
+	if got := countAll(h, "list_deals", "deals"); got != 207 {
+		t.Errorf("counted %d, want 207 — a full page is not the end, the cursor is", got)
+	}
+}
+
+// Past the bound the answer is "I could not count this", never a
+// partial total: a partial understates each side by a different amount,
+// which reads as drift that is not there or hides drift that is.
+func TestCountAllRefusesBeyondItsBound(t *testing.T) {
+	endless := make([][]any, maxCensusPages+3)
+	for i := range endless {
+		endless[i] = rows(100)
+	}
+	if got := countAll(stubHarness(map[string][][]any{"list_deals": endless}), "list_deals", "deals"); got != -1 {
+		t.Errorf("counted %d past the page bound, want -1", got)
+	}
+}
+
+// A read that fails is unknown, not zero.
+func TestCountAllReportsAFailedReadAsUnknown(t *testing.T) {
+	h := &Harness{Call: func(string, map[string]any) (string, map[string]any, error) {
+		return "", nil, errTestRead
+	}}
+	if got := countAll(h, "list_deals", "deals"); got != -1 {
+		t.Errorf("a failed read counted as %d, want -1", got)
+	}
+}
+
+// And an unknown on either side must surface, not be differenced away.
+func TestCensusDiffSurfacesAnUnknownFromPaging(t *testing.T) {
+	got := census{"deals": -1}.diff(census{"deals": 205}, map[string]int{})
+	if len(got) != 1 || !strings.Contains(got[0], "could not be counted") {
+		t.Fatalf("an uncountable side was not surfaced: %v", got)
+	}
+}
