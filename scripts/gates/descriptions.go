@@ -19,9 +19,19 @@ import (
 // if the dump is empty, there is nothing to parse and this fails.
 func descriptionsGate(w io.Writer, args []string) error {
 	if len(args) != 1 {
-		return fmt.Errorf("usage: gates descriptions SCHEMA_DUMP")
+		return fmt.Errorf("usage: gates descriptions SCHEMA_DUMP|-")
 	}
-	raw, err := os.ReadFile(args[0])
+	// "-" reads the dump from stdin, which is how make invokes this:
+	// piping the binary straight in means no file on disk, so there is
+	// no fixed path in /tmp for another local user to pre-plant as a
+	// symlink, and nothing to clean up afterwards.
+	var raw []byte
+	var err error
+	if args[0] == "-" {
+		raw, err = io.ReadAll(os.Stdin)
+	} else {
+		raw, err = os.ReadFile(args[0])
+	}
 	if err != nil {
 		return err
 	}

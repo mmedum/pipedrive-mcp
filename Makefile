@@ -126,8 +126,7 @@ evals: build ## Drive a model through the tools and score it (needs credentials 
 
 .PHONY: descriptions
 descriptions: build ## Tool descriptions against the mechanical house-style rules
-	$(BIN) --dump-schemas > /tmp/pipedrive-schemas.json
-	go run ./scripts/gates descriptions /tmp/pipedrive-schemas.json
+	$(BIN) --dump-schemas | go run ./scripts/gates descriptions -
 
 .PHONY: dump-schemas
 dump-schemas: build ## Print the registered tool schemas as JSON
