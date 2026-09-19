@@ -23,8 +23,9 @@ make check
 Every PR must pass:
 
 1. The CI gates from `.github/workflows/ci.yml` (build, vet, lint, test,
-   coverage, govulncheck, license check, staleness, schema diff
-   build + trivy, stdio smoke, CHANGELOG check, gitleaks).
+   coverage, govulncheck, license check, staleness, pinned versions,
+   bundle manifest, changelog links, the check-list and tool-description
+   gates, schema diff, stdio smoke, CHANGELOG entry, gitleaks, CodeQL).
 2. The manual gates from `.github/pull_request_template.md` (`/simplify`
    and `/security-review` skill output, docs updated, design rationale captured,
    CHANGELOG updated).

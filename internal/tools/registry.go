@@ -22,10 +22,18 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// SDKVersion is recorded in the schema dump header so a diff caused by an
-// SDK upgrade can be classified as PATCH rather than as a breaking
-// surface change. Update in lockstep with the go.mod pin.
-const SDKVersion = "v1.6.0"
+// SDKVersion is recorded in the schema dump header so a diff caused by
+// an SDK upgrade can be classified as PATCH rather than as a breaking
+// surface change.
+//
+// It mirrors the go.mod pin by hand, and it has drifted twice: once
+// saying v1.5.0 against a v1.6.0 pin, and again saying v1.6.0 after the
+// v1.8.0 upgrade. Both times the comment here said "update in lockstep"
+// — which is a request, not a check. TestSDKVersionMatchesGoMod is the
+// check; runtime/debug.ReadBuildInfo would remove the constant entirely
+// but does not list the dependency in a test binary, so there would be
+// nothing to test it with.
+const SDKVersion = "v1.8.0"
 
 // Registry tracks every tool added via Register/Add for the schema dump.
 // Tests construct a fresh Registry; the process-wide registration uses

@@ -193,9 +193,6 @@ is the number cosign signed rather than one from a local build.
 that verified nothing at all also says little. Check one of them against
 a deliberately corrupted copy of the artefact and confirm it exits
 non-zero before believing the run that passed.
-- **Trivy CVE introduced by base-image bump** (in CI on PRs): either
-  fix the underlying issue or add a grace-period entry under
-  `security/known-cves.yaml` per `docs/security.md`.
 
 If you delete and recreate a tag, also delete the corresponding
 draft Release on GitHub before retrying. The workflow won't overwrite

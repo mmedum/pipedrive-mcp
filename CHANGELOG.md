@@ -22,6 +22,53 @@ in full.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`tools.SDKVersion` said `v1.6.0` while `go.mod` pinned `v1.8.0`.**
+  That constant is written into the schema dump header, where its whole
+  job is to let a reviewer classify a diff as "the SDK moved" rather
+  than "the surface changed" — so a stale value says the opposite of
+  what it is for. It drifted the same way once before (`v1.5.0` against
+  a `v1.6.0` pin) and both times the fix was a comment saying "update in
+  lockstep". `TestSDKVersionMatchesGoMod` is the check.
+  `runtime/debug.ReadBuildInfo` would remove the constant outright but
+  does not list the dependency in a test binary, so there would be
+  nothing to test it with.
+
+- **The docs described a project that does not exist**, found by
+  auditing what a 1.0 needs:
+  - `CONTRIBUTING.md`, `docs/development.md` and `docs/release.md` all
+    described a **trivy image-CVE gate**. There is no Dockerfile and no
+    such job; it is a leftover from the container phase. A contributor
+    reading `CONTRIBUTING.md` believed an image-CVE gate protected them.
+    (`security/known-cves.yaml`, its ignore list, is now unreferenced —
+    left in place rather than deleted.)
+  - `docs/development.md` pinned Go at `1.26.2` against a `1.26.6`
+    toolchain, told contributors to install golangci-lint, govulncheck
+    and go-licenses at `@latest` while the Makefile pins all three and
+    `make verify-tool-versions` fails on a mismatch, named a
+    `sdkVersion` constant that is exported as `SDKVersion`, listed two
+    coverage-gated packages where CI gates four, and quoted a
+    no-domain error message the binary never emits — unreachable to
+    check, because the domain also resolves from the userconfig file.
+  - `docs/architecture.md` described `create_*` tools that "gain the
+    per-call input when they move to `manage_*`". They moved two
+    releases ago and no `create_*` tool remains.
+  - `README.md` carried the resource-template block **twice**,
+    near-verbatim.
+
+### Changed
+
+- **`README.md` now writes down the whole negative space.** "A stable
+  surface" is half a promise without the other half, so the list is
+  explicit: webhooks, mail, subscriptions, saved filters, currencies,
+  deal-to-lead conversion, followers, deal participants and custom-field
+  *definitions* are not modelled and are not planned for 1.x; merging
+  records is refused by the guard contract rather than missing from the
+  API; `search` finds products, files and leads that no tool can then
+  act on; and four tools sit on the v1 carve-out outside the 1.0
+  promise.
+
 ### Added
 
 - **A `checklist` gate**, in `make check`. It holds the `make check`

@@ -192,19 +192,6 @@ match names.
 | `list_stages` | The stages of a pipeline, with the deal probability Pipedrive gives each |
 | `refresh_field_cache` | Re-read custom-field names and dropdown labels after somebody adds, renames or extends one in the Pipedrive UI |
 
-Five resource templates mirror the `get_` tools, for a client that
-attaches a record rather than calling a tool:
-
-```
-pipedrive://deals/{id}          pipedrive://organizations/{id}
-pipedrive://persons/{id}        pipedrive://activities/{id}
-pipedrive://notes/{id}
-```
-
-They share the code the tools use, so the two cannot drift into
-describing a record differently. A URI carries no options, so
-`include_attendees` and `include_notes` still need the tool.
-
 ### Guarded writes
 
 Pipedrive has no undo, so a refusal is the only guard there is. Every
@@ -252,13 +239,41 @@ tool.
 
 ### What is not here
 
-Products, leads, files, projects and goals have no tools yet. **No field
-can be cleared** once it holds a value — Pipedrive v2 rejects a null and
-stores an empty string as a value, so a field can be changed but not
-emptied. Two more the API itself cannot do, which no retry will fix:
-activity type cannot be filtered server-side (ask for the rows and
-filter on their `type`), and activities are not indexed by `search`
-(reach them through `list_activities`).
+A stable surface is only half a promise without the other half, so this
+is the list. Nothing below is an oversight to be reported; each is a
+decision or an API limit.
+
+**Resources with no tools.** Products, leads, files, projects and goals
+are a milestone of their own. `search` will *find* products, files and
+leads — its `item_type` covers them — so you can turn a name into an id
+and then do nothing else with it, which is worth knowing before you try.
+
+**Resources not modelled at all**, and not planned for 1.x: webhooks,
+mail and mail threads, subscriptions and recurring revenue, saved
+filters, currencies, deal-to-lead conversion, followers, deal
+participants as a managed relation, and creating or altering custom
+**field definitions** (their values are readable and writable; the
+definitions are not).
+
+**Merging records is not here.** Pipedrive can merge two people or two
+organizations; this server cannot, and the reason is the guard contract
+rather than the API — a merge destroys one record's field values in
+favour of another's, across a record the caller has not read, and there
+is no refusal that could name what it was about to lose.
+
+**No field can be cleared** once it holds a value — Pipedrive v2 rejects
+a null and stores an empty string as a value, so a field can be changed
+but not emptied.
+
+**Two the API itself cannot do**, which no retry will fix: activity type
+cannot be filtered server-side (ask for the rows and filter on their
+`type`), and activities are not indexed by `search` (reach them through
+`list_activities`).
+
+**Four tools sit on Pipedrive API v1**, whose sunset has passed —
+`get_note`, `list_notes`, `manage_note` and `whoami`, because v2 exposes
+no `/notes` and no `/users`. They are explicitly outside the 1.0
+compatibility promise; see [CHANGELOG.md](CHANGELOG.md).
 
 ## Safety
 
