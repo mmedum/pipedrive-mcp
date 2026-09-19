@@ -116,6 +116,10 @@ mcpb-pack: ## Pack the .mcpb from a built dist tree (release; manual)
 smoke: build ## Drive the binary over stdio and read the reply
 	go run ./scripts/gates smoke binary $(BIN)
 
+.PHONY: evals
+evals: build ## Drive a model through the tools and score it (needs credentials and the claude CLI)
+	$(GO) run -tags=live ./scripts/evals -bin $(BIN)
+
 .PHONY: descriptions
 descriptions: build ## Tool descriptions against the mechanical house-style rules
 	$(BIN) --dump-schemas > /tmp/pipedrive-schemas.json

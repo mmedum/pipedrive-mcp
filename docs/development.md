@@ -49,6 +49,48 @@ go tool cover -html=cov.out          # browse coverage in a browser
 Coverage targets: ≥ 80% on `internal/pipedrive/` and `internal/tools/`.
 The other packages are mostly wiring and are not coverage-gated.
 
+## The evals
+
+`make evals` drives a model through this server's tools alone and scores
+what it did. It needs credentials, a network and the `claude` CLI, so it
+is behind a `live` build tag and is not part of `make check`.
+
+```sh
+make evals                                  # every task
+go run -tags=live ./scripts/evals -bin ./pipedrive-mcp -task refuse   # one
+```
+
+**What it is for.** `make integration` proves the tools work. The evals
+prove they can be *used*, which is a different claim and the one that
+fails quietly: what no driver catches is a result that is internally
+consistent and wrong. Every task is therefore scored twice — the **end
+state** read back through this server, because a model's account of what
+it did is the least reliable thing in the run, and the **trace**, because
+a task can be completed by a model that guessed an id and was lucky.
+
+**It writes to the configured workspace.** The fixture — an
+organization, a person, a deal, an activity and a note, all invented and
+all named `(eval <timestamp>)` — is built through the server's own tools
+and deleted afterwards. Those deletes are soft, so Pipedrive purges what
+is left after 30 days.
+
+**The census is the part to read.** An eval drives a model, not a
+script: a task that says "log that we spoke to Acme" can be answered by
+creating an activity nobody asked for. The harness counts deals,
+persons, organizations and activities either side of the run and fails
+if the workspace did not come back to where it started. It cannot
+*prevent* that — nothing can, short of not running — and it cannot
+remove what it did not create. It can refuse to let it pass unnoticed,
+and that is what it does.
+
+**The task table is not behind the build tag.** `go test ./scripts/evals`
+walks every prompt without credentials, which is where the
+unsubstituted-placeholder guard belongs — a sibling project's first full
+eval run passed two tasks while sending the agent a literal `{folder}`.
+The stream parser and the census live there too, for the same reason:
+a parser that mis-attributes a tool result scores a refusal as a
+success, and nothing about that is visible in a passing run.
+
 ## The full local check
 
 The same gates that run in CI on every PR. Use this before pushing.
