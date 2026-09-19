@@ -167,3 +167,47 @@ func (r *run) record(pending map[string]int, kind, id, name, useID string, input
 		r.Calls[i].IsError = isError || strings.HasPrefix(r.Calls[i].Result, "[")
 	}
 }
+
+// maxCensusPages bounds the paging below. Four pages of 100 is enough
+// to tell a fixture's five rows from a model's stray one on any
+// workspace this server is aimed at; past that the honest answer is "I
+// could not count this", which diff reports rather than silently
+// treating as no change.
+const maxCensusPages = 4
+
+// countAll pages a list_ tool to the end and returns the total, or -1
+// when it could not reach the end.
+//
+// The first version asked for one page of `limit: 100` and counted the
+// rows. maxListLimit IS 100, so on any workspace holding 100 or more of
+// a resource BOTH censuses came back 100 and the diff reported no drift
+// whatever the model had created — the net advertised as catching a
+// stray row in somebody's CRM was saturated and blind on exactly the
+// workspaces where that matters. Found in security review, not by the
+// tests, because a saturated count is a plausible number rather than an
+// error.
+func countAll(h *Harness, tool, key string) int {
+	total, cursor := 0, ""
+	for page := 0; page < maxCensusPages; page++ {
+		args := map[string]any{"limit": 100}
+		if cursor != "" {
+			args["cursor"] = cursor
+		}
+		_, out, err := h.Call(tool, args)
+		if err != nil {
+			return -1 // unknown; reported rather than treated as zero
+		}
+		rows, _ := out[key].([]any)
+		total += len(rows)
+
+		// A short page is NOT the end — the cursor is. Every list_ tool
+		// says so in its own description.
+		cursor, _ = out["next_cursor"].(string)
+		if cursor == "" {
+			return total
+		}
+	}
+	// More pages than the bound allows. A partial total would understate
+	// each side by a different amount, which is worse than not knowing.
+	return -1
+}

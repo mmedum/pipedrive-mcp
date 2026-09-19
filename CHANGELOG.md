@@ -24,6 +24,37 @@ in full.
 
 ### Fixed
 
+- **The eval census was blind on any workspace with 100+ records.**
+  `takeCensus` asked for one page of `limit: 100` and counted the rows —
+  and `maxListLimit` IS 100, so both censuses came back 100 and the diff
+  reported no drift whatever the model had created. The net the
+  CHANGELOG advertised as catching a stray row in somebody's CRM was
+  saturated and blind on exactly the workspaces where that matters. It
+  now pages to the end and returns "could not be counted" past a bound,
+  because a partial total understates each side by a different amount.
+  Found by `/security-review`, not by a test: a saturated count is a
+  plausible number rather than an error.
+
+- **Eval tasks were not independent.** They share one fixture deal and
+  several mutate it, so the first live run had `won-then-reopen` leave
+  the deal won and `archiving-is-not-closing` then assert "status is
+  won, want lost" against a deal that never had a chance — one defect
+  reported as two. The shared deal is now reset between tasks, and a
+  reset that fails says every later result is suspect rather than
+  carrying on producing numbers.
+
+- **A failed eval task now prints its trace.** Without it a reader
+  cannot separate "the guard is broken" from "the model read the
+  refusal and re-sent with `overwrite`" — the same end state, and the
+  difference between a server defect and the finding the suite exists
+  to make.
+
+- **`make descriptions` no longer writes to a fixed `/tmp` path.** The
+  dump is piped to the gate on stdin, so there is nothing for another
+  local user to pre-plant as a symlink and nothing to clean up.
+
+### Fixed
+
 - **`tools.SDKVersion` said `v1.6.0` while `go.mod` pinned `v1.8.0`.**
   That constant is written into the schema dump header, where its whole
   job is to let a reviewer classify a diff as "the SDK moved" rather
