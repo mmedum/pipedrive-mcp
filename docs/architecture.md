@@ -535,7 +535,7 @@ table above says what actually happened rather than what was planned.
 
 | Tag | Phase | What it needs |
 | --- | --- | --- |
-| `v0.9.0` → `v1.0.0-rc.N` | Phase 4 | An eval suite (a release gate from Phase 4 onwards, and it does not exist yet), polish, and validation against a second workspace — which is also what unblocks the 403 spike. |
+| `v0.9.0` → `v1.0.0-rc.N` | Phase 4 | Polish. The eval suite now exists (`scripts/evals`, `make evals`); validation against a second workspace does not and will not — see "A second workspace" below. |
 | `v1.0.0` | Phase 5 | A stable surface and a supported-version table. |
 
 ### v0.5.0 in detail
