@@ -74,6 +74,10 @@ func init() {
 			run: smokeGate, args: "binary TARGET",
 			doc: "drive an MCP handshake over stdio and read the reply",
 		},
+		"checklist": {
+			run: checklistGate, args: "[MAKEFILE CLAUDE_MD]",
+			doc: "CLAUDE.md's make check list against the Makefile's check: target",
+		},
 		"descriptions": {
 			run: descriptionsGate, args: "SCHEMA_DUMP",
 			doc: "hold the tool descriptions against the mechanical house-style rules",
