@@ -127,3 +127,30 @@ func TestActionFieldDescribesEveryAction(t *testing.T) {
 func keysOf[V any](m map[string]V) []string {
 	return slices.Sorted(maps.Keys(m))
 }
+
+// SDKVersion is written into the schema dump header, where its whole
+// job is to let a reviewer classify a diff as "the SDK moved" rather
+// than "the surface changed". A stale value says the opposite of what
+// it is for, and it has been stale twice.
+func TestSDKVersionMatchesGoMod(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "go.mod"))
+	if err != nil {
+		t.Fatalf("reading go.mod: %v", err)
+	}
+	const mod = "github.com/modelcontextprotocol/go-sdk "
+	var pinned string
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if after, ok := strings.CutPrefix(line, mod); ok {
+			pinned = strings.Fields(after)[0]
+			break
+		}
+	}
+	if pinned == "" {
+		t.Fatalf("go.mod has no %s requirement; this test is asserting on nothing", mod)
+	}
+	if SDKVersion != pinned {
+		t.Errorf("tools.SDKVersion is %q and go.mod pins %q; the schema dump header would "+
+			"attribute a diff to the wrong SDK version", SDKVersion, pinned)
+	}
+}
