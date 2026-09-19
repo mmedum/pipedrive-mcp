@@ -445,11 +445,11 @@ the input descriptions together, never one without the other.
 `PIPEDRIVE_DRY_RUN` sits under all of it as a server-wide floor: every
 write honours it, and a per-call `dry_run` can only turn a rehearsal on.
 
-`manage_note` implements the full contract today — per-call `dry_run`,
-`overwrite` and `expect_version`. The `create_*` tools predate it: they
-honour the floor but take no per-call `dry_run` of their own, and they
-have nothing to guard anyway, since a create clobbers nothing. They gain
-the per-call input when they move to `manage_*`.
+Every `manage_` tool implements the full contract: per-call `dry_run`,
+`overwrite` and `expect_version`. This paragraph used to describe
+`create_*` tools that "predate it" and would "gain the per-call input
+when they move to `manage_*`" — they moved two releases ago, and there
+are no `create_*` tools left to describe.
 
 ## Parallel tool registry
 

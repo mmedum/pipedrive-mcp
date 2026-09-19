@@ -10,14 +10,19 @@ For the operations run book see [`operations.md`](operations.md).
 
 | Tool | Version | Purpose |
 | --- | --- | --- |
-| Go | `1.26.2` | Build and test. The `toolchain` directive in `go.mod` will fetch this automatically on Go ≥ 1.21 hosts. |
-| `golangci-lint` | latest | Lint gate. Install: `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`. |
-| `govulncheck` | latest | Vulnerability gate. Install: `go install golang.org/x/vuln/cmd/govulncheck@latest`. |
-| `go-licenses` | latest | License compatibility gate. Install: `go install github.com/google/go-licenses@latest`. |
+| Go | `1.26.6` | Build and test. The `toolchain` directive in `go.mod` fetches it automatically. Keep it in step with `GO_VERSION` in `.github/workflows/ci.yml` — a newer local Go silently passes what CI will fail. |
+| `golangci-lint` | `v2.13.2` | Lint gate. Install with `make install-tools`, which pins it. |
+| `govulncheck` | `v1.1.4` | Vulnerability gate. Install with `make install-tools`, which pins it. |
+| `go-licenses` | `v1.6.0` | License compatibility gate. Install with `make install-tools`, which pins it. |
 | `gitleaks` | latest | Secret-scan gate. Install per https://github.com/gitleaks/gitleaks. Optional locally. |
-| `trivy` | latest | Image-CVE gate. Install per https://github.com/aquasecurity/trivy. Optional locally. |
 | `cosign` | latest | Signature verification only — release pipeline does signing. Optional. |
 | `jq` | any | Pretty-printing `--dump-schemas` output. |
+
+The pinned versions are the ones in the `Makefile`, and
+`make verify-tool-versions` — the first step of `make check` — fails if
+your local `golangci-lint` does not match. Installing any of them at
+`@latest` is how a local run passes something CI rejects; this table
+said `latest` for all three until 2026-09-19.
 
 You do not need a Pipedrive account to run unit tests; you do need one
 (production or sandbox) to run the binary or the integration suite.
@@ -31,11 +36,13 @@ go mod tidy        # fetches dependencies and writes go.sum
 go build ./...     # confirms everything compiles
 ```
 
-If `go mod tidy` fails on a missing `github.com/modelcontextprotocol/go-sdk@v1.5.0`,
-check the version pin in `go.mod` against
-https://pkg.go.dev/github.com/modelcontextprotocol/go-sdk and bump if
-needed. Update `internal/tools/registry.go`'s `sdkVersion` constant in
-the same change.
+If `go mod tidy` fails on a missing
+`github.com/modelcontextprotocol/go-sdk`, check the pin in `go.mod`
+against https://pkg.go.dev/github.com/modelcontextprotocol/go-sdk and
+bump if needed. `internal/tools/registry.go`'s exported `SDKVersion`
+constant mirrors that pin and must move with it —
+`TestSDKVersionMatchesGoMod` fails if it does not, which it has twice
+when the only thing asking was a comment.
 
 ## Running tests
 
@@ -46,8 +53,9 @@ go test -race -coverprofile cov.out ./...   # with coverage
 go tool cover -html=cov.out          # browse coverage in a browser
 ```
 
-Coverage targets: ≥ 80% on `internal/pipedrive/` and `internal/tools/`.
-The other packages are mostly wiring and are not coverage-gated.
+Coverage floor: ≥ 80% on `internal/pipedrive`, `internal/tools`,
+`internal/credentials` and `internal/app` — four packages, the same set
+the CI gate enforces. The others are not coverage-gated.
 
 ## The evals
 
@@ -144,10 +152,17 @@ PIPEDRIVE_COMPANY_DOMAIN=acme PIPEDRIVE_API_TOKEN=invalid go run ./cmd/pipedrive
 # Expected: exits non-zero within ~1s with
 #   auth probe failed: 401 — token rejected. Run `pipedrive-mcp login` again.
 
-unset PIPEDRIVE_API_TOKEN PIPEDRIVE_COMPANY_DOMAIN
-go run ./cmd/pipedrive-mcp
+env -u PIPEDRIVE_API_TOKEN -u PIPEDRIVE_COMPANY_DOMAIN \
+  XDG_CONFIG_HOME=$(mktemp -d) go run ./cmd/pipedrive-mcp
 # Expected: exits non-zero immediately with
-#   config: PIPEDRIVE_COMPANY_DOMAIN is required
+#   no domain configured: set PIPEDRIVE_COMPANY_DOMAIN, or run
+#   `pipedrive-mcp login` to record one
+#
+# XDG_CONFIG_HOME is redirected because unsetting the env vars is not
+# enough: the domain also resolves from the userconfig pointer file, so
+# a machine that has run `login` reads the recorded workspace and starts
+# normally. The message quoted here was wrong until 2026-09-19 for
+# exactly that reason — nobody could reach it to check.
 ```
 
 ## Manual stdio test (without an LLM client)
