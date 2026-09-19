@@ -24,6 +24,42 @@ in full.
 
 ### Added
 
+- **An eval suite** — `scripts/evals`, `make evals` — which was a
+  declared release gate from Phase 4 onwards and did not exist.
+
+  It drives a model through this server's tools alone and scores every
+  task twice: the **end state**, read back through this server because a
+  model's account of what it did is the least reliable thing in the run,
+  and the **trace**, because a task can be completed by a model that
+  guessed an id and was lucky. Twelve tasks, each aimed at a trap the
+  tool descriptions already warn about — search as the gateway rather
+  than a list sweep, the overwrite refusal not being routed around,
+  `dry_run` actually rehearsing, archiving not being closing, and no
+  invented `lost_reason`.
+
+  The fixture is invented, built through the server's own tools, and
+  deleted afterwards; those deletes are soft, so Pipedrive purges the
+  remainder after 30 days.
+
+  **The harness counts the workspace either side of the run.** An eval
+  drives a model, not a script: a task can be answered by creating
+  something nobody asked for, and against a real workspace that is a row
+  in somebody's CRM. The census cannot prevent that and cannot remove
+  what it did not create — it fails the run instead of letting it pass
+  unnoticed.
+
+  The task table, the stream parser and the census carry **no build
+  tag**, so `go test ./scripts/evals` reaches them without credentials.
+  That is where the unsubstituted-placeholder guard belongs — a sibling
+  project's first full eval run passed two tasks while sending the agent
+  a literal `{folder}` — and where the parser belongs too: one that
+  mis-attributes a tool result scores a refusal as a success, and
+  nothing about that is visible in a passing run. Writing those tests
+  found two defects in this change: a task whose check returned true
+  unconditionally, and a parser test whose own fixture was shaped so the
+  line scanner skipped it.
+
+
 - **`delete` on `manage_deal`, `manage_person`, `manage_organization`
   and `manage_activity`**, on an explicit maintainer decision taken
   2026-09-19 — which is what `docs/security.md` had been asking for
