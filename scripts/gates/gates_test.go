@@ -1,6 +1,9 @@
 package main
 
 import (
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -225,5 +228,57 @@ func TestToolsListReplyReadsTheFrame(t *testing.T) {
 		if _, err := toolsListReply(tc.out); err == nil {
 			t.Errorf("%s: accepted", tc.name)
 		}
+	}
+}
+
+// The checklist gate reads two files, and the failure that matters is
+// the quiet one: a regex that stops matching makes it pass while
+// checking nothing. Both readers refuse instead, and this pins that.
+func TestChecklistReadersRefuseAnEmptyMatch(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	if _, err := checkPrerequisites(write("NoTarget", "all: build\n")); err == nil {
+		t.Error("a Makefile with no check: target was accepted")
+	}
+	if _, err := documentedCheckList(write("NoBlock.md", "# nothing fenced here\n")); err == nil {
+		t.Error("a CLAUDE.md with no fenced make check block was accepted")
+	}
+}
+
+func TestChecklistReadsBothSides(t *testing.T) {
+	dir := t.TempDir()
+	mk := filepath.Join(dir, "Makefile")
+	md := filepath.Join(dir, "CLAUDE.md")
+	// The trailing `## help text` is documentation for `make help`, not
+	// a prerequisite, and counting it would fail every real Makefile.
+	if err := os.WriteFile(mk, []byte("check: fmt vet test ## Run every gate\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(md, []byte("```\nmake check   # fmt vet\n             # test\n```\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	if err := checklistGate(&out, []string{mk, md}); err != nil {
+		t.Fatalf("matching lists were reported as drift: %v", err)
+	}
+
+	// Now let the Makefile grow a gate the document does not name.
+	if err := os.WriteFile(mk, []byte("check: fmt vet test lint ## Run every gate\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := checklistGate(io.Discard, []string{mk, md})
+	if err == nil {
+		t.Fatal("a gate in the Makefile that the document does not name was not reported")
+	}
+	if !strings.Contains(err.Error(), "lint") {
+		t.Errorf("the failure does not name the missing gate: %v", err)
 	}
 }

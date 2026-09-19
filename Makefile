@@ -86,7 +86,7 @@ staleness: ## gates deps
 	go run ./scripts/gates deps
 
 .PHONY: check
-check: verify-tool-versions fmt vet lint test vuln licenses staleness leaks pins mcpb changelog-links descriptions smoke ## Run every per-PR CI gate locally
+check: verify-tool-versions fmt vet lint test vuln licenses staleness leaks pins mcpb changelog-links checklist descriptions smoke ## Run every per-PR CI gate locally
 
 .PHONY: leaks
 leaks: ## Nothing from a real Pipedrive account is in the tree
@@ -115,6 +115,10 @@ mcpb-pack: ## Pack the .mcpb from a built dist tree (release; manual)
 .PHONY: smoke
 smoke: build ## Drive the binary over stdio and read the reply
 	go run ./scripts/gates smoke binary $(BIN)
+
+.PHONY: checklist
+checklist: ## CLAUDE.md's make check list against this Makefile
+	go run ./scripts/gates checklist
 
 .PHONY: evals
 evals: build ## Drive a model through the tools and score it (needs credentials and the claude CLI)

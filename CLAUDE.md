@@ -120,13 +120,21 @@ update relevant `docs/`.
 ## Definition of done (every PR)
 
 `make check` runs every per-PR gate in order. Run it, not the individual
-commands — the list below drifted out of date once before, naming three
+commands — the list below has drifted three times, once naming three
 `scripts/*.sh` files that no longer exist.
 
 ```
 make check   # verify-tool-versions fmt vet lint test vuln licenses
-             # staleness leaks pins mcpb changelog-links smoke
+             # staleness leaks pins mcpb changelog-links checklist
+             # descriptions smoke
 ```
+
+That list is no longer maintained by hand: `make checklist` holds it
+against the Makefile's own `check:` target, so a new gate fails the
+build until this block names it. It had drifted three times before that
+existed — most recently in the commit that added `descriptions` to the
+Makefile and not to this file, one day after the previous drift was
+fixed by hand and a note was written saying a gate was the real fix.
 
 Individually, when you need to isolate one: `make fmt` (gofmt, must be
 empty), `make vet`, `make lint` (golangci-lint), `make test` (`-race`,
@@ -135,9 +143,12 @@ with coverage ≥ 80% on `internal/pipedrive`, `internal/tools`,
 gate enforces),
 `make vuln` (govulncheck), `make licenses` (allow-list), `make staleness`,
 `make leaks`, `make pins`, `make mcpb` (the bundle manifest against its
-schema), `make changelog-links` (every version heading linked) and
-`make smoke` (drives the built binary over stdio). The CHANGELOG *entry*
-gate is not in `make check` because it needs a base ref:
+schema), `make changelog-links` (every version heading linked),
+`make checklist` (this list against the Makefile), `make descriptions`
+(the tool descriptions against the house-style rules that can be checked
+mechanically) and `make smoke` (drives the built binary over stdio).
+The CHANGELOG *entry* gate is not in `make check` because it needs a
+base ref:
 `go run ./scripts/gates changelog <base> HEAD`, and it only fires when a
 watched source path changed.
 
