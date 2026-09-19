@@ -103,6 +103,13 @@ func runMain() error {
 			continue
 		}
 		results = append(results, score(ctx, h, task, fixture, cfg, *model, *budget))
+
+		// Put the shared deal back before the next task, so a task
+		// scores its own prompt rather than the one before it.
+		if left := resetDeal(h, fixture); left != "" {
+			fmt.Printf("  RESET FAILED: %s\n", left)
+			fmt.Println("  every task after this one is scoring a state it did not expect")
+		}
 	}
 
 	if *keep {
@@ -196,6 +203,22 @@ func score(ctx context.Context, h *Harness, t Task, f Fixture, cfg, model string
 	for _, p := range res.Problems {
 		fmt.Printf("  FAIL %s\n", p)
 	}
+	// The trace, on failure only. Without it a reader cannot tell the
+	// two explanations apart — "the guard is broken" and "the model
+	// read the refusal and re-sent with overwrite" produce the same end
+	// state, and they are the difference between a server defect and
+	// the finding this suite exists to make. Args are the fixture's own
+	// invented values and ids, so printing them carries nobody's data.
+	if res.Failed {
+		for i, c := range r.Calls {
+			args, _ := json.Marshal(c.Args)
+			flag := ""
+			if c.IsError {
+				flag = " [refused]"
+			}
+			fmt.Printf("    %d. %s%s %s\n", i+1, c.Tool, flag, clipArgs(string(args)))
+		}
+	}
 	if res.Unverified != "" {
 		fmt.Printf("  UNVERIFIED %s\n", res.Unverified)
 	}
@@ -270,4 +293,13 @@ func report(results []result, drift []string) error {
 		return fmt.Errorf("%d task(s) failed", failed)
 	}
 	return nil
+}
+
+// clipArgs keeps one call's arguments to a line.
+func clipArgs(s string) string {
+	const limit = 160
+	if len(s) > limit {
+		return s[:limit] + "…"
+	}
+	return s
 }
