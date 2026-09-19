@@ -24,6 +24,21 @@ in full.
 
 ### Added
 
+- **A `checklist` gate**, in `make check`. It holds the `make check`
+  list documented in `CLAUDE.md` against the Makefile's own `check:`
+  prerequisites, so a new gate fails the build until the document names
+  it.
+
+  That list had drifted **three times**. The first time it named three
+  `scripts/*.sh` files that no longer existed, and the fix was a comment
+  saying it had drifted — a warning, not a check. The second was two
+  targets short. The third was the commit that added `descriptions` to
+  the Makefile and not to `CLAUDE.md`, one day after the second was
+  fixed by hand and a note was written saying a gate was the real fix.
+  A comment cannot notice; this can.
+
+### Added
+
 - **An eval suite** — `scripts/evals`, `make evals` — which was a
   declared release gate from Phase 4 onwards and did not exist.
 
