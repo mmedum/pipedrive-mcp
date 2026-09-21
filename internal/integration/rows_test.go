@@ -19,6 +19,8 @@ package integration
 type dealRow struct {
 	ID                int64          `json:"id"`
 	Title             string         `json:"title"`
+	Status            string         `json:"status,omitempty"`
+	LostReason        string         `json:"lost_reason,omitempty"`
 	ExpectedCloseDate string         `json:"expected_close_date,omitempty"`
 	UpdateTime        string         `json:"update_time,omitempty"`
 	CustomFields      map[string]any `json:"custom_fields,omitempty"`

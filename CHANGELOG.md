@@ -22,6 +22,36 @@ in full.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`manage_deal` `reopen` was broken for every deal, and had been
+  since it shipped.** It sent `lost_reason: ""` alongside
+  `status: open`, to keep the record honest — a deal that is open again
+  was not lost for a reason. Pipedrive accepts `lost_reason` only on a
+  deal that IS lost, and validates the RESULTING state, so it rejected
+  the whole write: *"Lost reason and lost time must can only be set
+  when status is lost."* Reopening from won failed. Reopening from lost
+  failed. The tool description promised both worked.
+
+  `reopen` now sends the status alone, and the description says what
+  actually happens: the previous `lost_reason` stays on the record,
+  because Pipedrive will not accept clearing it.
+
+  **Three live eval runs found this and nothing else had.** No unit test
+  could: the fakes accept any request, so only the real API could
+  refuse it. A live probe now covers reopen from won and from lost, and
+  was watched failing against the old code with Pipedrive's own error.
+
+- **The eval drift check asked the wrong question.** It counted whole
+  collections and compared totals, which saturated at the 100-row page
+  cap — on the workspace it runs against, activities exceeded even a
+  paged bound, so the check reported "could not be counted" and failed
+  every run. Counting the workspace was never the question. It now
+  lists what each resource reports as updated since the run began and
+  subtracts the fixture's own ids, so the answer is the records the run
+  moved and does not account for — one call per resource, independent
+  of how big the CRM is.
+
 ### Changed
 
 - **`overwrite` now reads as a decision the user made, not a way past a

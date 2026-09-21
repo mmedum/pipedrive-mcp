@@ -76,8 +76,10 @@ func runMain() error {
 	defer closeSess()
 	h := harnessOver(ctx, sess)
 
-	fmt.Println("counting the workspace before anything is created…")
-	before := takeCensus(h)
+	// Everything this run moves is moved after this instant, which is
+	// what makes "what did it touch" answerable without counting the
+	// workspace.
+	since := time.Now().UTC().Add(-time.Second).Format(time.RFC3339)
 
 	fmt.Println("building the fixture through the server's own tools…")
 	fixture, err := buildFixture(h)
@@ -121,11 +123,9 @@ func runMain() error {
 		}
 	}
 
-	// The fixture's own rows are deleted by now, so the census should
-	// come back where it started. Anything else is the model having
-	// created something nobody asked for.
-	after := takeCensus(h)
-	drift := before.diff(after, map[string]int{})
+	// Anything moved since the run began that is not the fixture's own
+	// is the model having touched something nobody asked it to.
+	drift := listTouched(h, since).unaccounted(fixtureIDs(fixture))
 	return report(results, drift)
 }
 
