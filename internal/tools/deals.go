@@ -232,7 +232,7 @@ type manageDealInput struct {
 	LostReason        *string        `json:"lost_reason,omitempty" jsonschema:"why the deal was lost, for mark_lost. Free text Pipedrive keeps and reports on: if the user did not give a reason, leave this blank — do NOT invent one"`
 	CustomFields      map[string]any `json:"custom_fields,omitempty" jsonschema:"this workspace's own fields, keyed by the name get_deal reports — a dropdown takes its label, a multi-select a list of labels, everything else the plain value. Only create and update read this; the transitions ignore it, as they ignore every descriptive field. Omit a field to leave it as it is; a field cannot be cleared"`
 	DryRun            bool           `json:"dry_run,omitempty" jsonschema:"report what the write would find and change, and send nothing"`
-	Overwrite         bool           `json:"overwrite,omitempty" jsonschema:"allow update to replace fields that already hold a value. Without it such an update is refused, naming each field"`
+	Overwrite         bool           `json:"overwrite,omitempty" jsonschema:"allow update to replace fields that already hold a value. Without it such an update is refused, naming each field; a refusal is NOT a retry signal — set this only when the user asked for what is already there to be replaced, never to get past a refusal they have not seen"`
 	ExpectVersion     string         `json:"expect_version,omitempty" jsonschema:"the update_time from the read that informed this write; the write is refused if the deal changed since"`
 }
 
