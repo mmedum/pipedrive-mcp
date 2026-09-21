@@ -212,8 +212,12 @@ write — a refusal you cannot act on is a bug.
 
 The named transitions — `mark_won`, `mark_lost`, `move_stage`, `reopen`,
 `archive`, `unarchive` and `complete` — take no `overwrite`, because the
-field they change is the field you named. Nothing is a one-way door on purpose: `reopen` undoes
-both `mark_lost` and `complete`. The exception is `manage_note`'s
+field they change is the field you named. Nothing is a one-way door on
+purpose: `reopen` undoes `mark_won` and `mark_lost` on a deal, and
+`complete` on an activity. What it does **not** do is clear a deal's
+`lost_reason` — Pipedrive accepts that field only on a deal that is
+lost, so the text of the last loss stays on the record until the deal
+is lost again with a new one. The exception is `manage_note`'s
 `delete`, which is soft — Pipedrive v1 clears `active_flag`, `get_note`
 still returns the note, and **nothing here sets the flag back**.
 
