@@ -38,9 +38,9 @@ the previous MAJOR.MINOR. Older versions are unsupported.
 
 | Version         | Supported |
 | --------------- | --------- |
-| 0.5.x (current) | yes       |
-| 0.4.x           | yes       |
-| < 0.4           | no        |
+| 0.6.x (current) | yes       |
+| 0.5.x           | yes       |
+| < 0.5           | no        |
 
 The table above describes what is shipped today, not what is planned.
 It was written forward once — declaring `1.x` current and everything
