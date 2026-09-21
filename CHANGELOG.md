@@ -22,6 +22,33 @@ in full.
 
 ## [Unreleased]
 
+### Changed
+
+- **`overwrite` now reads as a decision the user made, not a way past a
+  refusal.** The first live eval run had the model hit the guard, read
+  the refusal — which names `overwrite` as the argument that would
+  permit the write, because a refusal the caller cannot act on is a bug
+  — and simply re-send with it set. The guard held and was routed
+  around, which makes it decorative.
+
+  The field description on all five `manage_` tools now carries the
+  same anti-confabulation shape the house style already uses for
+  `lost_reason`: a refusal is NOT a retry signal, set it only when the
+  user asked for what is there to be replaced. The MCP instructions say
+  it once more in prose. `gates descriptions` holds the clause on every
+  `overwrite` input, so the next tool cannot ship without it.
+
+  This does not change what the server does — the guard was already
+  correct, and the live guard probes pass — only what the caller is
+  told about it.
+
+### Removed
+
+- **`security/known-cves.yaml`**, trivy's base-image CVE ignore list.
+  Nothing has read it since the container build went away, and the last
+  documentation pointing at it went with the previous release's docs
+  pass.
+
 ### Fixed
 
 - **The eval census was blind on any workspace with 100+ records.**
