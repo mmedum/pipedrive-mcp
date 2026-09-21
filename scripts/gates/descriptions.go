@@ -39,6 +39,11 @@ func descriptionsGate(w io.Writer, args []string) error {
 		Tools []struct {
 			Name        string `json:"name"`
 			Description string `json:"description"`
+			InputSchema struct {
+				Properties map[string]struct {
+					Description string `json:"description"`
+				} `json:"properties"`
+			} `json:"inputSchema"`
 		} `json:"tools"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
@@ -61,11 +66,25 @@ func descriptionsGate(w io.Writer, args []string) error {
 		if strings.TrimSpace(t.Description) == "" {
 			problems = append(problems, t.Name+" has no description")
 		}
+		// Every overwrite input has to say that a refusal is not a
+		// retry signal. The first live eval run had the model read the
+		// guard's refusal, which names overwrite as the argument that
+		// would permit the write, and simply re-send with it set — the
+		// guard held and was routed around, which makes it decorative.
+		// The field description is where that is headed off, and this
+		// keeps the sentence on all five rather than the one that was
+		// remembered.
+		if p, ok := t.InputSchema.Properties["overwrite"]; ok {
+			if !strings.Contains(p.Description, "NOT a retry signal") {
+				problems = append(problems, t.Name+
+					" has an overwrite input that does not say a refusal is NOT a retry signal")
+			}
+		}
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("tool descriptions break the house style:\n  %s", strings.Join(problems, "\n  "))
 	}
 
-	_, _ = fmt.Fprintf(w, "tool descriptions ok: %d tools, each with at most one IMPORTANT:\n", len(doc.Tools))
+	_, _ = fmt.Fprintf(w, "tool descriptions ok: %d tools, each with at most one IMPORTANT: and every overwrite input guarded\n", len(doc.Tools))
 	return nil
 }

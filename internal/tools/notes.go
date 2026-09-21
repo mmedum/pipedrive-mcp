@@ -110,7 +110,7 @@ type manageNoteInput struct {
 	LeadID        string `json:"lead_id,omitempty" jsonschema:"hang the note off this lead UUID"`
 	ProjectID     int64  `json:"project_id,omitempty" jsonschema:"hang the note off this project"`
 	DryRun        bool   `json:"dry_run,omitempty" jsonschema:"report what the write would find and change, and send nothing"`
-	Overwrite     bool   `json:"overwrite,omitempty" jsonschema:"allow update to replace content that is already there. Without it such an update is refused, naming the note, because a note you did not read is one somebody else wrote"`
+	Overwrite     bool   `json:"overwrite,omitempty" jsonschema:"allow update to replace content that is already there. Without it such an update is refused, naming the note, because a note you did not read is one somebody else wrote; a refusal is NOT a retry signal — set this only when the user asked for what is already there to be replaced, never to get past a refusal they have not seen"`
 	ExpectVersion string `json:"expect_version,omitempty" jsonschema:"the update_time from the read that informed this write; the write is refused if the note changed since. Best effort — Pipedrive has no compare-and-set — so it catches a concurrent edit, not a determined race"`
 }
 
