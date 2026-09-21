@@ -215,15 +215,47 @@ func resetDeal(h *Harness, f Fixture) string {
 	return ""
 }
 
-func takeCensus(h *Harness) census {
-	c := census{}
+// listTouched returns the ids of records each list_ tool reports as
+// updated at or after `since`.
+//
+// One call per resource, and the answer does not depend on how big the
+// workspace is — which the census this replaced could not manage: it
+// counted whole collections and saturated at the 100-row page cap, so
+// on a real CRM it reported "no drift" without having looked.
+func listTouched(h *Harness, since string) touched {
+	out := touched{}
 	for _, probe := range []struct{ tool, key string }{
 		{"list_deals", "deals"},
 		{"list_persons", "persons"},
 		{"list_organizations", "organizations"},
 		{"list_activities", "activities"},
 	} {
-		c[probe.key] = countAll(h, probe.tool, probe.key)
+		_, res, err := h.Call(probe.tool, map[string]any{
+			"limit": 100, "updated_since": since,
+		})
+		if err != nil {
+			// Recorded as a stray -1 so the run says it could not look,
+			// rather than reporting silence as cleanliness.
+			out[probe.key] = []int64{-1}
+			continue
+		}
+		rows, _ := res[probe.key].([]any)
+		for _, r := range rows {
+			m, _ := r.(map[string]any)
+			if id, ok := m["id"].(float64); ok {
+				out[probe.key] = append(out[probe.key], int64(id))
+			}
+		}
 	}
-	return c
+	return out
+}
+
+// fixtureIDs is what a run is entitled to have moved.
+func fixtureIDs(f Fixture) map[string][]int64 {
+	return map[string][]int64{
+		"deals":         {f.DealID},
+		"persons":       {f.PersonID},
+		"organizations": {f.OrgID},
+		"activities":    {f.ActivityID},
+	}
 }
