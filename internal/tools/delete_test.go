@@ -162,3 +162,54 @@ func TestDelete_RejectsANonPositiveID(t *testing.T) {
 		t.Errorf("an invalid id still reached the client (%d calls)", f.deleteCalls)
 	}
 }
+
+// reopen on a WON deal was broken: the request always carried
+// lost_reason:"" to clear it, and Pipedrive accepts lost_reason only
+// while the deal IS lost — "Lost reason and lost time must can only be
+// set when status is lost" — so the whole write was rejected. The tool
+// description promises reopen undoes mark_won, and it did not.
+//
+// Three live eval runs found this and nothing else had: the fake this
+// suite drives accepts any request, so only a real API could refuse it.
+// These pin the request shape so the fake can now say so too.
+func TestReopen_DoesNotClearTheLostReasonOfAWonDeal(t *testing.T) {
+	f := &fakeDealsClient{
+		deal:       &pipedrive.Deal{ID: 7, Status: "won", Title: "Acme renewal"},
+		updateDeal: &pipedrive.Deal{ID: 7, Status: "open", Title: "Acme renewal"},
+	}
+	res := testutil.CallTool(t, func(s *mcp.Server) {
+		tools.RegisterDeals(s, f, "acme", tools.RegisterOptions{})
+	}, "manage_deal", map[string]any{"action": "reopen", "deal_id": 7})
+	if res.IsError {
+		t.Fatalf("reopen on a won deal returned an error: %s", testutil.TextContent(res))
+	}
+	if f.lastUpdateReq.LostReason != nil {
+		t.Errorf("reopen sent lost_reason=%q on a won deal; Pipedrive rejects the whole write for that",
+			*f.lastUpdateReq.LostReason)
+	}
+	if f.lastUpdateReq.Status == nil || *f.lastUpdateReq.Status != "open" {
+		t.Error("reopen did not set status open")
+	}
+}
+
+// And not for a lost deal either. Pipedrive validates the RESULTING
+// state, so lost_reason alongside status:open is refused whatever the
+// deal was before — which is why the first attempt at this fix, which
+// only dropped the field for a won deal, would have left the commoner
+// case broken.
+func TestReopen_DoesNotClearTheLostReasonOfALostDealEither(t *testing.T) {
+	f := &fakeDealsClient{
+		deal:       &pipedrive.Deal{ID: 7, Status: "lost", LostReason: "Lost to competitor"},
+		updateDeal: &pipedrive.Deal{ID: 7, Status: "open"},
+	}
+	res := testutil.CallTool(t, func(s *mcp.Server) {
+		tools.RegisterDeals(s, f, "acme", tools.RegisterOptions{})
+	}, "manage_deal", map[string]any{"action": "reopen", "deal_id": 7})
+	if res.IsError {
+		t.Fatalf("reopen on a lost deal returned an error: %s", testutil.TextContent(res))
+	}
+	if f.lastUpdateReq.LostReason != nil {
+		t.Errorf("reopen sent lost_reason=%q; Pipedrive refuses it alongside status:open whatever the deal was before",
+			*f.lastUpdateReq.LostReason)
+	}
+}

@@ -444,3 +444,57 @@ func TestWrite_CustomFieldRoundTripsByLabel(t *testing.T) {
 		t.Errorf("stored dropdown reads %q after the write; want the label that was sent", got)
 	}
 }
+
+// reopen was broken and nothing here noticed, because the unit fakes
+// accept any request and no probe reopened a real deal. Pipedrive
+// rejects lost_reason alongside status:open — "Lost reason and lost
+// time must can only be set when status is lost" — and it validates
+// the RESULTING state, so sending it failed reopen from won AND from
+// lost. Three live eval runs found it.
+//
+// Both directions, because the first attempt at the fix only handled
+// the won case and would have left the commoner one broken.
+func TestWrite_DealReopensFromWonAndFromLost(t *testing.T) {
+	requireWrites(t)
+
+	var deals dealsOut
+	mustCall(t, "list_deals", map[string]any{"status": "open", "limit": 100}, &deals)
+	target := pickFirst(t, deals.Deals, "no open deal to transition")
+	id := target.ID
+
+	// Whatever happens below, the deal ends open — which is where it
+	// started, so the restore is the same call in both directions.
+	undo(t, fmt.Sprintf("deal %d not returned to open", id), func() (bool, string) {
+		if res := call(t, "manage_deal", map[string]any{"action": "reopen", "deal_id": id}); res.IsError {
+			return false, testutil.TextContent(res)
+		}
+		var back dealOut
+		mustCall(t, "get_deal", map[string]any{"deal_id": id}, &back)
+		return back.Deal.Status == "open", "status is " + back.Deal.Status
+	})
+
+	for _, close := range []struct{ action, want string }{
+		{"mark_won", "won"},
+		{"mark_lost", "lost"},
+	} {
+		t.Run(close.action, func(t *testing.T) {
+			if res := call(t, "manage_deal", map[string]any{"action": close.action, "deal_id": id}); res.IsError {
+				t.Fatalf("%s: %s", close.action, testutil.TextContent(res))
+			}
+			var closed dealOut
+			mustCall(t, "get_deal", map[string]any{"deal_id": id}, &closed)
+			if closed.Deal.Status != close.want {
+				t.Fatalf("status is %q after %s, want %q", closed.Deal.Status, close.action, close.want)
+			}
+
+			if res := call(t, "manage_deal", map[string]any{"action": "reopen", "deal_id": id}); res.IsError {
+				t.Fatalf("reopen from %s was refused: %s", close.want, testutil.TextContent(res))
+			}
+			var reopened dealOut
+			mustCall(t, "get_deal", map[string]any{"deal_id": id}, &reopened)
+			if reopened.Deal.Status != "open" {
+				t.Errorf("status is %q after reopen from %s, want open", reopened.Deal.Status, close.want)
+			}
+		})
+	}
+}

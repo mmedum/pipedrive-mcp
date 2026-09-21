@@ -195,7 +195,18 @@ func TestManageDeal_MarkLost_DoesNotInventALostReason(t *testing.T) {
 	}
 }
 
-func TestManageDeal_Reopen_ClearsTheLostReason(t *testing.T) {
+// This test used to assert the opposite — that reopen blanks
+// lost_reason — and it was green for two releases while reopen failed
+// against the real API every single time. The fake accepts any request,
+// so the test could only ever confirm that the code sent what the code
+// sent.
+//
+// Pipedrive accepts lost_reason ONLY on a deal that is lost, and
+// validates the resulting state: "Lost reason and lost time must can
+// only be set when status is lost". Sending it with status:open is
+// refused whatever the deal was before, so reopen sends the status
+// alone and the old reason stays on the record.
+func TestManageDeal_Reopen_SendsStatusOnly(t *testing.T) {
 	fake := &fakeDealsClient{
 		deal:       &pipedrive.Deal{ID: 9, Status: "lost", LostReason: "budget", UpdateTime: "t0"},
 		updateDeal: &pipedrive.Deal{ID: 9, Status: "open", UpdateTime: "t1"},
@@ -208,12 +219,9 @@ func TestManageDeal_Reopen_ClearsTheLostReason(t *testing.T) {
 	if fake.lastUpdateReq.Status == nil || *fake.lastUpdateReq.Status != "open" {
 		t.Errorf("status = %v; want open", fake.lastUpdateReq.Status)
 	}
-	// A deal that is open again was not lost for a reason, so reopen
-	// blanks the text. Whether Pipedrive treats "" as a true clear is a
-	// separate, unresolved question — see docs/architecture.md,
-	// "Clearing a field".
-	if fake.lastUpdateReq.LostReason == nil || *fake.lastUpdateReq.LostReason != "" {
-		t.Errorf("lost_reason = %v; want it blanked", fake.lastUpdateReq.LostReason)
+	if fake.lastUpdateReq.LostReason != nil {
+		t.Errorf("lost_reason sent as %q; Pipedrive refuses it alongside status:open and fails the whole write",
+			*fake.lastUpdateReq.LostReason)
 	}
 }
 

@@ -1,4 +1,4 @@
-// Stream parsing and the workspace census: the pure half of the eval
+// Stream parsing and drift detection: the pure half of the eval
 // harness, deliberately carrying NO build tag.
 //
 // The driver needs credentials, a network and a model. Reading the
@@ -13,6 +13,8 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 )
 
@@ -109,34 +111,6 @@ func flatten(raw json.RawMessage) string {
 	return string(raw)
 }
 
-// census counts the records a run could plausibly create, so the
-// difference either side of it can be reported.
-//
-// The safety net, and the reason it exists: an eval drives a MODEL, not
-// a script. A task that says "log that we spoke to Acme" can be
-// answered by creating an activity nobody asked for, and against a real
-// workspace that is somebody's CRM gaining a row. This cannot prevent
-// that — nothing can, short of not running — but it can refuse to let
-// it pass unnoticed.
-type census map[string]int
-
-// diff reports what changed between two censuses, ignoring the records
-// the fixture is known to account for.
-func (before census) diff(after census, expected map[string]int) []string {
-	var out []string
-	for key, b := range before {
-		a, ok := after[key]
-		if !ok || b < 0 || a < 0 {
-			out = append(out, fmt.Sprintf("%s: could not be counted on both sides, so a change there would not have been seen", key))
-			continue
-		}
-		if delta := a - b - expected[key]; delta != 0 {
-			out = append(out, fmt.Sprintf("%s: %+d beyond what the fixture accounts for", key, delta))
-		}
-	}
-	return out
-}
-
 // record folds one content block into the run.
 //
 // Split out of parse because the two of them together tripped the
@@ -168,46 +142,36 @@ func (r *run) record(pending map[string]int, kind, id, name, useID string, input
 	}
 }
 
-// maxCensusPages bounds the paging below. Four pages of 100 is enough
-// to tell a fixture's five rows from a model's stray one on any
-// workspace this server is aimed at; past that the honest answer is "I
-// could not count this", which diff reports rather than silently
-// treating as no change.
-const maxCensusPages = 4
+// touched is the ids a run moved, per resource.
+type touched map[string][]int64
 
-// countAll pages a list_ tool to the end and returns the total, or -1
-// when it could not reach the end.
+// unaccounted returns the ids that were touched and are not the
+// fixture's own, per resource.
 //
-// The first version asked for one page of `limit: 100` and counted the
-// rows. maxListLimit IS 100, so on any workspace holding 100 or more of
-// a resource BOTH censuses came back 100 and the diff reported no drift
-// whatever the model had created — the net advertised as catching a
-// stray row in somebody's CRM was saturated and blind on exactly the
-// workspaces where that matters. Found in security review, not by the
-// tests, because a saturated count is a plausible number rather than an
-// error.
-func countAll(h *Harness, tool, key string) int {
-	total, cursor := 0, ""
-	for page := 0; page < maxCensusPages; page++ {
-		args := map[string]any{"limit": 100}
-		if cursor != "" {
-			args["cursor"] = cursor
+// This replaced a census that counted the whole workspace and compared
+// the totals. That was wrong twice over: it saturated at the 100-row
+// page cap, and even paged it asks a question nobody needs — "is the
+// workspace the same size" — when the question is "did this run move
+// something it does not account for". Listing what changed SINCE the
+// run started answers that directly, costs one call per resource, and
+// does not care how big the CRM is.
+func (t touched) unaccounted(fixture map[string][]int64) []string {
+	var out []string
+	for _, key := range slices.Sorted(maps.Keys(t)) {
+		known := map[int64]bool{}
+		for _, id := range fixture[key] {
+			known[id] = true
 		}
-		_, out, err := h.Call(tool, args)
-		if err != nil {
-			return -1 // unknown; reported rather than treated as zero
+		var strays []int64
+		for _, id := range t[key] {
+			if !known[id] {
+				strays = append(strays, id)
+			}
 		}
-		rows, _ := out[key].([]any)
-		total += len(rows)
-
-		// A short page is NOT the end — the cursor is. Every list_ tool
-		// says so in its own description.
-		cursor, _ = out["next_cursor"].(string)
-		if cursor == "" {
-			return total
+		if len(strays) > 0 {
+			out = append(out, fmt.Sprintf("%s: %d record(s) this run does not account for: %v",
+				key, len(strays), strays))
 		}
 	}
-	// More pages than the bound allows. A partial total would understate
-	// each side by a different amount, which is worse than not knowing.
-	return -1
+	return out
 }
