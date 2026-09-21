@@ -75,101 +75,44 @@ func TestParseReportsANonSuccessEnding(t *testing.T) {
 	}
 }
 
-func TestCensusDiffNamesWhatTheFixtureCannotAccountFor(t *testing.T) {
-	before := census{"deals": 10, "activities": 4}
-	after := census{"deals": 11, "activities": 4}
-
-	// One new deal, and the fixture accounts for exactly one.
-	if got := before.diff(after, map[string]int{"deals": 1}); len(got) != 0 {
-		t.Errorf("an accounted-for record was reported as drift: %v", got)
+// The census this replaced counted the whole workspace and compared
+// totals, which saturated at the 100-row page cap and asked the wrong
+// question anyway. These pin the question that matters: of the records
+// this run moved, which are not the fixture's?
+func TestUnaccountedNamesOnlyStrays(t *testing.T) {
+	moved := touched{
+		"deals":      {11, 12},
+		"activities": {21},
 	}
-	// One new deal that nothing accounts for.
-	got := before.diff(after, map[string]int{})
-	if len(got) != 1 || !strings.Contains(got[0], "deals") {
-		t.Fatalf("unaccounted drift not reported: %v", got)
+	fixture := map[string][]int64{
+		"deals":      {11, 12},
+		"activities": {21},
 	}
-}
-
-// A count that could not be taken is not a count of zero. Treating it
-// as one would report "nothing changed" about a resource nobody looked
-// at, which is the failure this whole census exists to avoid.
-func TestCensusDiffSaysWhenItCouldNotCount(t *testing.T) {
-	before := census{"deals": -1}
-	after := census{"deals": 12}
-	got := before.diff(after, map[string]int{})
-	if len(got) != 1 || !strings.Contains(got[0], "could not be counted") {
-		t.Fatalf("an uncountable resource was not flagged: %v", got)
+	if got := moved.unaccounted(fixture); len(got) != 0 {
+		t.Errorf("the fixture's own records were reported as strays: %v", got)
 	}
-}
 
-// stubHarness answers list_ calls from fixed pages, so the census can
-// be driven without a workspace.
-func stubHarness(pages map[string][][]any) *Harness {
-	calls := map[string]int{}
-	return &Harness{Call: func(tool string, _ map[string]any) (string, map[string]any, error) {
-		key := strings.TrimPrefix(tool, "list_")
-		seq := pages[tool]
-		i := calls[tool]
-		calls[tool]++
-		if i >= len(seq) {
-			return "", map[string]any{key: []any{}}, nil
-		}
-		out := map[string]any{key: seq[i]}
-		if i+1 < len(seq) {
-			out["next_cursor"] = "more"
-		}
-		return "", out, nil
-	}}
-}
-
-func rows(n int) []any {
-	out := make([]any, n)
-	for i := range out {
-		out[i] = map[string]any{"id": i}
+	moved["activities"] = append(moved["activities"], 99)
+	got := moved.unaccounted(fixture)
+	if len(got) != 1 {
+		t.Fatalf("expected one resource to report a stray, got %v", got)
 	}
-	return out
-}
-
-// The defect this replaced: one page of `limit: 100` against a
-// workspace holding 100+ of a resource returned 100 on both sides, so
-// the diff saw no drift whatever the model created. A full page must be
-// followed, not counted and trusted.
-func TestCountAllFollowsTheCursorPastAFullPage(t *testing.T) {
-	h := stubHarness(map[string][][]any{
-		"list_deals": {rows(100), rows(100), rows(7)},
-	})
-	if got := countAll(h, "list_deals", "deals"); got != 207 {
-		t.Errorf("counted %d, want 207 — a full page is not the end, the cursor is", got)
+	if !strings.Contains(got[0], "activities") || !strings.Contains(got[0], "99") {
+		t.Errorf("the stray is not named: %q", got[0])
 	}
 }
 
-// Past the bound the answer is "I could not count this", never a
-// partial total: a partial understates each side by a different amount,
-// which reads as drift that is not there or hides drift that is.
-func TestCountAllRefusesBeyondItsBound(t *testing.T) {
-	endless := make([][]any, maxCensusPages+3)
-	for i := range endless {
-		endless[i] = rows(100)
-	}
-	if got := countAll(stubHarness(map[string][][]any{"list_deals": endless}), "list_deals", "deals"); got != -1 {
-		t.Errorf("counted %d past the page bound, want -1", got)
+// A run that moved nothing is the common case and must be silent.
+func TestUnaccountedIsSilentWhenNothingMoved(t *testing.T) {
+	if got := (touched{"deals": nil}).unaccounted(map[string][]int64{}); len(got) != 0 {
+		t.Errorf("an empty run reported drift: %v", got)
 	}
 }
 
-// A read that fails is unknown, not zero.
-func TestCountAllReportsAFailedReadAsUnknown(t *testing.T) {
-	h := &Harness{Call: func(string, map[string]any) (string, map[string]any, error) {
-		return "", nil, errTestRead
-	}}
-	if got := countAll(h, "list_deals", "deals"); got != -1 {
-		t.Errorf("a failed read counted as %d, want -1", got)
-	}
-}
-
-// And an unknown on either side must surface, not be differenced away.
-func TestCensusDiffSurfacesAnUnknownFromPaging(t *testing.T) {
-	got := census{"deals": -1}.diff(census{"deals": 205}, map[string]int{})
-	if len(got) != 1 || !strings.Contains(got[0], "could not be counted") {
-		t.Fatalf("an uncountable side was not surfaced: %v", got)
+// A fixture id that was never touched is not evidence of anything —
+// deleting it is exactly what teardown does.
+func TestUnaccountedIgnoresUntouchedFixtureIDs(t *testing.T) {
+	if got := (touched{"deals": {11}}).unaccounted(map[string][]int64{"deals": {11, 12, 13}}); len(got) != 0 {
+		t.Errorf("untouched fixture ids produced drift: %v", got)
 	}
 }

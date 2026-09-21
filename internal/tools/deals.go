@@ -24,13 +24,17 @@ type dealsClient interface {
 // dry-run path stays in sync with the enum below.
 const dealStatusOpen = "open"
 
+// dealStatusLost is the only status Pipedrive accepts a lost_reason
+// alongside. See the reopen handling in writeDealAction.
+const dealStatusLost = "lost"
+
 // Validating the status before calling the API lets a typo surface as
 // [validation] instead of an upstream 400. v2 only accepts these four
 // values; the v1 `all_not_deleted` synonym was removed.
 var allowedDealStatuses = map[string]bool{
 	dealStatusOpen: true,
+	dealStatusLost: true,
 	"won":          true,
-	"lost":         true,
 	"deleted":      true,
 }
 
@@ -247,7 +251,7 @@ func registerManageDeal(s *mcp.Server, c dealsClient, companyDomain string, opts
 
 	AddTool(s, &mcp.Tool{
 		Name:        "manage_deal",
-		Description: "Create a deal, edit one, move it between stages, close it won or lost, or delete it. One call, whichever action: create takes title, every other action takes deal_id. Writing is guarded, and every action except create reads the deal before it writes, so a write is two API calls. An update refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the deal moved under you. The six transitions — move_stage, mark_won, mark_lost, reopen, archive and unarchive — take no overwrite, because you named the transition and the field it changes is the field you named. ARCHIVING IS NOT CLOSING: an archived deal leaves the pipeline entirely, stops appearing in list_deals unless you pass archived, and accepts no edit at all until it is unarchived — mark_lost is what 'we lost it' means. IMPORTANT: lost_reason on mark_lost is free text Pipedrive keeps and reports on, so if the user did not give you a reason, leave it blank — do NOT invent one. Closing a deal is reversible here: reopen puts it back to open and clears the lost reason, though Pipedrive keeps its own record of won_time and lost_time, which you cannot set from this tool. Custom fields ARE writable here, on create and update: pass custom_fields keyed by the names get_deal reports, and give a dropdown its label rather than an option id. One thing this cannot do: NO FIELD CAN BE CLEARED once it holds a value — Pipedrive v2 rejects a null and treats an empty string as a value, so a field can be changed but not emptied. Deleting is soft and time-boxed: Pipedrive marks the deal deleted and removes it permanently after 30 days, so it takes dry_run and expect_version and no permitting flag beyond them — within the window Pipedrive's own UI can restore it, but NOTHING HERE PUTS IT BACK, so treat it as one-way and rehearse with dry_run first. What becomes of the notes and activities hanging off a deleted deal is not documented by Pipedrive and is not verified here, so read list_notes and list_activities for the deal before deleting one that has history on it. Use search to turn a company or person name into the person_id or org_id a new deal needs, and list_stages to find a stage_id.",
+		Description: "Create a deal, edit one, move it between stages, close it won or lost, or delete it. One call, whichever action: create takes title, every other action takes deal_id. Writing is guarded, and every action except create reads the deal before it writes, so a write is two API calls. An update refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the deal moved under you. The six transitions — move_stage, mark_won, mark_lost, reopen, archive and unarchive — take no overwrite, because you named the transition and the field it changes is the field you named. ARCHIVING IS NOT CLOSING: an archived deal leaves the pipeline entirely, stops appearing in list_deals unless you pass archived, and accepts no edit at all until it is unarchived — mark_lost is what 'we lost it' means. IMPORTANT: lost_reason on mark_lost is free text Pipedrive keeps and reports on, so if the user did not give you a reason, leave it blank — do NOT invent one. Closing a deal is reversible here: reopen puts it back to open, from won or from lost. It does NOT clear lost_reason — Pipedrive accepts a lost_reason only on a deal that is lost, so the text of the last loss stays on the record until the deal is lost again with a new one. Pipedrive also keeps its own won_time and lost_time, which you cannot set from this tool. Custom fields ARE writable here, on create and update: pass custom_fields keyed by the names get_deal reports, and give a dropdown its label rather than an option id. One thing this cannot do: NO FIELD CAN BE CLEARED once it holds a value — Pipedrive v2 rejects a null and treats an empty string as a value, so a field can be changed but not emptied. Deleting is soft and time-boxed: Pipedrive marks the deal deleted and removes it permanently after 30 days, so it takes dry_run and expect_version and no permitting flag beyond them — within the window Pipedrive's own UI can restore it, but NOTHING HERE PUTS IT BACK, so treat it as one-way and rehearse with dry_run first. What becomes of the notes and activities hanging off a deleted deal is not documented by Pipedrive and is not verified here, so read list_notes and list_activities for the deal before deleting one that has history on it. Use search to turn a company or person name into the person_id or org_id a new deal needs, and list_stages to find a stage_id.",
 		Annotations: mutatingAnnotations(),
 	}, manageDealHandler(c, companyDomain, opts.DryRun))
 }
@@ -414,12 +418,20 @@ func dealRequestFor(in manageDealInput) (pipedrive.UpdateDealRequest, map[string
 	case "unarchive":
 		return pipedrive.UpdateDealRequest{IsArchived: ptr(false)}, nil, nil
 	case "reopen":
-		// Clearing the lost reason with the status keeps the record
-		// honest: a deal that is open again was not lost for a reason.
-		return pipedrive.UpdateDealRequest{
-			Status:     ptr(dealStatusOpen),
-			LostReason: ptr(""),
-		}, nil, nil
+		// Status alone. This used to send lost_reason:"" as well, to
+		// keep the record honest — a deal that is open again was not
+		// lost for a reason — and Pipedrive rejects the entire write
+		// for it: "Lost reason and lost time must can only be set when
+		// status is lost". It validates the RESULTING state, so the
+		// refusal lands whether the deal was won or lost beforehand,
+		// which made reopen fail every time rather than some of the
+		// time.
+		//
+		// So Pipedrive keeps whatever lost_reason it had, and the tool
+		// description says so rather than promising a clear that
+		// cannot happen. Three live eval runs found this; the fake
+		// accepts any request, so only the real API could refuse it.
+		return pipedrive.UpdateDealRequest{Status: ptr(dealStatusOpen)}, nil, nil
 	default: // update
 		req := pipedrive.UpdateDealRequest{
 			Title:             in.Title,
