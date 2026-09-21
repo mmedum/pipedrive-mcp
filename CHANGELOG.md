@@ -20,142 +20,7 @@ MINOR release. The alternative is letting a third party decide when
 this project cuts a MAJOR. Every other tool is covered by the promise
 in full.
 
-## [Unreleased]
-
-### Fixed
-
-- **`manage_deal` `reopen` was broken for every deal, and had been
-  since it shipped.** It sent `lost_reason: ""` alongside
-  `status: open`, to keep the record honest — a deal that is open again
-  was not lost for a reason. Pipedrive accepts `lost_reason` only on a
-  deal that IS lost, and validates the RESULTING state, so it rejected
-  the whole write: *"Lost reason and lost time must can only be set
-  when status is lost."* Reopening from won failed. Reopening from lost
-  failed. The tool description promised both worked.
-
-  `reopen` now sends the status alone, and the description says what
-  actually happens: the previous `lost_reason` stays on the record,
-  because Pipedrive will not accept clearing it.
-
-  **Three live eval runs found this and nothing else had.** No unit test
-  could: the fakes accept any request, so only the real API could
-  refuse it. A live probe now covers reopen from won and from lost, and
-  was watched failing against the old code with Pipedrive's own error.
-
-- **The eval drift check asked the wrong question.** It counted whole
-  collections and compared totals, which saturated at the 100-row page
-  cap — on the workspace it runs against, activities exceeded even a
-  paged bound, so the check reported "could not be counted" and failed
-  every run. Counting the workspace was never the question. It now
-  lists what each resource reports as updated since the run began and
-  subtracts the fixture's own ids, so the answer is the records the run
-  moved and does not account for — one call per resource, independent
-  of how big the CRM is.
-
-### Changed
-
-- **`overwrite` now reads as a decision the user made, not a way past a
-  refusal.** The first live eval run had the model hit the guard, read
-  the refusal — which names `overwrite` as the argument that would
-  permit the write, because a refusal the caller cannot act on is a bug
-  — and simply re-send with it set. The guard held and was routed
-  around, which makes it decorative.
-
-  The field description on all five `manage_` tools now carries the
-  same anti-confabulation shape the house style already uses for
-  `lost_reason`: a refusal is NOT a retry signal, set it only when the
-  user asked for what is there to be replaced. The MCP instructions say
-  it once more in prose. `gates descriptions` holds the clause on every
-  `overwrite` input, so the next tool cannot ship without it.
-
-  This does not change what the server does — the guard was already
-  correct, and the live guard probes pass — only what the caller is
-  told about it.
-
-### Removed
-
-- **`security/known-cves.yaml`**, trivy's base-image CVE ignore list.
-  Nothing has read it since the container build went away, and the last
-  documentation pointing at it went with the previous release's docs
-  pass.
-
-### Fixed
-
-- **The eval census was blind on any workspace with 100+ records.**
-  `takeCensus` asked for one page of `limit: 100` and counted the rows —
-  and `maxListLimit` IS 100, so both censuses came back 100 and the diff
-  reported no drift whatever the model had created. The net the
-  CHANGELOG advertised as catching a stray row in somebody's CRM was
-  saturated and blind on exactly the workspaces where that matters. It
-  now pages to the end and returns "could not be counted" past a bound,
-  because a partial total understates each side by a different amount.
-  Found by `/security-review`, not by a test: a saturated count is a
-  plausible number rather than an error.
-
-- **Eval tasks were not independent.** They share one fixture deal and
-  several mutate it, so the first live run had `won-then-reopen` leave
-  the deal won and `archiving-is-not-closing` then assert "status is
-  won, want lost" against a deal that never had a chance — one defect
-  reported as two. The shared deal is now reset between tasks, and a
-  reset that fails says every later result is suspect rather than
-  carrying on producing numbers.
-
-- **A failed eval task now prints its trace.** Without it a reader
-  cannot separate "the guard is broken" from "the model read the
-  refusal and re-sent with `overwrite`" — the same end state, and the
-  difference between a server defect and the finding the suite exists
-  to make.
-
-- **`make descriptions` no longer writes to a fixed `/tmp` path.** The
-  dump is piped to the gate on stdin, so there is nothing for another
-  local user to pre-plant as a symlink and nothing to clean up.
-
-### Fixed
-
-- **`tools.SDKVersion` said `v1.6.0` while `go.mod` pinned `v1.8.0`.**
-  That constant is written into the schema dump header, where its whole
-  job is to let a reviewer classify a diff as "the SDK moved" rather
-  than "the surface changed" — so a stale value says the opposite of
-  what it is for. It drifted the same way once before (`v1.5.0` against
-  a `v1.6.0` pin) and both times the fix was a comment saying "update in
-  lockstep". `TestSDKVersionMatchesGoMod` is the check.
-  `runtime/debug.ReadBuildInfo` would remove the constant outright but
-  does not list the dependency in a test binary, so there would be
-  nothing to test it with.
-
-- **The docs described a project that does not exist**, found by
-  auditing what a 1.0 needs:
-  - `CONTRIBUTING.md`, `docs/development.md` and `docs/release.md` all
-    described a **trivy image-CVE gate**. There is no Dockerfile and no
-    such job; it is a leftover from the container phase. A contributor
-    reading `CONTRIBUTING.md` believed an image-CVE gate protected them.
-    (`security/known-cves.yaml`, its ignore list, is now unreferenced —
-    left in place rather than deleted.)
-  - `docs/development.md` pinned Go at `1.26.2` against a `1.26.6`
-    toolchain, told contributors to install golangci-lint, govulncheck
-    and go-licenses at `@latest` while the Makefile pins all three and
-    `make verify-tool-versions` fails on a mismatch, named a
-    `sdkVersion` constant that is exported as `SDKVersion`, listed two
-    coverage-gated packages where CI gates four, and quoted a
-    no-domain error message the binary never emits — unreachable to
-    check, because the domain also resolves from the userconfig file.
-  - `docs/architecture.md` described `create_*` tools that "gain the
-    per-call input when they move to `manage_*`". They moved two
-    releases ago and no `create_*` tool remains.
-  - `README.md` carried the resource-template block **twice**,
-    near-verbatim.
-
-### Changed
-
-- **`README.md` now writes down the whole negative space.** "A stable
-  surface" is half a promise without the other half, so the list is
-  explicit: webhooks, mail, subscriptions, saved filters, currencies,
-  deal-to-lead conversion, followers, deal participants and custom-field
-  *definitions* are not modelled and are not planned for 1.x; merging
-  records is refused by the guard contract rather than missing from the
-  API; `search` finds products, files and leads that no tool can then
-  act on; and four tools sit on the v1 carve-out outside the 1.0
-  promise.
+## [0.6.0] - 2026-09-21
 
 ### Added
 
@@ -171,8 +36,6 @@ in full.
   the Makefile and not to `CLAUDE.md`, one day after the second was
   fixed by hand and a note was written saying a gate was the real fix.
   A comment cannot notice; this can.
-
-### Added
 
 - **An eval suite** — `scripts/evals`, `make evals` — which was a
   declared release gate from Phase 4 onwards and did not exist.
@@ -247,23 +110,6 @@ in full.
   registry, which is empty unless something registered into it: it
   passed while asserting on nothing.
 
-### Fixed
-
-- **`manage_deal` offered six actions and dispatched on eight.** The
-  `action` field's description read "create, update, move_stage,
-  mark_won, mark_lost or reopen" while `dealActions` also held `archive`
-  and `unarchive` — in the same schema whose tool description names "the
-  six transitions ... archive and unarchive". A model reads the field's
-  description as the allowed-value list, so it never tried either.
-
-  This is the third place the same drift has surfaced: v0.5.0 fixed it
-  in the MCP instructions, the previous release fixed it in `README.md`,
-  and this is the tool schema itself — the one a model actually reads.
-  `TestActionFieldDescribesEveryAction` now holds every `manage_` tool's
-  action map against its own field description.
-
-### Added
-
 - **A `[gone]` error class, and a canary on the v1 carve-out.**
   Pipedrive's v1 sunset date, 2026-07-31, has passed. Four tools run on
   v1 — `get_note`, `list_notes`, `manage_note` and `whoami` — because v2
@@ -300,6 +146,34 @@ in full.
   already keeps, rather than adding a third copy of the names.
 
 ### Changed
+
+- **`overwrite` now reads as a decision the user made, not a way past a
+  refusal.** The first live eval run had the model hit the guard, read
+  the refusal — which names `overwrite` as the argument that would
+  permit the write, because a refusal the caller cannot act on is a bug
+  — and simply re-send with it set. The guard held and was routed
+  around, which makes it decorative.
+
+  The field description on all five `manage_` tools now carries the
+  same anti-confabulation shape the house style already uses for
+  `lost_reason`: a refusal is NOT a retry signal, set it only when the
+  user asked for what is there to be replaced. The MCP instructions say
+  it once more in prose. `gates descriptions` holds the clause on every
+  `overwrite` input, so the next tool cannot ship without it.
+
+  This does not change what the server does — the guard was already
+  correct, and the live guard probes pass — only what the caller is
+  told about it.
+
+- **`README.md` now writes down the whole negative space.** "A stable
+  surface" is half a promise without the other half, so the list is
+  explicit: webhooks, mail, subscriptions, saved filters, currencies,
+  deal-to-lead conversion, followers, deal participants and custom-field
+  *definitions* are not modelled and are not planned for 1.x; merging
+  records is refused by the guard contract rather than missing from the
+  API; `search` finds products, files and leads that no tool can then
+  act on; and four tools sit on the v1 carve-out outside the 1.0
+  promise.
 
 - **A non-JSON error body is reported as one.** `classifyResponse`
   discarded the unmarshal error, so an HTML error page from an edge —
@@ -366,7 +240,117 @@ in full.
   for the schema gate to surprise somebody with. Tool names, input
   schemas and the tool count (20) are unchanged.
 
+### Removed
+
+- **`security/known-cves.yaml`**, trivy's base-image CVE ignore list.
+  Nothing has read it since the container build went away, and the last
+  documentation pointing at it went with the previous release's docs
+  pass.
+
 ### Fixed
+
+- **`manage_deal` `reopen` was broken for every deal, and had been
+  since it shipped.** It sent `lost_reason: ""` alongside
+  `status: open`, to keep the record honest — a deal that is open again
+  was not lost for a reason. Pipedrive accepts `lost_reason` only on a
+  deal that IS lost, and validates the RESULTING state, so it rejected
+  the whole write: *"Lost reason and lost time must can only be set
+  when status is lost."* Reopening from won failed. Reopening from lost
+  failed. The tool description promised both worked.
+
+  `reopen` now sends the status alone, and the description says what
+  actually happens: the previous `lost_reason` stays on the record,
+  because Pipedrive will not accept clearing it.
+
+  **Three live eval runs found this and nothing else had.** No unit test
+  could: the fakes accept any request, so only the real API could
+  refuse it. A live probe now covers reopen from won and from lost, and
+  was watched failing against the old code with Pipedrive's own error.
+
+- **The eval drift check asked the wrong question.** It counted whole
+  collections and compared totals, which saturated at the 100-row page
+  cap — on the workspace it runs against, activities exceeded even a
+  paged bound, so the check reported "could not be counted" and failed
+  every run. Counting the workspace was never the question. It now
+  lists what each resource reports as updated since the run began and
+  subtracts the fixture's own ids, so the answer is the records the run
+  moved and does not account for — one call per resource, independent
+  of how big the CRM is.
+
+- **The eval census was blind on any workspace with 100+ records.**
+  `takeCensus` asked for one page of `limit: 100` and counted the rows —
+  and `maxListLimit` IS 100, so both censuses came back 100 and the diff
+  reported no drift whatever the model had created. The net the
+  CHANGELOG advertised as catching a stray row in somebody's CRM was
+  saturated and blind on exactly the workspaces where that matters. It
+  now pages to the end and returns "could not be counted" past a bound,
+  because a partial total understates each side by a different amount.
+  Found by `/security-review`, not by a test: a saturated count is a
+  plausible number rather than an error.
+
+- **Eval tasks were not independent.** They share one fixture deal and
+  several mutate it, so the first live run had `won-then-reopen` leave
+  the deal won and `archiving-is-not-closing` then assert "status is
+  won, want lost" against a deal that never had a chance — one defect
+  reported as two. The shared deal is now reset between tasks, and a
+  reset that fails says every later result is suspect rather than
+  carrying on producing numbers.
+
+- **A failed eval task now prints its trace.** Without it a reader
+  cannot separate "the guard is broken" from "the model read the
+  refusal and re-sent with `overwrite`" — the same end state, and the
+  difference between a server defect and the finding the suite exists
+  to make.
+
+- **`make descriptions` no longer writes to a fixed `/tmp` path.** The
+  dump is piped to the gate on stdin, so there is nothing for another
+  local user to pre-plant as a symlink and nothing to clean up.
+
+- **`tools.SDKVersion` said `v1.6.0` while `go.mod` pinned `v1.8.0`.**
+  That constant is written into the schema dump header, where its whole
+  job is to let a reviewer classify a diff as "the SDK moved" rather
+  than "the surface changed" — so a stale value says the opposite of
+  what it is for. It drifted the same way once before (`v1.5.0` against
+  a `v1.6.0` pin) and both times the fix was a comment saying "update in
+  lockstep". `TestSDKVersionMatchesGoMod` is the check.
+  `runtime/debug.ReadBuildInfo` would remove the constant outright but
+  does not list the dependency in a test binary, so there would be
+  nothing to test it with.
+
+- **The docs described a project that does not exist**, found by
+  auditing what a 1.0 needs:
+  - `CONTRIBUTING.md`, `docs/development.md` and `docs/release.md` all
+    described a **trivy image-CVE gate**. There is no Dockerfile and no
+    such job; it is a leftover from the container phase. A contributor
+    reading `CONTRIBUTING.md` believed an image-CVE gate protected them.
+    (`security/known-cves.yaml`, its ignore list, is now unreferenced —
+    left in place rather than deleted.)
+  - `docs/development.md` pinned Go at `1.26.2` against a `1.26.6`
+    toolchain, told contributors to install golangci-lint, govulncheck
+    and go-licenses at `@latest` while the Makefile pins all three and
+    `make verify-tool-versions` fails on a mismatch, named a
+    `sdkVersion` constant that is exported as `SDKVersion`, listed two
+    coverage-gated packages where CI gates four, and quoted a
+    no-domain error message the binary never emits — unreachable to
+    check, because the domain also resolves from the userconfig file.
+  - `docs/architecture.md` described `create_*` tools that "gain the
+    per-call input when they move to `manage_*`". They moved two
+    releases ago and no `create_*` tool remains.
+  - `README.md` carried the resource-template block **twice**,
+    near-verbatim.
+
+- **`manage_deal` offered six actions and dispatched on eight.** The
+  `action` field's description read "create, update, move_stage,
+  mark_won, mark_lost or reopen" while `dealActions` also held `archive`
+  and `unarchive` — in the same schema whose tool description names "the
+  six transitions ... archive and unarchive". A model reads the field's
+  description as the allowed-value list, so it never tried either.
+
+  This is the third place the same drift has surfaced: v0.5.0 fixed it
+  in the MCP instructions, the previous release fixed it in `README.md`,
+  and this is the tool schema itself — the one a model actually reads.
+  `TestActionFieldDescribesEveryAction` now holds every `manage_` tool's
+  action map against its own field description.
 
 - **`SECURITY.md` said the shipped release was unsupported.** The
   supported-versions table was written forward — `1.x (current)`,
@@ -1841,7 +1825,8 @@ destructive flag is on.
   External callers can still branch on the error class via `errors.Is`
   and read `Status`/`Message`/`Endpoint`.
 
-[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/mmedum/pipedrive-mcp/compare/v0.3.1...v0.3.2
