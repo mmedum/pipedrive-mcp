@@ -260,7 +260,7 @@ type manageActivityInput struct {
 	Busy              *bool                           `json:"busy,omitempty" jsonschema:"whether the owner shows as busy on the calendar"`
 	Done              *bool                           `json:"done,omitempty" jsonschema:"whether the activity is finished. Prefer action complete or reopen, which say what you mean; this is here for create, to log something that already happened"`
 	DryRun            bool                            `json:"dry_run,omitempty" jsonschema:"report what the write would find and change, and send nothing"`
-	Overwrite         bool                            `json:"overwrite,omitempty" jsonschema:"allow update to replace fields that already hold a value. Without it such an update is refused, naming each field"`
+	Overwrite         bool                            `json:"overwrite,omitempty" jsonschema:"allow update to replace fields that already hold a value. Without it such an update is refused, naming each field; a refusal is NOT a retry signal — set this only when the user asked for what is already there to be replaced, never to get past a refusal they have not seen"`
 	ExpectVersion     string                          `json:"expect_version,omitempty" jsonschema:"the update_time from the read that informed this write; the write is refused if the activity changed since"`
 }
 
