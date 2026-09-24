@@ -247,15 +247,24 @@ func listTouched(h *Harness, since string) touched {
 		if err != nil {
 			// Recorded as a stray -1 so the run says it could not look,
 			// rather than reporting silence as cleanliness.
-			out[probe.key] = []int64{-1}
+			out[probe.key] = []record{{ID: -1, Created: true}}
 			continue
 		}
 		rows, _ := res[probe.key].([]any)
 		for _, r := range rows {
 			m, _ := r.(map[string]any)
-			if id, ok := m["id"].(float64); ok {
-				out[probe.key] = append(out[probe.key], int64(id))
+			id, ok := m["id"].(float64)
+			if !ok {
+				continue
 			}
+			// add_time inside the window means this run created it.
+			// Anything older merely moved, which on a shared workspace
+			// could be a colleague rather than the model.
+			added, _ := m["add_time"].(string)
+			out[probe.key] = append(out[probe.key], record{
+				ID:      int64(id),
+				Created: added >= since,
+			})
 		}
 	}
 	return out
