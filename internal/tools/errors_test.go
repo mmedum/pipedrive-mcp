@@ -154,3 +154,42 @@ func TestSDKVersionMatchesGoMod(t *testing.T) {
 			"attribute a diff to the wrong SDK version", SDKVersion, pinned)
 	}
 }
+
+// A hint exists because the upstream message alone would mislead, so
+// it has to reach the LLM — and the class has to stay the upstream
+// one, or the caller cannot tell a rate limit from a refusal.
+func TestErrorText_HintReachesTheCallerAndKeepsTheClass(t *testing.T) {
+	upstream := &pipedrive.APIError{
+		Class:    pipedrive.ErrRateLimited,
+		Status:   429,
+		Message:  "rate limit exceeded",
+		Endpoint: "/organizations",
+	}
+	err := withHint(upstream, "the search matched, but checking its %ss failed; narrow types to skip that check", "organization")
+	got := errorText(err)
+
+	if !strings.Contains(got, "the search matched") {
+		t.Errorf("error text = %q; the hint did not reach the caller", got)
+	}
+	if !strings.Contains(got, "rate limit exceeded") {
+		t.Errorf("error text = %q; the upstream message was dropped", got)
+	}
+	if !strings.HasPrefix(got, "[rate_limited]") {
+		t.Errorf("error text = %q; want the upstream class preserved", got)
+	}
+}
+
+// Without a hint nothing changes: the upstream message is the whole
+// story and is reported alone. This is the assertion that keeps the
+// hint from quietly rewriting every other error in the surface.
+func TestErrorText_UnhintedUpstreamIsUnchanged(t *testing.T) {
+	upstream := &pipedrive.APIError{
+		Class:    pipedrive.ErrNotFound,
+		Status:   404,
+		Message:  "Deal not found",
+		Endpoint: "/deals/1",
+	}
+	if got := errorText(upstream); got != "[not_found] Deal not found" {
+		t.Errorf("error text = %q; want %q", got, "[not_found] Deal not found")
+	}
+}

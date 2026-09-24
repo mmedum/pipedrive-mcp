@@ -82,6 +82,21 @@ in full.
   `first_name`/`last_name` on persons, which the live suite exercises
   every run — nothing had ever set this one. A live probe now does.
 
+- **A tool's guidance on an upstream failure never reached the LLM.**
+  `llmMessage` answers an upstream error with the API's own message and
+  nothing else, which is right when that message is the whole story and
+  wrong when a tool has something to add. `search`'s liveness check
+  found it: when its second API call failed, `search` reported a bare
+  rate-limit message, so a model read it as "the search was rate
+  limited" — when the search had matched, and narrowing `types` would
+  have avoided the failing half entirely. The careful wording that said
+  so was discarded by the `errors.As` branch before anyone saw it.
+
+  Guidance now survives, through a `hinted` error the message formatter
+  knows about. The class is unchanged — a hinted rate limit is still
+  `[rate_limited]` — and an error with no hint reads exactly as it did
+  before.
+
 - **`search` returned deleted records, with nothing saying so.** Every
   `list_` tool drops a deleted record. Pipedrive's search index keeps
   one, and the item it hands back carries no `is_deleted`, no
