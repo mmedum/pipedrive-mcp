@@ -50,6 +50,21 @@ in full.
   authorise their own overwrite, because the field they land on is the
   field the caller named.
 
+### Changed
+
+- **The upstream v2 mirror is re-captured against a current spec.**
+  `internal/pipedrive/testdata/v2-response-fields.json` holds
+  Pipedrive's own description as an oracle for this package's
+  hand-written types. The spec moved — SHA256 `8cf6d47d…` to
+  `fc2ce0fe…` since the 2026-09-18 capture — and **not one field on the
+  seven mirrored types changed**: none added, none removed, none
+  retyped.
+
+  Recorded rather than silently bumping a hash, because the check
+  exists precisely because this mirror has drifted before, and the last
+  refresh found three defects that had shipped. A refresh that finds
+  nothing is only informative if somebody can see that it ran.
+
 ### Fixed
 
 - **`manage_activity` could not link an activity to a person.** The
