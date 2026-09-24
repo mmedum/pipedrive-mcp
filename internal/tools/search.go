@@ -153,10 +153,11 @@ func dropDeletedHits(ctx context.Context, c searchClient, hits []pipedrive.Searc
 		if err != nil {
 			// The raw upstream error would report the search itself as
 			// rate-limited or failed, which it was not, and leave the
-			// caller nothing to do. Name the half that failed and the
-			// argument that skips it.
-			return nil, fmt.Errorf("the search matched, but checking whether its %ss still exist failed: %w"+
-				"; narrowing types to the ones you need skips that check", t, err)
+			// caller nothing to do. withHint keeps that guidance in
+			// the LLM-facing message; a plain fmt.Errorf wrapper does
+			// not survive llmMessage.
+			return nil, withHint(err,
+				"the search matched, but checking whether its %ss still exist failed; narrowing types to the ones you need skips that check", t)
 		}
 		live[t] = set
 		dropped += len(ids) - len(set)
