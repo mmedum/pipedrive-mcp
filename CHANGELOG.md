@@ -20,6 +20,35 @@ MINOR release. The alternative is letting a third party decide when
 this project cuts a MAJOR. Every other tool is covered by the promise
 in full.
 
+## [Unreleased]
+
+### Fixed
+
+- **The live write probes and the eval fixture could close a deal the
+  business was actually running.** A probe added in this cycle picked
+  the first OPEN deal in the workspace and marked it won, then lost,
+  then reopened it, to prove a transition worked. The field state
+  restored cleanly. What did not restore was everything Pipedrive fires
+  on a status change: a real customer's deal moved to won and to lost
+  four times, and every automation hanging off those transitions ran.
+  **Restoring a field is not undoing a write**, and the suite's own
+  capture-restore-verify contract passed at every step while that
+  happened somewhere the contract does not look.
+
+  The eval fixture had the same hole from the other direction: it
+  created its own deal, which was right, but in the workspace's default
+  pipeline, and several tasks close that deal — so pipeline automations
+  fired on a scratch record sitting in real reporting.
+
+  Both now require `PIPEDRIVE_TEST_PIPELINE_ID`, naming a pipeline the
+  business does not use, and there is no default because there is no
+  safe one. The probe builds its own deal there and soft-deletes it;
+  the evals check the variable before creating anything, so a missing
+  one leaves the workspace untouched rather than half-built. Without it
+  the probes skip and the evals refuse to start.
+
+  Nothing in this suite transitions a record it did not create.
+
 ## [0.6.0] - 2026-09-21
 
 ### Added
