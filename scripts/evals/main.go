@@ -125,8 +125,8 @@ func runMain() error {
 
 	// Anything moved since the run began that is not the fixture's own
 	// is the model having touched something nobody asked it to.
-	drift := listTouched(h, since).unaccounted(fixtureIDs(fixture))
-	return report(results, drift)
+	created, edited := listTouched(h, since).unaccounted(fixtureIDs(fixture))
+	return report(results, created, edited)
 }
 
 // writeMCPConfig points the CLI at the binary under test.
@@ -263,7 +263,7 @@ func drive(ctx context.Context, prompt, cfg, model string, budget float64) *run 
 }
 
 // report prints the tally and decides the exit status.
-func report(results []result, drift []string) error {
+func report(results []result, created, edited []string) error {
 	var failed, unverified int
 	var cost float64
 	fmt.Println("\n---")
@@ -279,15 +279,24 @@ func report(results []result, drift []string) error {
 	fmt.Printf("%d task(s), %d failed, %d with a half nobody could check, $%.2f\n",
 		len(results), failed, unverified, cost)
 
-	if len(drift) > 0 {
-		fmt.Println("\nTHE WORKSPACE DID NOT COME BACK TO WHERE IT STARTED:")
-		for _, d := range drift {
+	// Reported but not fatal: on a live workspace somebody else editing
+	// a record during the run moves it too, and failing on that teaches
+	// a reader to ignore the alarm.
+	if len(edited) > 0 {
+		fmt.Println("\nRecords that moved during the run and are not the fixture's:")
+		for _, d := range edited {
+			fmt.Println("  " + d)
+		}
+	}
+	if len(created) > 0 {
+		fmt.Println("\nTHIS RUN CREATED RECORDS IT CANNOT ACCOUNT FOR:")
+		for _, d := range created {
 			fmt.Println("  " + d)
 		}
 		fmt.Println("An eval drives a model, not a script: a task can be answered by creating\n" +
 			"something nobody asked for. These rows are real and this harness cannot\n" +
 			"remove what it did not create.")
-		return fmt.Errorf("the workspace drifted")
+		return fmt.Errorf("the run created %d unaccounted record set(s)", len(created))
 	}
 	if failed > 0 {
 		return fmt.Errorf("%d task(s) failed", failed)
