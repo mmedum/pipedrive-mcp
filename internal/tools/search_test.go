@@ -17,11 +17,33 @@ type fakeSearchClient struct {
 	next     string
 	err      error
 	lastOpts pipedrive.SearchOptions
+
+	// deleted are the record ids LiveIDs leaves out of its answer, the
+	// way a v2 collection omits a deleted one. Everything not named
+	// here is live, so a test that does not care about deletion gets
+	// the behaviour it had before the check existed.
+	deleted   map[int64]bool
+	liveErr   error
+	liveCalls []pipedrive.ItemType
 }
 
 func (f *fakeSearchClient) ItemSearch(_ context.Context, opts pipedrive.SearchOptions) ([]pipedrive.SearchHit, string, error) {
 	f.lastOpts = opts
 	return f.hits, f.next, f.err
+}
+
+func (f *fakeSearchClient) LiveIDs(_ context.Context, itemType pipedrive.ItemType, ids []int64) (map[int64]bool, error) {
+	f.liveCalls = append(f.liveCalls, itemType)
+	if f.liveErr != nil {
+		return nil, f.liveErr
+	}
+	live := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		if !f.deleted[id] {
+			live[id] = true
+		}
+	}
+	return live, nil
 }
 
 // hitItem builds a raw SearchHit Item map of the shape Pipedrive's
@@ -214,5 +236,157 @@ func TestSearch_RegistersInDumpRegistry(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), `"search"`) {
 		t.Errorf("dump missing 'search'; got: %s", buf.String())
+	}
+}
+
+// A deleted organization keeps its place in Pipedrive's search index
+// and comes back carrying nothing that says so, so search asks
+// /organizations which of the ids it just matched still exist.
+func TestSearch_DropsDeletedOrganizations(t *testing.T) {
+	fake := &fakeSearchClient{
+		hits: []pipedrive.SearchHit{
+			hitItem(1.5, map[string]any{"id": float64(47), "type": "organization", "name": "Acme Inc"}),
+			hitItem(1.4, map[string]any{"id": float64(48), "type": "organization", "name": "Acme Holdings"}),
+			hitItem(1.2, map[string]any{"id": float64(11), "type": "deal", "title": "Acme renewal"}),
+		},
+		deleted: map[int64]bool{48: true},
+	}
+	var out searchOutputRow
+	testutil.CallToolInto(t, func(s *mcp.Server) {
+		tools.RegisterSearch(s, fake)
+	}, "search", map[string]any{"term": "Acme"}, &out)
+
+	if len(out.Hits) != 2 {
+		t.Fatalf("got %d hits, want 2 (the deleted org dropped): %+v", len(out.Hits), out.Hits)
+	}
+	for _, h := range out.Hits {
+		if h.ID == 48 {
+			t.Errorf("deleted organization 48 survived: %+v", h)
+		}
+	}
+	// One call, for organizations. The deal is not a checkable type.
+	if len(fake.liveCalls) != 1 || fake.liveCalls[0] != pipedrive.ItemTypeOrganization {
+		t.Errorf("liveness calls = %v; want one, for organization", fake.liveCalls)
+	}
+}
+
+// Deals are dropped from search by Pipedrive itself when they are
+// deleted, and /deals excludes ARCHIVED deals — which are alive — so
+// checking them would drop live records. A page of deals must not pay
+// for a second call.
+func TestSearch_NoCheckableTypesCostsNoExtraCall(t *testing.T) {
+	fake := &fakeSearchClient{
+		hits: []pipedrive.SearchHit{
+			hitItem(1.2, map[string]any{"id": float64(11), "type": "deal", "title": "Acme renewal"}),
+			hitItem(1.1, map[string]any{"id": float64(12), "type": "product", "name": "A widget"}),
+		},
+	}
+	var out searchOutputRow
+	testutil.CallToolInto(t, func(s *mcp.Server) {
+		tools.RegisterSearch(s, fake)
+	}, "search", map[string]any{"term": "Acme"}, &out)
+
+	if len(out.Hits) != 2 {
+		t.Errorf("got %d hits, want 2", len(out.Hits))
+	}
+	if len(fake.liveCalls) != 0 {
+		t.Errorf("liveness calls = %v; want none on a page with no checkable types", fake.liveCalls)
+	}
+}
+
+// Filtering happens after Pipedrive has paged, so a page can empty out
+// with a cursor still on it. Truncated has to keep following the
+// cursor, or a caller stops one page short of the records it wanted.
+func TestSearch_EmptyAfterFilteringStaysTruncated(t *testing.T) {
+	fake := &fakeSearchClient{
+		hits: []pipedrive.SearchHit{
+			hitItem(1.5, map[string]any{"id": float64(47), "type": "organization", "name": "Acme Inc"}),
+		},
+		next:    "page2",
+		deleted: map[int64]bool{47: true},
+	}
+	var out searchOutputRow
+	testutil.CallToolInto(t, func(s *mcp.Server) {
+		tools.RegisterSearch(s, fake)
+	}, "search", map[string]any{"term": "Acme"}, &out)
+
+	if len(out.Hits) != 0 {
+		t.Fatalf("got %d hits, want 0", len(out.Hits))
+	}
+	if !out.Truncated || out.NextCursor != "page2" {
+		t.Errorf("truncated=%v cursor=%q; want true/page2 — an empty page is not the end", out.Truncated, out.NextCursor)
+	}
+}
+
+// Returning the page unfiltered on a failed check would be the bug
+// this exists to fix, silently.
+func TestSearch_LivenessCheckFailureFailsTheSearch(t *testing.T) {
+	fake := &fakeSearchClient{
+		hits: []pipedrive.SearchHit{
+			hitItem(1.5, map[string]any{"id": float64(47), "type": "organization", "name": "Acme Inc"}),
+		},
+		liveErr: pipedrive.ErrRateLimited,
+	}
+	res := testutil.CallTool(t, func(s *mcp.Server) {
+		tools.RegisterSearch(s, fake)
+	}, "search", map[string]any{"term": "Acme"})
+	if !res.IsError {
+		t.Fatal("expected isError when the liveness check fails")
+	}
+}
+
+// A deleted person lingers in Pipedrive's search index too — found by
+// a live probe, not by reading the docs — so persons are checked the
+// same way organizations are, and each type costs its own call.
+func TestSearch_DropsDeletedPersonsAndBillsPerType(t *testing.T) {
+	fake := &fakeSearchClient{
+		hits: []pipedrive.SearchHit{
+			hitItem(1.5, map[string]any{"id": float64(47), "type": "organization", "name": "Acme Inc"}),
+			hitItem(1.4, map[string]any{"id": float64(30), "type": "person", "name": "A Buyer"}),
+			hitItem(1.3, map[string]any{"id": float64(31), "type": "person", "name": "A Former Buyer"}),
+			hitItem(1.2, map[string]any{"id": float64(11), "type": "deal", "title": "Acme renewal"}),
+		},
+		deleted: map[int64]bool{31: true},
+	}
+	var out searchOutputRow
+	testutil.CallToolInto(t, func(s *mcp.Server) {
+		tools.RegisterSearch(s, fake)
+	}, "search", map[string]any{"term": "Acme"}, &out)
+
+	if len(out.Hits) != 3 {
+		t.Fatalf("got %d hits, want 3 (the deleted person dropped): %+v", len(out.Hits), out.Hits)
+	}
+	for _, h := range out.Hits {
+		if h.ID == 31 {
+			t.Errorf("deleted person 31 survived: %+v", h)
+		}
+	}
+	// One call per checkable type present — organization and person.
+	// The deal is not checkable, so it adds nothing.
+	if len(fake.liveCalls) != 2 {
+		t.Errorf("liveness calls = %v; want one per checkable type", fake.liveCalls)
+	}
+}
+
+// A deal hit must never reach the liveness check: /deals excludes
+// ARCHIVED deals, which are alive, so the check would drop them.
+func TestSearch_NeverChecksDeals(t *testing.T) {
+	fake := &fakeSearchClient{
+		hits: []pipedrive.SearchHit{
+			hitItem(1.2, map[string]any{"id": float64(11), "type": "deal", "title": "Acme renewal"}),
+		},
+		// If a deal were ever checked, this would drop it.
+		deleted: map[int64]bool{11: true},
+	}
+	var out searchOutputRow
+	testutil.CallToolInto(t, func(s *mcp.Server) {
+		tools.RegisterSearch(s, fake)
+	}, "search", map[string]any{"term": "Acme"}, &out)
+
+	if len(out.Hits) != 1 || out.Hits[0].ID != 11 {
+		t.Errorf("hits = %+v; want the deal kept — an archived deal is alive and absent from /deals", out.Hits)
+	}
+	if len(fake.liveCalls) != 0 {
+		t.Errorf("liveness calls = %v; want none for a deal", fake.liveCalls)
 	}
 }

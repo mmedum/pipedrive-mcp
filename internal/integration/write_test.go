@@ -505,3 +505,113 @@ func TestWrite_DealReopensFromWonAndFromLost(t *testing.T) {
 		})
 	}
 }
+
+// What search does with a record that has been deleted, checked
+// against the API rather than a fake, for all three types this server
+// can create and search.
+//
+// The three are not the same case, and that is the point:
+//
+//   - organization — Pipedrive KEEPS it in the search index and marks
+//     it in no way at all, so this server drops it. This asserts our
+//     filter works.
+//   - deal, person — Pipedrive drops them itself. Nothing here filters
+//     those, so this asserts somebody else's behaviour. It is written
+//     down in three comments and a CHANGELOG entry; without this it is
+//     held by nothing, and the day it changes this server starts
+//     handing back deleted records and no test moves.
+//
+// Every record is this test's own, created and deleted inside it.
+func TestWrite_SearchDropsWhatItDeleted(t *testing.T) {
+	requireWrites(t)
+
+	cases := []struct {
+		itemType string
+		tool     string
+		idField  string
+		key      string
+		args     func(t *testing.T, name string) map[string]any
+	}{
+		{
+			itemType: "organization", tool: "manage_organization", idField: "org_id", key: "organization",
+			args: func(_ *testing.T, name string) map[string]any {
+				return map[string]any{"action": "create", "name": name}
+			},
+		},
+		{
+			itemType: "person", tool: "manage_person", idField: "person_id", key: "person",
+			args: func(_ *testing.T, name string) map[string]any {
+				return map[string]any{"action": "create", "name": name}
+			},
+		},
+		{
+			itemType: "deal", tool: "manage_deal", idField: "deal_id", key: "deal",
+			args: func(t *testing.T, name string) map[string]any {
+				pipeline, stage := testPipelineStage(t)
+				return map[string]any{
+					"action": "create", "title": name,
+					"pipeline_id": pipeline, "stage_id": stage,
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.itemType, func(t *testing.T) {
+			name := scratchName(tc.itemType + " search-drop")
+			args := tc.args(t, name)
+
+			var out map[string]any
+			mustCall(t, tc.tool, args, &out)
+			rec, _ := out[tc.key].(map[string]any)
+			n, _ := rec["id"].(float64)
+			id := int64(n)
+			if id == 0 {
+				t.Fatalf("%s returned no id", tc.tool)
+			}
+			pending := id
+			dropOnCleanup(t, tc.tool, tc.idField, &pending)
+
+			// Indexing is not instant, and a probe that cannot see the
+			// record before the delete proves nothing by not seeing it
+			// after.
+			if !searchFinds(t, name, tc.itemType, id, true) {
+				t.Skipf("%s %d is not in the search index yet; nothing to prove about deleting it", tc.itemType, id)
+			}
+
+			mustCall(t, tc.tool, map[string]any{"action": "delete", tc.idField: id}, nil)
+			pending = 0
+
+			if searchFinds(t, name, tc.itemType, id, false) {
+				t.Errorf("search still returns %s %d after it was deleted. "+
+					"For an organization that means this server's liveness check did not drop it; "+
+					"for a deal or person it means Pipedrive stopped dropping them itself and search now has to check that type too",
+					tc.itemType, id)
+			}
+		})
+	}
+}
+
+// searchFinds looks for one record through the search tool, retrying
+// until it sees what it is waiting for. want says which answer ends
+// the wait: Pipedrive's index lags in both directions, so a record is
+// neither present nor absent the instant it is written.
+func searchFinds(t *testing.T, term, itemType string, id int64, want bool) bool {
+	t.Helper()
+	const attempts = 8
+	found := false
+	for attempt := range attempts {
+		if attempt > 0 {
+			time.Sleep(2 * time.Second)
+		}
+		var out searchOut
+		mustCall(t, "search", map[string]any{
+			"term": term, "types": []string{itemType}, "exact_match": true,
+		}, &out)
+		found = slices.ContainsFunc(out.Hits, func(h hitRow) bool { return h.ID == id })
+		if found == want {
+			return found
+		}
+	}
+	return found
+}

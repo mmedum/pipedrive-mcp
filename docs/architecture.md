@@ -153,6 +153,60 @@ adapter that calls the client. Per-type rendering decisions (e.g. deal
 7. The SDK marshals the output against its declared schema and writes
    the response frame.
 
+### Search pays for extra calls
+
+`search` is the one read that makes more than one API call. After
+`/itemSearch` answers, the tool asks the matching v2 collection —
+`/organizations?ids=...`, `/persons?ids=...` — which of the records it
+just matched still exist, and drops the rest. One extra call per
+checkable type the page holds, and none on a page that holds neither.
+
+Pipedrive's search index keeps a deleted record and returns it carrying
+no `is_deleted`, no `active_flag` and no `status` — there is nothing in
+the payload to tell it from a live one, and `/itemSearch` takes no
+parameter that would exclude it. Every `list_` tool filters deleted
+records, so without this the same workspace reads littered through
+`search` and clean through every list. `get_organization` answers for a
+deleted organization as though it were live, so nothing downstream
+corrects the mistake either.
+
+**What gets checked was settled by a live probe, not by reading the
+documentation**, and the documentation would have got it wrong. A first
+pass checked organizations only, on the evidence that a search for
+deleted deals and persons came back empty. That evidence was stale
+records: `TestWrite_SearchDropsWhatItDeleted` creates each type,
+deletes it and searches again, and it found that **a deleted person is
+still in the index seconds later**. Organizations stay indefinitely,
+persons stay a while, deals go promptly.
+
+Three decisions worth keeping:
+
+- **Deals are deliberately NOT checked.** `/deals` stopped returning
+  archived deals on 2025-07-15 — they live at `/deals/archived` now —
+  so an archived deal is absent from `/deals` while being perfectly
+  alive. Reading that absence as deletion would drop live deals out of
+  search, which is worse than the bug being fixed. Pipedrive drops
+  deleted deals from its own index, and the probe holds that claim so
+  it is not left to a comment. Products, files and leads have no
+  collection here to ask, and the tool description says a deleted one
+  can still appear.
+- **The check lives in `internal/tools`, not `internal/pipedrive`.**
+  The HTTP layer gets a primitive — `LiveIDs`, plus `CanCheckLiveness`
+  so the tool does not hard-code the type list a second time. Which
+  types get checked, what happens when the check fails, and what the
+  LLM is told are policy, and policy belongs with the tool. A
+  single-resource HTTP method that quietly fanned out to another
+  resource's endpoint would hide a round trip from every reader of
+  `ItemSearch`.
+- **A failed check fails the search.** Returning the page unfiltered
+  would be the bug, silently; a `liveness_checked: false` field hands
+  an LLM a set it cannot act on. The error names the half that failed
+  and points at `types`, which narrows what has to be checked.
+
+Because the drop happens after Pipedrive has paged, a page can come
+back shorter than `limit`, or empty with `next_cursor` still set. That
+is why the tool description says an empty page is not the end.
+
 ## Error mapping
 
 `internal/pipedrive/errors.go` maps HTTP status to a small set of typed
