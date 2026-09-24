@@ -50,6 +50,48 @@ in full.
   authorise their own overwrite, because the field they land on is the
   field the caller named.
 
+### Fixed
+
+- **The live write probes and the eval fixture could close a deal the
+  business was actually running.** A probe added in this cycle picked
+  the first OPEN deal in the workspace and marked it won, then lost,
+  then reopened it, to prove a transition worked. The field state
+  restored cleanly. What did not restore was everything Pipedrive fires
+  on a status change: a real customer's deal moved to won and to lost
+  four times, and every automation hanging off those transitions ran.
+  **Restoring a field is not undoing a write**, and the suite's own
+  capture-restore-verify contract passed at every step while that
+  happened somewhere the contract does not look.
+
+  The eval fixture had the same hole from the other direction: it
+  created its own deal, which was right, but in the workspace's default
+  pipeline, and several tasks close that deal — so pipeline automations
+  fired on a scratch record sitting in real reporting.
+
+  Both now require `PIPEDRIVE_TEST_PIPELINE_ID`, naming a pipeline the
+  business does not use, and there is no default because there is no
+  safe one. The probe builds its own deal there and soft-deletes it;
+  the evals check the variable before creating anything, so a missing
+  one leaves the workspace untouched rather than half-built. Without it
+  the probes skip and the evals refuse to start.
+
+  Nothing in this suite transitions a record it did not create.
+
+- **No write probe borrows a real record any more.** The pipeline guard
+  above covered the probe that closed a deal; every other one still
+  picked a live person, organization, deal or note, edited a field and
+  put it back. The restore was verified each time — but a live record
+  held by a test is in somebody's reporting, notifications and history
+  for as long as the test holds it, and "we put it back" is not the
+  same as "we never touched it".
+
+  They now build their own: an organization, person, deal, activity and
+  note, all named `mcp-test <timestamp>`, the deal in the test
+  pipeline, every one soft-deleted on cleanup so Pipedrive purges them
+  even if teardown fails. The custom-field probe still reads the field
+  DEFINITION from the workspace, because a shared definition is what it
+  exists to exercise, but it writes only to its own deal.
+
 ## [0.6.0] - 2026-09-21
 
 ### Added
