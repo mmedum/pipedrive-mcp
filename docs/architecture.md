@@ -584,6 +584,7 @@ Versioning is strict semver. The MCP tool surface is the public contract.
 | `v0.5.0` | Phase 4 prep | Custom fields answer to their names in both directions — readable by name with dropdowns as labels, and writable the same way. The bundle manifest and the MCP registry entry are held against the schemas they cite. The hand-rolled-versus-generated spike was answered, and answering it found three upstream-type defects that had shipped; the mirror is now checked against Pipedrive's own description. Archived deals stopped being invisible. |
 
 | `v0.6.0` | Phase 4 | The current MCP protocol revision (`2026-07-28`), deletes on the four v2 resources, the eval suite the phase plan had been gating releases on without it existing, and the v1 sunset classified rather than predicted. Its most useful output was a bug: `manage_deal reopen` had failed against the real API since it shipped, and the first eval runs found it. |
+| `v1.0.0` | Phase 5 | The stable surface. `overwrite` became the list of fields it may replace, which is the one breaking change in the range. Three defects fixed, and the pattern across all three is that a test asserted the broken behaviour as correct: the write probes edited live customer records and called the restore a success, `search` returned deleted records that every `list_` tool drops, and `manage_person` could not create a contact with a first name. |
 
 The middle tags went to release engineering rather than to phases, so the
 phase numbers and the version numbers stopped tracking each other. The
@@ -591,10 +592,14 @@ table above says what actually happened rather than what was planned.
 
 ### What is left
 
-| Tag | Phase | What it needs |
-| --- | --- | --- |
-| `v0.9.0` → `v1.0.0-rc.N` | Phase 4 | Polish, and the Claude Desktop smoke, which has now been open across four releases and is the one gate no automation here can satisfy. The eval suite exists (`scripts/evals`, `make evals`); validation against a second workspace does not and will not — see "A second workspace" below. |
-| `v1.0.0` | Phase 5 | A stable surface and a supported-version table. |
+Phase 5 shipped, so the table that used to sit here is now part of "What
+shipped" above. What remains is not a phase:
+
+| | What it needs |
+| --- | --- |
+| The Claude Desktop smoke | Open across FIVE releases now. It is the one gate no automation here can satisfy, because it exercises the `.mcpb` bundle path — the generated launcher, and keyring access from a GUI-launched process — which nothing else reaches. Every release since v0.4.0 has been asked for it and shipped without it. |
+| `refuse-the-overwrite` | Fails 3/3, and is a measurement rather than a defect. See "Guarded writes". |
+| A second workspace | Does not exist and will not — see "A second workspace" below. |
 
 ### v0.5.0 in detail
 

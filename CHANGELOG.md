@@ -8,8 +8,8 @@ The public versioning contract is the MCP tool surface — tool names, input
 schemas, output schemas, and documented behavior. Internal package layout,
 error message wording, and log line formats are not part of the contract.
 
-Pre-1.0 minor releases may break the tool surface. From 1.0.0 onwards,
-breaking changes require a MAJOR bump.
+From 1.0.0 onwards, breaking changes require a MAJOR bump. Before it,
+a minor release could break the tool surface, and several did.
 
 **One carve-out, and it is deliberate.** `get_note`, `list_notes`,
 `manage_note` and `whoami` run on Pipedrive API v1, whose 2026-07-31
@@ -20,7 +20,7 @@ MINOR release. The alternative is letting a third party decide when
 this project cuts a MAJOR. Every other tool is covered by the promise
 in full.
 
-## [Unreleased]
+## [1.0.0] - 2026-09-24
 
 ### Changed
 
@@ -1959,7 +1959,8 @@ destructive flag is on.
   External callers can still branch on the error class via `errors.Is`
   and read `Status`/`Message`/`Endpoint`.
 
-[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.6.0...v1.0.0
 [0.6.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.3.2...v0.4.0

@@ -362,8 +362,9 @@ describe the shape instead. Security problems go through
 ## Versioning
 
 Tool names, their arguments and the shape of their output are stable
-within a major version. Pre-1.0 a minor release may still break the tool
-surface; from 1.0.0 onwards a break needs a major bump. A change that
+within a major version. That promise is live as of 1.0.0: a break now
+needs a major bump, where before 1.0.0 a minor release could still move
+the tool surface. A change that
 needs you to do something — a renamed tool, an argument that moved, a
 different command in your client config — is marked **BREAKING** in
 [CHANGELOG.md](CHANGELOG.md), which is what the release notes are made
