@@ -54,6 +54,51 @@ type GetActivityOptions struct {
 // changes the default.
 const DefaultActivityType = "task"
 
+// PrimaryParticipant folds a person id into an activity's participant
+// list, as the primary entry.
+//
+// An activity's `person_id` is READ-ONLY on v2. It REPORTS the primary
+// participant; it does not set one, and a body carrying it is rejected
+// outright:
+//
+//	'person_id' is a read-only field. Add a primary participant to set
+//	'person_id' instead. For example: "participants": [{ "person_id": 1,
+//	"primary": true }]
+//
+// So both request structs carry PersonID as `json:"-"` and it never
+// reaches the wire. Callers pass it and this turns it into the thing
+// Pipedrive accepts.
+//
+// The named person wins, per the manage_activity contract: they become
+// primary, anyone else already named stays on as a non-primary
+// participant, and a duplicate of the named person is dropped rather
+// than sent twice. Returning participants unchanged when there is no
+// person id keeps nil meaning "leave the collection alone" — an update
+// REPLACES it, so a nil that became an empty slice would silently drop
+// every attendee.
+//
+// The TOOLS layer calls this while BUILDING the request, and that call
+// is the load-bearing one: the guarded-write diff has to see the
+// participants replacement, or setting person_id would quietly replace
+// a populated collection with no overwrite refusal. CreateActivity and
+// UpdateActivity call it again on the way out, so a direct client
+// caller does not silently lose PersonID to the `json:"-"` tag.
+// Folding twice is a no-op.
+func PrimaryParticipant(personID int64, participants []ActivityParticipant) []ActivityParticipant {
+	if personID <= 0 {
+		return participants
+	}
+	out := make([]ActivityParticipant, 0, len(participants)+1)
+	out = append(out, ActivityParticipant{PersonID: personID, Primary: true})
+	for _, p := range participants {
+		if p.PersonID == personID {
+			continue
+		}
+		out = append(out, ActivityParticipant{PersonID: p.PersonID, Primary: false})
+	}
+	return out
+}
+
 // CreateActivityRequest is the JSON body for POST /api/v2/activities.
 // v2 requires `subject`. Type defaults to DefaultActivityType
 // upstream when omitted; the tool layer encourages the LLM to set
@@ -76,7 +121,7 @@ type CreateActivityRequest struct {
 	DueTime           string                `json:"due_time,omitempty"` // HH:MM
 	Duration          string                `json:"duration,omitempty"` // HH:MM
 	DealID            int64                 `json:"deal_id,omitempty"`
-	PersonID          int64                 `json:"person_id,omitempty"`
+	PersonID          int64                 `json:"-"` // read-only upstream; see PrimaryParticipant
 	OrgID             int64                 `json:"org_id,omitempty"`
 	LeadID            string                `json:"lead_id,omitempty"` // UUID
 	OwnerID           int64                 `json:"owner_id,omitempty"`
@@ -101,7 +146,7 @@ type UpdateActivityRequest struct {
 	DueTime           *string               `json:"due_time,omitempty"`
 	Duration          *string               `json:"duration,omitempty"`
 	DealID            *int64                `json:"deal_id,omitempty"`
-	PersonID          *int64                `json:"person_id,omitempty"`
+	PersonID          *int64                `json:"-"` // read-only upstream; see PrimaryParticipant
 	OrgID             *int64                `json:"org_id,omitempty"`
 	LeadID            *string               `json:"lead_id,omitempty"`
 	OwnerID           *int64                `json:"owner_id,omitempty"`
@@ -116,6 +161,13 @@ type UpdateActivityRequest struct {
 // UpdateActivity edits an activity via PATCH /api/v2/activities/{id}
 // and returns the record Pipedrive echoes back.
 func (c *Client) UpdateActivity(ctx context.Context, id int64, req UpdateActivityRequest) (*Activity, error) {
+	// See CreateActivity: person_id cannot be written, so it becomes
+	// the primary participant.
+	var personID int64
+	if req.PersonID != nil {
+		personID = *req.PersonID
+	}
+	req.Participants = PrimaryParticipant(personID, req.Participants)
 	var resp itemEnvelope[Activity]
 	if err := c.patchV2(ctx, "/activities/"+strconv.FormatInt(id, 10), req, &resp); err != nil {
 		return nil, err
@@ -145,6 +197,10 @@ func (c *Client) CreateActivity(ctx context.Context, req CreateActivityRequest) 
 	if req.Subject == "" {
 		return nil, fmt.Errorf("%w: subject must not be empty", ErrValidation)
 	}
+	// Again here, though the tools layer has already done it, so a
+	// direct client caller setting PersonID does not silently lose it
+	// to the `json:"-"` tag. Folding twice is a no-op.
+	req.Participants = PrimaryParticipant(req.PersonID, req.Participants)
 	var resp itemEnvelope[Activity]
 	if err := c.postV2(ctx, "/activities", req, &resp); err != nil {
 		return nil, err
