@@ -76,6 +76,36 @@ func errorResult(err error) *mcp.CallToolResult {
 	}
 }
 
+// hinted carries guidance the caller can act on, wrapped around the
+// error that caused it.
+//
+// It exists because llmMessage answers an upstream failure with
+// apiErr.Message and nothing else, which is right when the upstream
+// error IS the whole story and wrong when a tool has something to add.
+// The search-liveness check is the case that found this: its second
+// API call failing made `search` report a bare rate-limit message, so
+// the model read it as "the search was rate-limited" — when the search
+// had in fact matched, and narrowing `types` would have avoided the
+// failing half entirely. A plain fmt.Errorf wrapper did not survive:
+// llmMessage's errors.As branch discarded it.
+//
+// The wrapped error still classifies: errorClass walks the chain, so a
+// hinted rate-limit is still [rate_limited].
+type hinted struct {
+	hint string
+	err  error
+}
+
+func (h *hinted) Error() string { return h.hint + ": " + h.err.Error() }
+func (h *hinted) Unwrap() error { return h.err }
+
+// withHint wraps err with guidance the caller can act on. Per the
+// house rule behind refusals: a failure the caller cannot act on is a
+// bug, and the hint is the part that makes it actionable.
+func withHint(err error, format string, args ...any) error {
+	return &hinted{hint: fmt.Sprintf(format, args...), err: err}
+}
+
 // errorText is the single source of truth for the `[class] message`
 // LLM-facing error format. errorResult uses it for tool-execution
 // errors; per-row error fields (e.g. refresh_field_cache) reuse it
@@ -91,6 +121,12 @@ func errorText(err error) string {
 // one) without class/HTTP-status restating that the [class] tag
 // already conveys.
 func llmMessage(err error) string {
+	// Checked before the upstream branch: a hint exists precisely
+	// because the upstream message alone would mislead.
+	var h *hinted
+	if errors.As(err, &h) {
+		return h.hint + " (" + llmMessage(h.err) + ")"
+	}
 	var apiErr *pipedrive.APIError
 	if errors.As(err, &apiErr) {
 		return apiErr.Message
