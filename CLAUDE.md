@@ -179,15 +179,21 @@ Plus the manual skills:
 If any of the above fails or is skipped, the task is not done. Surface the
 failure to the user; do not silently move on.
 
-## Phase boundaries
+## Release boundaries
 
-Each phase ends with a tagged release (`v0.0.1`, `v0.1.0`, ..., `v1.0.0`).
-**Tagging does not authorize starting the next phase.** The user reviews
-the release and explicitly says "go" before phase x+1 begins. Do not
-self-advance. Record the user's go-ahead in the next phase's release notes
-when the time comes.
+**The phases are done.** Phase 5 shipped as `v1.0.0` on 2026-09-24, and
+the go-ahead for it is recorded in `audit/release-smoke/v1.0.0.md`, per
+the rule that used to live here. There is no phase x+1 to be authorized
+for.
 
-Per-phase release gates are in addition to the per-PR gates above:
+What survives the phases is the part that was never really about them:
+**do not tag without the user saying so, each time.** A tag publishes a
+GitHub Release, cosign signatures and an MCP registry entry that
+**cannot be withdrawn**, and from 1.0.0 the tool surface carries a
+stability promise, so a mistaken tag is not a thing that can be quietly
+re-cut. Do not self-advance from a green branch to a tag.
+
+Per-release gates are in addition to the per-PR gates above:
 
 - `go test -race -count=3 ./...` (three shuffled runs).
 - `make integration-writes` against the sandbox — the suite in
