@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,22 @@ import (
 // read half, which mutates nothing; writing to a live CRM is a second,
 // deliberate opt-in.
 const writesEnv = "PIPEDRIVE_INTEGRATION_WRITES"
+
+// pipelineEnv names a pipeline this suite may create and close deals
+// in. There is no safe default and there must not be one.
+//
+// A probe here once picked the first OPEN deal in the workspace and
+// marked it won, then lost, then reopened it — to prove a transition
+// worked. The field state restored cleanly. What did not restore was
+// everything Pipedrive fires on a status change: a real customer's
+// deal moved to won and to lost, four times, and every automation
+// hanging off those transitions ran. Restoring a field is not undoing
+// a write.
+//
+// So a status transition is never performed on a record this suite did
+// not create, and never in a pipeline the business uses. Without this
+// variable the probes that close a deal skip.
+const pipelineEnv = "PIPEDRIVE_TEST_PIPELINE_ID"
 
 var (
 	// live is the connected session every test drives, and liveClient
@@ -47,6 +64,25 @@ var (
 	// carry in a job that has no credentials.
 	skipReason string
 )
+
+// requireOwnPipeline returns the pipeline the suite may transition
+// deals in, or skips. Transitions fire automations, so they happen in a
+// pipeline nobody is running a business out of, on a deal this suite
+// created and deletes.
+func requireOwnPipeline(t *testing.T) int64 {
+	t.Helper()
+	requireWrites(t)
+	raw := os.Getenv(pipelineEnv)
+	if raw == "" {
+		t.Skipf("closing a deal fires this workspace's automations, so it needs %s naming a pipeline "+
+			"the business does not use; set it to a scratch pipeline's id", pipelineEnv)
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		t.Fatalf("%s=%q is not a pipeline id", pipelineEnv, raw)
+	}
+	return id
+}
 
 func TestMain(m *testing.M) {
 	os.Exit(run(m))
