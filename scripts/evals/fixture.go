@@ -218,7 +218,7 @@ func resetDeal(h *Harness, f Fixture) string {
 		// guard doing its job even on us.
 		if _, _, err := h.Call("manage_deal", map[string]any{
 			"action": "update", "deal_id": f.DealID,
-			"title": f.DealTitle, "overwrite": true,
+			"title": f.DealTitle, "overwrite": []string{"title"},
 		}); err != nil {
 			return fmt.Sprintf("deal %d left titled %q: %v", f.DealID, title, err)
 		}
