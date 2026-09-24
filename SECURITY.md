@@ -38,17 +38,17 @@ the previous MAJOR.MINOR. Older versions are unsupported.
 
 | Version         | Supported |
 | --------------- | --------- |
-| 0.6.x (current) | yes       |
-| 0.5.x           | yes       |
-| < 0.5           | no        |
+| 1.0.x (current) | yes       |
+| 0.6.x           | yes       |
+| < 0.6           | no        |
 
 The table above describes what is shipped today, not what is planned.
 It was written forward once — declaring `1.x` current and everything
 below `0.9` unsupported — and stood that way through five releases, so
 the published policy told every user of the shipped release that it
 received no patches. It is now updated as part of cutting a release
-(`docs/release.md`), and `1.x` goes in the table when 1.0.0 is tagged
-and not before.
+(`docs/release.md`). `1.x` went in when 1.0.0 was cut, which is the
+first time this row has been true on the day it was written.
 
 ## Operator guidance
 

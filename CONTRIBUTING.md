@@ -49,11 +49,18 @@ lacking justification.
 
 ## Phases and approvals
 
-The project follows a phased delivery (Phase 0 → 5, tagged `v0.0.1` →
-`v1.0.0`). **Each phase boundary requires explicit maintainer approval
-before the next phase starts.** Tagging `v0.x.y` does not authorize
-Phase x+1; that is a separate decision recorded in the corresponding
+The project followed a phased delivery (Phase 0 → 5, tagged `v0.0.1` →
+`v1.0.0`). **Each phase boundary required explicit maintainer approval
+before the next phase started.** Tagging `v0.x.y` did not authorize
+Phase x+1; that was a separate decision, recorded in the corresponding
 GitHub Release.
+
+**Phase 5 shipped as v1.0.0 on 2026-09-24**, so there are no phases
+left to approve. What replaces the rule is the versioning contract at
+the top of `CHANGELOG.md`: the tool surface is stable, and a break
+needs a MAJOR bump. The approval that still matters is the one before
+tagging, because a tag publishes a GitHub Release, cosign signatures
+and an MCP registry entry that **cannot be withdrawn**.
 
 ### Phase 0 spike checklist
 
