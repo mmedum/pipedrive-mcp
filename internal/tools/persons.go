@@ -154,9 +154,9 @@ var personBaseFields = []fieldSpec[pipedrive.Person]{
 type managePersonInput struct {
 	Action        string                   `json:"action" jsonschema:"create, update or delete"`
 	PersonID      int64                    `json:"person_id,omitempty" jsonschema:"the person to act on, required by update and ignored by create"`
-	Name          *string                  `json:"name,omitempty" jsonschema:"the person's full name, required by create. If the user did not give you a name, ask — do NOT invent one"`
-	FirstName     *string                  `json:"first_name,omitempty" jsonschema:"first or given name; Pipedrive combines first_name and last_name into name, and passing all three is fine"`
-	LastName      *string                  `json:"last_name,omitempty" jsonschema:"last or family name"`
+	Name          *string                  `json:"name,omitempty" jsonschema:"the person's full name. create needs this OR first_name/last_name, never both. If the user did not give you a name, ask — do NOT invent one"`
+	FirstName     *string                  `json:"first_name,omitempty" jsonschema:"first or given name; pass it with last_name INSTEAD OF name, not alongside it, and Pipedrive derives name"`
+	LastName      *string                  `json:"last_name,omitempty" jsonschema:"last or family name; pass it with first_name INSTEAD OF name, not alongside it"`
 	Emails        []pipedrive.ContactPoint `json:"emails,omitempty" jsonschema:"email addresses, each {value, primary, label}. At most one primary; label is free text such as work or home. On update this REPLACES the whole collection rather than adding to it, because that is what Pipedrive does with it"`
 	Phones        []pipedrive.ContactPoint `json:"phones,omitempty" jsonschema:"phone numbers, same shape as emails, and replaced wholesale on update for the same reason"`
 	OrgID         *int64                   `json:"org_id,omitempty" jsonschema:"the organization the person belongs to. Use search to turn a company name into the id. Omit to leave it as it is; unlinking is not supported here"`
@@ -178,7 +178,7 @@ func registerManagePerson(s *mcp.Server, c personsClient, companyDomain string, 
 
 	AddTool(s, &mcp.Tool{
 		Name:        "manage_person",
-		Description: "Create a contact, edit one, or delete one. One call, whichever action: create takes name, update and delete take person_id. Writing is guarded, and update reads the person before it writes, so a write is two API calls. It refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. IMPORTANT: emails and phones REPLACE the stored collection rather than adding to it, because that is what Pipedrive does with them — to add an address, read the person first and send the existing entries back alongside the new one, or you will silently drop the rest. Pipedrive derives `name` from `first_name` and `last_name`, so changing either reports `name` as changed too — a dry run predicts only the field you set, and the write reports what actually moved. Custom fields ARE writable here: pass custom_fields keyed by the names get_person reports, and give a dropdown its label rather than an option id. Deleting is soft and time-boxed: Pipedrive marks the person deleted and removes it permanently after 30 days, so it takes dry_run and expect_version and no permitting flag beyond them — within that window Pipedrive's own UI can restore it, but NOTHING HERE PUTS IT BACK, so treat it as one-way and rehearse with dry_run first. What becomes of the deals, notes and activities hanging off a deleted person is not documented by Pipedrive and is not verified here, so read them first when the contact has history. Use search to turn a company name into the org_id this links to.",
+		Description: "Create a contact, edit one, or delete one. One call, whichever action: create takes name OR first_name/last_name, update and delete take person_id. Pipedrive treats name and first_name/last_name as ALTERNATIVES and rejects a write carrying both, so pass the parts when you have them and it derives the full name, or pass the full name and it splits it — never both. Writing is guarded, and update reads the person before it writes, so a write is two API calls. It refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. IMPORTANT: emails and phones REPLACE the stored collection rather than adding to it, because that is what Pipedrive does with them — to add an address, read the person first and send the existing entries back alongside the new one, or you will silently drop the rest. Because Pipedrive derives one from the other, changing either reports `name` as changed too — a dry run predicts only the field you set, since it cannot know what Pipedrive will derive, and the write reports what actually moved. Custom fields ARE writable here: pass custom_fields keyed by the names get_person reports, and give a dropdown its label rather than an option id. Deleting is soft and time-boxed: Pipedrive marks the person deleted and removes it permanently after 30 days, so it takes dry_run and expect_version and no permitting flag beyond them — within that window Pipedrive's own UI can restore it, but NOTHING HERE PUTS IT BACK, so treat it as one-way and rehearse with dry_run first. What becomes of the deals, notes and activities hanging off a deleted person is not documented by Pipedrive and is not verified here, so read them first when the contact has history. Use search to turn a company name into the org_id this links to.",
 		Annotations: mutatingAnnotations(),
 	}, managePersonHandler(c, companyDomain, opts.DryRun))
 }
@@ -211,23 +211,28 @@ func managePersonHandler(c personsClient, companyDomain string, dryRun bool) mcp
 }
 
 func createPersonAction(ctx context.Context, c personsClient, companyDomain string, in managePersonInput) (*mcp.CallToolResult, managePersonOutput) {
-	if in.Name == nil || *in.Name == "" {
-		return errorResult(fmt.Errorf("%w: name must not be empty", pipedrive.ErrValidation)), managePersonOutput{}
+	req := pipedrive.CreatePersonRequest{
+		Name:      deref(in.Name),
+		FirstName: deref(in.FirstName),
+		LastName:  deref(in.LastName),
+		Emails:    in.Emails,
+		Phones:    in.Phones,
+		OrgID:     deref(in.OrgID),
+		OwnerID:   deref(in.OwnerID),
+	}
+	// Before the custom-field encode, which can go to the network to
+	// warm the field cache, and before the dry-run branch — a
+	// rehearsal has to be refused on the same input a real create
+	// would be, or it reports a write that could never happen.
+	if err := req.Validate(); err != nil {
+		return errorResult(err), managePersonOutput{}
 	}
 	cf, err := c.EncodePersonCustomFields(ctx, in.CustomFields)
 	if err != nil {
 		return errorResult(err), managePersonOutput{}
 	}
-	req := pipedrive.CreatePersonRequest{
-		Name:         *in.Name,
-		FirstName:    deref(in.FirstName),
-		LastName:     deref(in.LastName),
-		Emails:       in.Emails,
-		Phones:       in.Phones,
-		OrgID:        deref(in.OrgID),
-		OwnerID:      deref(in.OwnerID),
-		CustomFields: cf.Values,
-	}
+	req.CustomFields = cf.Values
+
 	created := syntheticPersonFromRequest(req)
 	if !in.DryRun {
 		c, err := c.CreatePerson(ctx, req)
@@ -250,20 +255,23 @@ func updatePersonAction(ctx context.Context, c personsClient, companyDomain stri
 	if err := validatePositiveID(in.PersonID, "person_id"); err != nil {
 		return errorResult(err), managePersonOutput{}
 	}
+	req := pipedrive.UpdatePersonRequest{
+		Name:      in.Name,
+		Emails:    in.Emails,
+		Phones:    in.Phones,
+		FirstName: in.FirstName,
+		LastName:  in.LastName,
+		OrgID:     in.OrgID,
+		OwnerID:   in.OwnerID,
+	}
+	if err := req.Validate(); err != nil {
+		return errorResult(err), managePersonOutput{}
+	}
 	cf, err := c.EncodePersonCustomFields(ctx, in.CustomFields)
 	if err != nil {
 		return errorResult(err), managePersonOutput{}
 	}
-	req := pipedrive.UpdatePersonRequest{
-		Name:         in.Name,
-		Emails:       in.Emails,
-		Phones:       in.Phones,
-		FirstName:    in.FirstName,
-		LastName:     in.LastName,
-		OrgID:        in.OrgID,
-		OwnerID:      in.OwnerID,
-		CustomFields: cf.Values,
-	}
+	req.CustomFields = cf.Values
 
 	person, changed, res := guardedWrite[pipedrive.Person]{
 		Spec:          personBaseFields,
