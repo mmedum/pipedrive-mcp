@@ -93,10 +93,6 @@ type dealOut struct {
 	Deal dealRow `json:"deal"`
 }
 
-type personsOut struct {
-	Persons []personRow `json:"persons"`
-}
-
 type personOut struct {
 	Person personRow `json:"person"`
 }
@@ -107,10 +103,6 @@ type orgsOut struct {
 
 type orgOut struct {
 	Organization orgRow `json:"organization"`
-}
-
-type activitiesOut struct {
-	Activities []activityRow `json:"activities"`
 }
 
 type activityOut struct {

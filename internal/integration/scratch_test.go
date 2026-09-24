@@ -3,7 +3,6 @@
 package integration
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -79,12 +78,26 @@ func newScratch(t *testing.T) scratch {
 
 	s.OrgID = newID("manage_organization",
 		map[string]any{"action": "create", "name": s.Title + " org"}, "organization")
+	// Created with `name`, then given first_name in a second call.
+	//
+	// It cannot be done in one: manage_person's create requires `name`,
+	// and Pipedrive refuses a request carrying `name` together with
+	// first_name/last_name — "Cannot set 'name' and
+	// 'first_name'/'last_name' at the same time". So there is no way
+	// through this tool to create a person with structured names, which
+	// is a real gap in the surface rather than a quirk of this fixture.
 	s.PersonID = newID("manage_person", map[string]any{
-		"action": "create", "name": s.Title + " person", "org_id": s.OrgID,
+		"action": "create", "name": s.Title + " person",
+		"org_id": s.OrgID,
 		// Populated so a probe has something to overwrite, on an
 		// address nobody can receive mail at (RFC 2606).
 		"emails": []map[string]any{{"value": "probe@example.invalid", "primary": true}},
 	}, "person")
+	// first_name populated so a probe has something to overwrite.
+	mustCall(t, "manage_person", map[string]any{
+		"action": "update", "person_id": s.PersonID,
+		"first_name": "Mcptest", "overwrite": true,
+	}, nil)
 	s.DealID = newID("manage_deal", map[string]any{
 		"action": "create", "title": s.Title + " deal",
 		"pipeline_id": pipeline, "stage_id": stage.ID,
@@ -100,10 +113,4 @@ func newScratch(t *testing.T) scratch {
 	}, "note")
 
 	return s
-}
-
-// probeValue returns a value that is obviously a test artefact, so a
-// human who finds one in the UI knows what it is.
-func scratchValue(field string) string {
-	return fmt.Sprintf("mcp-test-%s-%d", field, time.Now().UTC().UnixNano()%100000)
 }

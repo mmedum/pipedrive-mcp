@@ -49,6 +49,21 @@ in full.
 
   Nothing in this suite transitions a record it did not create.
 
+- **No write probe borrows a real record any more.** The pipeline guard
+  above covered the probe that closed a deal; every other one still
+  picked a live person, organization, deal or note, edited a field and
+  put it back. The restore was verified each time — but a live record
+  held by a test is in somebody's reporting, notifications and history
+  for as long as the test holds it, and "we put it back" is not the
+  same as "we never touched it".
+
+  They now build their own: an organization, person, deal, activity and
+  note, all named `mcp-test <timestamp>`, the deal in the test
+  pipeline, every one soft-deleted on cleanup so Pipedrive purges them
+  even if teardown fails. The custom-field probe still reads the field
+  DEFINITION from the workspace, because a shared definition is what it
+  exists to exercise, but it writes only to its own deal.
+
 ## [0.6.0] - 2026-09-21
 
 ### Added
