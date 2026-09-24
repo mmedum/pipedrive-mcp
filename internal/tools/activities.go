@@ -260,7 +260,7 @@ type manageActivityInput struct {
 	Busy              *bool                           `json:"busy,omitempty" jsonschema:"whether the owner shows as busy on the calendar"`
 	Done              *bool                           `json:"done,omitempty" jsonschema:"whether the activity is finished. Prefer action complete or reopen, which say what you mean; this is here for create, to log something that already happened"`
 	DryRun            bool                            `json:"dry_run,omitempty" jsonschema:"report what the write would find and change, and send nothing"`
-	Overwrite         bool                            `json:"overwrite,omitempty" jsonschema:"allow update to replace fields that already hold a value. Without it such an update is refused, naming each field; a refusal is NOT a retry signal — set this only when the user asked for what is already there to be replaced, never to get past a refusal they have not seen"`
+	Overwrite         []string                        `json:"overwrite,omitempty" jsonschema:"the fields this write may replace, named exactly as the refusal listed them, e.g. [\"title\", \"value\"]. Omit it and a write that would replace a populated field is refused, naming each one. A refusal is NOT a retry signal: name a field only when the user asked for what is already there to be replaced, never to get past a refusal they have not seen. Naming fewer fields than the refusal listed is still refused, over the ones you left out"`
 	ExpectVersion     string                          `json:"expect_version,omitempty" jsonschema:"the update_time from the read that informed this write; the write is refused if the activity changed since"`
 }
 
@@ -358,8 +358,9 @@ func writeActivityAction(ctx context.Context, c activitiesClient, companyDomain 
 		Version:       func(a *pipedrive.Activity) string { return a.UpdateTime },
 		// complete and reopen authorise their own overwrite; see
 		// activityAction.
-		Overwrite: in.Overwrite || activityActions[in.Action].transition,
-		DryRun:    in.DryRun,
+		Overwrite:    in.Overwrite,
+		OverwriteAll: activityActions[in.Action].transition,
+		DryRun:       in.DryRun,
 		Get: func(ctx context.Context) (*pipedrive.Activity, error) {
 			// The guard read deliberately does not ask for attendees:
 			// nothing here writes them, and they are the expensive part.

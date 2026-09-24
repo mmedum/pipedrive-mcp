@@ -110,7 +110,7 @@ func TestGuardedWrite_VersionCheckPrecedesEverything(t *testing.T) {
 	// them write over the newer one.
 	w, puts := plan(rec{Version: "v9", Title: "stored"}, setTitle("replacement"), rec{})
 	w.ExpectVersion = "v1"
-	w.Overwrite = true
+	w.Overwrite = []string{"title"}
 	_, _, stop := w.run(context.Background())
 	if stop == nil {
 		t.Fatal("a stale expect_version must refuse even with overwrite set")
@@ -132,7 +132,7 @@ func TestGuardedWrite_OverwritePermitsAndReportsTheEcho(t *testing.T) {
 		setTitle("asked for"),
 		rec{Version: "v2", Title: "ASKED FOR", Note: "server added this"},
 	)
-	w.Overwrite = true
+	w.Overwrite = []string{"title"}
 	got, changed, stop := w.run(context.Background())
 	if stop != nil {
 		t.Fatalf("overwrite should permit the write: %s", contentOf(stop))

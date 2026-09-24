@@ -113,7 +113,7 @@ func TestWrite_NoteRoundTrip(t *testing.T) {
 	edited := "<p>" + probeValue("note") + " edited</p>"
 	var updated noteWriteOut
 	mustCall(t, "manage_note", map[string]any{
-		"action": "update", "note_id": id, "content": edited, "overwrite": true,
+		"action": "update", "note_id": id, "content": edited, "overwrite": []string{"content"},
 	}, &updated)
 	if !slices.Contains(updated.Changed, "content") {
 		t.Errorf("changed = %v; want content", updated.Changed)
@@ -152,7 +152,7 @@ func TestWrite_PersonFieldRoundTrips(t *testing.T) {
 
 	undo(t, fmt.Sprintf("person %d first_name not restored", id), func() (bool, string) {
 		if res := call(t, "manage_person", map[string]any{
-			"action": "update", "person_id": id, "first_name": original, "overwrite": true,
+			"action": "update", "person_id": id, "first_name": original, "overwrite": []string{"first_name"},
 		}); res.IsError {
 			return false, testutil.TextContent(res)
 		}
@@ -166,7 +166,7 @@ func TestWrite_PersonFieldRoundTrips(t *testing.T) {
 	var rehearsal writeOut
 	mustCall(t, "manage_person", map[string]any{
 		"action": "update", "person_id": id, "first_name": probe,
-		"overwrite": true, "dry_run": true,
+		"overwrite": []string{"first_name"}, "dry_run": true,
 	}, &rehearsal)
 	if slices.Contains(rehearsal.Changed, "name") {
 		t.Errorf("the rehearsal predicted name = %v; it cannot know what Pipedrive derives", rehearsal.Changed)
@@ -174,7 +174,7 @@ func TestWrite_PersonFieldRoundTrips(t *testing.T) {
 
 	var out writeOut
 	mustCall(t, "manage_person", map[string]any{
-		"action": "update", "person_id": id, "first_name": probe, "overwrite": true,
+		"action": "update", "person_id": id, "first_name": probe, "overwrite": []string{"first_name"},
 	}, &out)
 	if !slices.Contains(out.Changed, "first_name") {
 		t.Errorf("changed = %v; want first_name", out.Changed)
@@ -220,7 +220,7 @@ func TestWrite_PersonEmailsReplaceWholesale(t *testing.T) {
 
 	undo(t, fmt.Sprintf("person %d emails not restored", id), func() (bool, string) {
 		if res := call(t, "manage_person", map[string]any{
-			"action": "update", "person_id": id, "emails": original, "overwrite": true,
+			"action": "update", "person_id": id, "emails": original, "overwrite": []string{"emails"},
 		}); res.IsError {
 			return false, testutil.TextContent(res)
 		}
@@ -239,7 +239,7 @@ func TestWrite_PersonEmailsReplaceWholesale(t *testing.T) {
 
 	appended := append(slices.Clone(original), contactRow{Value: probeEmail, Label: "probe"})
 	mustCall(t, "manage_person", map[string]any{
-		"action": "update", "person_id": id, "emails": appended, "overwrite": true,
+		"action": "update", "person_id": id, "emails": appended, "overwrite": []string{"emails"},
 	}, nil)
 
 	var after personOut
@@ -266,7 +266,7 @@ func TestWrite_OrganizationNameRoundTrips(t *testing.T) {
 
 	undo(t, fmt.Sprintf("organization %d name not restored", id), func() (bool, string) {
 		if res := call(t, "manage_organization", map[string]any{
-			"action": "update", "org_id": id, "name": original, "overwrite": true,
+			"action": "update", "org_id": id, "name": original, "overwrite": []string{"name"},
 		}); res.IsError {
 			return false, testutil.TextContent(res)
 		}
@@ -277,7 +277,7 @@ func TestWrite_OrganizationNameRoundTrips(t *testing.T) {
 
 	var out writeOut
 	mustCall(t, "manage_organization", map[string]any{
-		"action": "update", "org_id": id, "name": original + "-probe", "overwrite": true,
+		"action": "update", "org_id": id, "name": original + "-probe", "overwrite": []string{"name"},
 	}, &out)
 	if !slices.Contains(out.Changed, "name") {
 		t.Errorf("changed = %v; want name", out.Changed)
@@ -311,7 +311,7 @@ func TestWrite_DealDateRoundTrips(t *testing.T) {
 
 	undo(t, fmt.Sprintf("deal %d expected_close_date not restored", id), func() (bool, string) {
 		if res := call(t, "manage_deal", map[string]any{
-			"action": "update", "deal_id": id, "expected_close_date": original, "overwrite": true,
+			"action": "update", "deal_id": id, "expected_close_date": original, "overwrite": []string{"expected_close_date"},
 		}); res.IsError {
 			return false, testutil.TextContent(res)
 		}
@@ -328,7 +328,7 @@ func TestWrite_DealDateRoundTrips(t *testing.T) {
 	var out dealWriteOut
 	mustCall(t, "manage_deal", map[string]any{
 		"action": "update", "deal_id": id, "expected_close_date": probe,
-		"overwrite": true, "expect_version": version,
+		"overwrite": []string{"expected_close_date"}, "expect_version": version,
 	}, &out)
 	if !slices.Contains(out.Changed, "expected_close_date") {
 		t.Errorf("changed = %v; want expected_close_date", out.Changed)
@@ -401,7 +401,7 @@ func TestWrite_CustomFieldRoundTripsByLabel(t *testing.T) {
 
 	undo(t, fmt.Sprintf("deal %d left on the wrong dropdown choice", deal.ID), func() (bool, string) {
 		if res := call(t, "manage_deal", map[string]any{
-			"action": "update", "deal_id": deal.ID, "overwrite": true,
+			"action": "update", "deal_id": deal.ID, "overwrite": []string{target.Name},
 			"custom_fields": map[string]any{target.Name: was},
 		}); res.IsError {
 			return false, testutil.TextContent(res)
@@ -429,7 +429,7 @@ func TestWrite_CustomFieldRoundTripsByLabel(t *testing.T) {
 		Changed []string `json:"changed"`
 	}
 	mustCall(t, "manage_deal", map[string]any{
-		"action": "update", "deal_id": deal.ID, "overwrite": true,
+		"action": "update", "deal_id": deal.ID, "overwrite": []string{target.Name},
 		"custom_fields": map[string]any{target.Name: other},
 	}, &out)
 	if !slices.Contains(out.Changed, target.Name) {
