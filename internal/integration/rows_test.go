@@ -46,8 +46,9 @@ type orgRow struct {
 }
 
 type activityRow struct {
-	ID   int64 `json:"id"`
-	Done bool  `json:"done"`
+	ID       int64 `json:"id"`
+	Done     bool  `json:"done"`
+	PersonID int64 `json:"person_id"`
 }
 
 type noteRow struct {

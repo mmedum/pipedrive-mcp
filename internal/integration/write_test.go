@@ -615,3 +615,36 @@ func searchFinds(t *testing.T, term, itemType string, id int64, want bool) bool 
 	}
 	return found
 }
+
+// Linking an activity to a person, against the real API.
+//
+// This is the probe whose absence hid the bug. `manage_activity` has
+// always offered person_id and always described it as "the linked
+// person, who becomes the primary participant" — and always sent it as
+// person_id, which v2 rejects outright: "'person_id' is a read-only
+// field. Add a primary participant to set 'person_id' instead." Every
+// call that set it failed, and nothing here ever set it.
+//
+// A fake cannot settle this. The fakes accept any request, which is
+// exactly how the broken shape sat in a passing unit test.
+func TestWrite_ActivityLinksToAPerson(t *testing.T) {
+	s := newScratch(t)
+
+	var created activityOut
+	mustCall(t, "manage_activity", map[string]any{
+		"action": "create", "subject": scratchName("person-link activity"),
+		"type": "call", "person_id": s.PersonID,
+	}, &created)
+	id := created.Activity.ID
+	if id == 0 {
+		t.Fatal("manage_activity returned no id")
+	}
+	dropOnCleanup(t, "manage_activity", "activity_id", &id)
+
+	var back activityOut
+	mustCall(t, "get_activity", map[string]any{"activity_id": id}, &back)
+	if back.Activity.PersonID != s.PersonID {
+		t.Errorf("activity %d reads back person_id=%d, want %d — person_id has to travel as the primary participant",
+			id, back.Activity.PersonID, s.PersonID)
+	}
+}

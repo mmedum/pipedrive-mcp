@@ -2,6 +2,7 @@ package tools_test
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -635,4 +636,29 @@ func (f *fakeActivitiesClient) DeleteActivity(_ context.Context, id int64) error
 	f.deleteCalls++
 	f.lastDeleteID = id
 	return f.deleteErr
+}
+
+// person_id reaches Pipedrive as the primary participant, because the
+// field itself is read-only upstream. The translation happens while
+// the request is built, so the guarded-write diff sees the collection
+// the write replaces — if it happened in the client instead, setting
+// person_id would quietly replace a populated participants list with
+// no overwrite refusal.
+func TestManageActivity_PersonIDTravelsAsThePrimaryParticipant(t *testing.T) {
+	fake := &fakeActivitiesClient{
+		createActivity: &pipedrive.Activity{ID: 150, Subject: "s", PersonID: 73},
+	}
+	res := testutil.CallTool(t, func(s *mcp.Server) {
+		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
+	}, "manage_activity", map[string]any{
+		"action": "create", "subject": "s", "type": "call", "person_id": 73,
+	})
+	if res.IsError {
+		t.Fatalf("unexpected isError: %s", contentText(res))
+	}
+	got := fake.lastCreateReq.Participants
+	want := []pipedrive.ActivityParticipant{{PersonID: 73, Primary: true}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("participants = %+v; want %+v", got, want)
+	}
 }
