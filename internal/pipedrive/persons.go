@@ -23,15 +23,19 @@ type ListPersonsOptions struct {
 }
 
 // CreatePersonRequest is the JSON body for POST /api/v2/persons.
-// v2 requires `name`; first_name+last_name are an alternative the
-// API can derive `name` from but this struct surfaces both for
-// callers that already have the parts.
+//
+// `name` and first_name/last_name are ALTERNATIVES, not a whole and
+// its parts. Pipedrive rejects a body carrying both — "Cannot set
+// 'name' and 'first_name'/'last_name' at the same time" — so `name`
+// is omitempty: a request that names the parts must not send an empty
+// `name` alongside them. Give one or the other; Pipedrive derives
+// whichever was not given.
 //
 // Emails and phones are each a list of {value, primary, label}.
 // Multiple `primary: true` entries are silently coerced by
 // Pipedrive — last one wins.
 type CreatePersonRequest struct {
-	Name      string         `json:"name"`
+	Name      string         `json:"name,omitempty"`
 	FirstName string         `json:"first_name,omitempty"`
 	LastName  string         `json:"last_name,omitempty"`
 	Emails    []ContactPoint `json:"emails,omitempty"`
@@ -43,6 +47,46 @@ type CreatePersonRequest struct {
 	// CustomFieldWrite.Values for the shape. Nil omits the object,
 	// leaving every custom field as it is.
 	CustomFields map[string]any `json:"custom_fields,omitempty"`
+}
+
+// errBothNamings is Pipedrive's rule, refused here: `name` and
+// first_name/last_name are alternatives, and a body carrying both
+// comes back "Cannot set 'name' and 'first_name'/'last_name' at the
+// same time". Refusing before the request costs no round trip and can
+// say which argument to drop.
+var errBothNamings = fmt.Errorf("%w: Pipedrive takes name OR first_name/last_name, never both — "+
+	"pass first_name and last_name and it derives name, or pass name and it splits it", ErrValidation)
+
+// Validate refuses a create Pipedrive would reject. A create must name
+// the person somehow, and must not name them twice.
+//
+// The tools layer calls this before deciding whether to send anything,
+// so a dry run is refused on the same input a real create would be —
+// a rehearsal that reports it would create a nameless person is worse
+// than no rehearsal.
+//
+// This method is the intended home for a cross-field rule on a request
+// body: one spelling, called from the client and from the tool, rather
+// than the same sentence written as a literal in both packages the way
+// the deal, organization, activity and note requests still do. Move
+// those here when one of them next needs touching.
+//
+// What belongs here is what is decidable from the request ALONE.
+// Anything needing workspace state — whether an activity `type` exists
+// in this account, whether a `stage_id` belongs to the given pipeline —
+// is left to Pipedrive, because guarding it would mean a cache and a
+// probe. That is a different question from UpdateNoteRequest's
+// deliberate lack of validation, which is about whether the caller
+// asked for anything at all.
+func (r CreatePersonRequest) Validate() error {
+	hasParts := r.FirstName != "" || r.LastName != ""
+	switch {
+	case r.Name != "" && hasParts:
+		return errBothNamings
+	case r.Name == "" && !hasParts:
+		return fmt.Errorf("%w: a person needs a name — pass name, or first_name and last_name", ErrValidation)
+	}
+	return nil
 }
 
 // UpdatePersonRequest is the JSON body for PATCH /api/v2/persons/{id}.
@@ -65,9 +109,22 @@ type UpdatePersonRequest struct {
 	CustomFields map[string]any `json:"custom_fields,omitempty"`
 }
 
+// Validate refuses an update Pipedrive would reject. It asks whether
+// the shape is rejectable, not whether the caller asked for anything:
+// naming nothing is fine here and means leave the name alone.
+func (r UpdatePersonRequest) Validate() error {
+	if r.Name != nil && (r.FirstName != nil || r.LastName != nil) {
+		return errBothNamings
+	}
+	return nil
+}
+
 // UpdatePerson edits a person via PATCH /api/v2/persons/{id} and
 // returns the record Pipedrive echoes back.
 func (c *Client) UpdatePerson(ctx context.Context, id int64, req UpdatePersonRequest) (*Person, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 	var resp itemEnvelope[Person]
 	if err := c.patchV2(ctx, "/persons/"+strconv.FormatInt(id, 10), req, &resp); err != nil {
 		return nil, err
@@ -92,8 +149,8 @@ func (c *Client) GetPerson(ctx context.Context, id int64) (*Person, error) {
 // created person as Pipedrive echoes it (full record with id and
 // custom_fields nested as usual).
 func (c *Client) CreatePerson(ctx context.Context, req CreatePersonRequest) (*Person, error) {
-	if req.Name == "" {
-		return nil, fmt.Errorf("%w: name must not be empty", ErrValidation)
+	if err := req.Validate(); err != nil {
+		return nil, err
 	}
 	var resp itemEnvelope[Person]
 	if err := c.postV2(ctx, "/persons", req, &resp); err != nil {

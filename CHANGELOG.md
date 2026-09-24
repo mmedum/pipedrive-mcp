@@ -52,6 +52,33 @@ in full.
 
 ### Fixed
 
+- **`manage_person` could not create a person with a first name.**
+  `create` required `name`, and Pipedrive rejects a body carrying
+  `name` together with `first_name`/`last_name` — "Cannot set 'name'
+  and 'first_name'/'last_name' at the same time". They are
+  alternatives, not a whole and its parts. So the only way to get a
+  contact with structured names was a create followed by an update,
+  and nothing in the tool said so: the `first_name` description
+  claimed "passing all three is fine", which was the one thing
+  guaranteed to fail.
+
+  `create` now takes `name` OR `first_name`/`last_name`, and Pipedrive
+  derives whichever was not given. Passing both is refused before the
+  request, naming both arguments, because a refusal that costs no
+  round trip and says which one to drop beats a 400 that does not.
+  The same rule guards `update`, which had it too.
+
+  The refusal runs before the dry-run branch, so a rehearsal is
+  refused on the same input a real create would be — a rehearsal that
+  reports it would create a nameless person is worse than no
+  rehearsal.
+
+  Three unit tests asserted the rejected shape as correct, which is
+  how this survived: the fakes accept any request, so the tests
+  confirmed the code sent what the code sent. They now build a person
+  the way the API accepts one, and the live fixture does too — it
+  creates its person in one call instead of two.
+
 - **The live write probes and the eval fixture could close a deal the
   business was actually running.** A probe added in this cycle picked
   the first OPEN deal in the workspace and marked it won, then lost,
