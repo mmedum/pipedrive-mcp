@@ -3,6 +3,7 @@ package pipedrive
 import (
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 // buildPath joins an API path with optional query values. Use this
@@ -31,4 +32,14 @@ func setLimitCursor(q url.Values, limit int, cursor string) {
 	if cursor != "" {
 		q.Set("cursor", cursor)
 	}
+}
+
+// joinInt64s renders ids for Pipedrive's comma-separated `ids`
+// parameter. url.Values escapes the commas; the API accepts that.
+func joinInt64s(ids []int64) string {
+	parts := make([]string, len(ids))
+	for i, id := range ids {
+		parts[i] = strconv.FormatInt(id, 10)
+	}
+	return strings.Join(parts, ",")
 }
