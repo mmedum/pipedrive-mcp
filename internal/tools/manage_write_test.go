@@ -656,11 +656,15 @@ func TestManagePerson_UpdateOverlayCoversEveryField(t *testing.T) {
 			OwnerID: 8, UpdateTime: "t1",
 		},
 	}
+	// name is NOT sent: Pipedrive rejects a write carrying both it and
+	// the parts. It still has to appear in changed, because Pipedrive
+	// derives it from the parts and the diff reports what moved rather
+	// than what was asked for.
 	var out writeOut
 	res := callTool(t, personsReg(fake), "manage_person", map[string]any{
 		"action": "update", "person_id": 3,
-		"overwrite": []string{"name", "first_name", "last_name", "emails", "phones", "org_id", "owner_id"},
-		"name":      "A Contact", "first_name": "A", "last_name": "Contact",
+		"overwrite":  []string{"first_name", "last_name", "emails", "phones", "org_id", "owner_id"},
+		"first_name": "A", "last_name": "Contact",
 		"emails":   []map[string]any{{"value": "a@example.com", "primary": true}},
 		"phones":   []map[string]any{{"value": "+1000", "primary": true}},
 		"org_id":   7,

@@ -178,7 +178,7 @@ match names.
 | `manage_deal` | Create or edit a deal, move it between stages, close it, archive it, or delete it — `create`, `update`, `move_stage`, `mark_won`, `mark_lost`, `reopen`, `archive`, `unarchive`, `delete`. Custom fields by name, dropdowns by label |
 | `get_person` | One contact: names, every email and phone with its label, the company they belong to, and custom fields |
 | `list_persons` | People by owner, linked organisation or update window, cursor-paginated |
-| `manage_person` | Create, edit or delete a contact — `create`, `update`, `delete`. Custom fields by name, dropdowns by label |
+| `manage_person` | Create, edit or delete a contact — `create`, `update`, `delete`. Name it with `name` or with `first_name`/`last_name`, never both. Custom fields by name, dropdowns by label |
 | `get_organization` | One company: the address Pipedrive parsed, how many people hang off it, and custom fields |
 | `list_organizations` | Companies by owner or update window, cursor-paginated |
 | `manage_organization` | Create, edit or delete a company — `create`, `update`, `delete`. Custom fields by name, dropdowns by label |

@@ -219,8 +219,9 @@ func TestClient_CreatePerson(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	// first_name/last_name and no name: Pipedrive derives the full
+	// name and rejects a body that sends both.
 	got, err := newTestClient(srv).CreatePerson(context.Background(), CreatePersonRequest{
-		Name:      "Helle Steffenauer",
 		FirstName: "Helle",
 		LastName:  "Steffenauer",
 		Emails:    []ContactPoint{{Value: "hanna.s@example.com", Primary: true, Label: "work"}},
@@ -235,8 +236,10 @@ func TestClient_CreatePerson(t *testing.T) {
 	if sawPath != "/api/v2/persons" {
 		t.Errorf("path = %q; want /api/v2/persons", sawPath)
 	}
+	if strings.Contains(sawBody, `"name"`) {
+		t.Errorf("body carries name alongside the parts, which Pipedrive rejects: %s", sawBody)
+	}
 	for _, want := range []string{
-		`"name":"Helle Steffenauer"`,
 		`"first_name":"Helle"`,
 		`"last_name":"Steffenauer"`,
 		`"value":"hanna.s@example.com"`,
@@ -288,5 +291,62 @@ func TestClient_CreatePerson_PropagatesUpstreamError(t *testing.T) {
 	}
 	if !errors.Is(err, ErrValidation) {
 		t.Errorf("err = %v; want ErrValidation", err)
+	}
+}
+
+func TestCreatePersonRequest_Validate(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		req     CreatePersonRequest
+		wantErr bool
+	}{
+		{"full name alone", CreatePersonRequest{Name: "Helle Steffenauer"}, false},
+		{"parts alone", CreatePersonRequest{FirstName: "Helle", LastName: "Steffenauer"}, false},
+		{"first name alone", CreatePersonRequest{FirstName: "Helle"}, false},
+		{"last name alone", CreatePersonRequest{LastName: "Steffenauer"}, false},
+		{"both", CreatePersonRequest{Name: "Helle Steffenauer", FirstName: "Helle"}, true},
+		{"neither", CreatePersonRequest{}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.req.Validate()
+			if tc.wantErr && err == nil {
+				t.Fatal("want an error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("want no error, got %v", err)
+			}
+			if err != nil && !errors.Is(err, ErrValidation) {
+				t.Errorf("err = %v; want ErrValidation", err)
+			}
+		})
+	}
+}
+
+func TestUpdatePersonRequest_Validate(t *testing.T) {
+	name, first, last := "Helle Steffenauer", "Helle", "Steffenauer"
+	for _, tc := range []struct {
+		name    string
+		req     UpdatePersonRequest
+		wantErr bool
+	}{
+		// Naming nothing is fine on an update: it leaves the name
+		// alone. That is the one row that differs from a create.
+		{"names nothing", UpdatePersonRequest{}, false},
+		{"full name alone", UpdatePersonRequest{Name: &name}, false},
+		{"parts alone", UpdatePersonRequest{FirstName: &first, LastName: &last}, false},
+		{"both", UpdatePersonRequest{Name: &name, FirstName: &first}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.req.Validate()
+			if tc.wantErr && err == nil {
+				t.Fatal("want an error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("want no error, got %v", err)
+			}
+			if err != nil && !errors.Is(err, ErrValidation) {
+				t.Errorf("err = %v; want ErrValidation", err)
+			}
+		})
 	}
 }

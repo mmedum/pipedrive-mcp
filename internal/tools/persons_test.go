@@ -265,6 +265,10 @@ func TestRegisterPersons_RegistersInDumpRegistry(t *testing.T) {
 	}
 }
 
+// The gap this closes: create required `name`, and Pipedrive rejects a
+// body carrying `name` together with the parts, so there was no way
+// through this tool to create a person with a first name. It took a
+// create and then an update.
 func TestCreatePerson_HappyPath(t *testing.T) {
 	fake := &fakePersonsClient{
 		createPerson: &pipedrive.Person{
@@ -281,8 +285,9 @@ func TestCreatePerson_HappyPath(t *testing.T) {
 	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{})
 	}, "manage_person", map[string]any{
+		// The parts, and no name: Pipedrive derives the full name and
+		// rejects a create that sends both.
 		"action":     "create",
-		"name":       "Helle Steffenauer",
 		"first_name": "Helle",
 		"last_name":  "Steffenauer",
 		"emails":     []map[string]any{{"value": "hanna.s@example.com", "primary": true, "label": "work"}},
@@ -310,34 +315,15 @@ func TestCreatePerson_HappyPath(t *testing.T) {
 	if out.Person.URL != "https://acme.pipedrive.com/person/77" {
 		t.Errorf("URL = %q, want acme/person/77", out.Person.URL)
 	}
-	if fake.lastCreateReq.Name != "Helle Steffenauer" ||
+	if fake.lastCreateReq.Name != "" {
+		t.Errorf("request carries name alongside the parts, which Pipedrive rejects: %+v", fake.lastCreateReq)
+	}
+	if fake.lastCreateReq.FirstName != "Helle" ||
+		fake.lastCreateReq.LastName != "Steffenauer" ||
 		fake.lastCreateReq.OrgID != 59 ||
 		len(fake.lastCreateReq.Emails) != 1 ||
 		fake.lastCreateReq.Emails[0].Value != "hanna.s@example.com" {
 		t.Errorf("upstream request lost fields: %+v", fake.lastCreateReq)
-	}
-}
-
-func TestCreatePerson_RejectsEmptyName(t *testing.T) {
-	fake := &fakePersonsClient{}
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	res, _ := h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "manage_person",
-		Arguments: map[string]any{
-			"action": "create", "name": ""},
-	})
-	if !res.IsError {
-		t.Fatal("expected isError on empty name")
-	}
-	if !strings.HasPrefix(contentText(res), "[validation]") {
-		t.Errorf("error text = %q; want [validation] prefix", contentText(res))
-	}
-	if fake.createCallSeen {
-		t.Error("CreatePerson called despite client-side validation failure")
 	}
 }
 
@@ -400,4 +386,73 @@ func (f *fakePersonsClient) DeletePerson(_ context.Context, id int64) error {
 	f.deleteCalls++
 	f.lastDeleteID = id
 	return f.deleteErr
+}
+
+func TestCreatePerson_FirstNameAloneIsEnough(t *testing.T) {
+	fake := &fakePersonsClient{createPerson: &pipedrive.Person{ID: 79, Name: "Helle", FirstName: "Helle"}}
+	res := testutil.CallTool(t, func(s *mcp.Server) {
+		tools.RegisterPersons(s, fake, "acme", tools.RegisterOptions{})
+	}, "manage_person", map[string]any{"action": "create", "first_name": "Helle"})
+	if res.IsError {
+		t.Fatalf("unexpected isError: %s", contentText(res))
+	}
+	if !fake.createCallSeen {
+		t.Error("CreatePerson was not called")
+	}
+}
+
+// Every way manage_person refuses a naming, in one place.
+//
+// `name` and first_name/last_name are alternatives — Pipedrive answers
+// a body carrying both with "Cannot set 'name' and
+// 'first_name'/'last_name' at the same time". Refusing here costs no
+// round trip and the refusal can say which argument to drop.
+//
+// The fakes do not validate, so `createCallSeen` staying false is what
+// proves the tools layer refused rather than the client. The dry-run
+// rows matter for the same reason in reverse: a rehearsal never
+// reaches the client at all, so it is only refused if the check sits
+// before that branch.
+func TestManagePerson_RefusesABadNaming(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		args         map[string]any
+		wantContains []string
+	}{
+		{"both on create", map[string]any{
+			"action": "create", "name": "Helle Steffenauer", "first_name": "Helle",
+		}, []string{"name", "first_name"}},
+		{"both on update", map[string]any{
+			"action": "update", "person_id": 3, "name": "Helle Steffenauer", "last_name": "Steffenauer",
+		}, []string{"name", "first_name"}},
+		{"both on a rehearsal", map[string]any{
+			"action": "create", "name": "Helle Steffenauer", "first_name": "Helle", "dry_run": true,
+		}, []string{"name", "first_name"}},
+		{"create names nobody", map[string]any{
+			"action": "create", "name": "",
+		}, nil},
+		{"a rehearsal names nobody", map[string]any{
+			"action": "create", "dry_run": true,
+		}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakePersonsClient{person: &pipedrive.Person{ID: 3}}
+			res := testutil.CallTool(t, personsReg(fake), "manage_person", tc.args)
+			if !res.IsError {
+				t.Fatal("expected isError")
+			}
+			text := contentText(res)
+			if !strings.HasPrefix(text, "[validation]") {
+				t.Errorf("error text = %q; want a [validation] prefix", text)
+			}
+			for _, want := range tc.wantContains {
+				if !strings.Contains(text, want) {
+					t.Errorf("error text = %q; want it to name %q", text, want)
+				}
+			}
+			if fake.createCallSeen {
+				t.Error("the upstream was called anyway")
+			}
+		})
+	}
 }
