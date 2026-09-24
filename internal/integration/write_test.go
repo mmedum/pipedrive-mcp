@@ -448,29 +448,44 @@ func TestWrite_CustomFieldRoundTripsByLabel(t *testing.T) {
 // reopen was broken and nothing here noticed, because the unit fakes
 // accept any request and no probe reopened a real deal. Pipedrive
 // rejects lost_reason alongside status:open — "Lost reason and lost
-// time must can only be set when status is lost" — and it validates
-// the RESULTING state, so sending it failed reopen from won AND from
-// lost. Three live eval runs found it.
+// time must can only be set when status is lost" — and it validates the
+// RESULTING state, so sending it failed reopen from won AND from lost.
 //
-// Both directions, because the first attempt at the fix only handled
-// the won case and would have left the commoner one broken.
+// THE FIRST VERSION OF THIS PROBE PICKED THE FIRST OPEN DEAL IN THE
+// WORKSPACE and closed it, twice, to prove the transition worked. The
+// field state restored; the automations that fired on every status
+// change did not. A real customer's deal was marked won and lost four
+// times before anyone noticed.
+//
+// So it builds its own deal now, in a pipeline the business does not
+// use, and deletes it. Nothing here transitions a record this suite did
+// not create.
 func TestWrite_DealReopensFromWonAndFromLost(t *testing.T) {
-	requireWrites(t)
+	pipeline := requireOwnPipeline(t)
 
-	var deals dealsOut
-	mustCall(t, "list_deals", map[string]any{"status": "open", "limit": 100}, &deals)
-	target := pickFirst(t, deals.Deals, "no open deal to transition")
-	id := target.ID
+	var stages stagesOut
+	mustCall(t, "list_stages", map[string]any{"pipeline_id": pipeline}, &stages)
+	stage := pickFirst(t, stages.Stages, "the test pipeline has no stages")
 
-	// Whatever happens below, the deal ends open — which is where it
-	// started, so the restore is the same call in both directions.
-	undo(t, fmt.Sprintf("deal %d not returned to open", id), func() (bool, string) {
-		if res := call(t, "manage_deal", map[string]any{"action": "reopen", "deal_id": id}); res.IsError {
+	var created dealOut
+	mustCall(t, "manage_deal", map[string]any{
+		"action": "create", "title": "eval probe — reopen (safe to delete)",
+		"pipeline_id": pipeline, "stage_id": stage.ID,
+	}, &created)
+	id := created.Deal.ID
+	if id == 0 {
+		t.Fatal("the probe deal was not created")
+	}
+
+	// Soft delete, so Pipedrive purges it after 30 days even if this
+	// call is the thing that fails.
+	undo(t, fmt.Sprintf("probe deal %d not deleted", id), func() (bool, string) {
+		if res := call(t, "manage_deal", map[string]any{
+			"action": "delete", "deal_id": id,
+		}); res.IsError {
 			return false, testutil.TextContent(res)
 		}
-		var back dealOut
-		mustCall(t, "get_deal", map[string]any{"deal_id": id}, &back)
-		return back.Deal.Status == "open", "status is " + back.Deal.Status
+		return true, ""
 	})
 
 	for _, close := range []struct{ action, want string }{

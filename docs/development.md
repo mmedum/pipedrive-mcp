@@ -76,6 +76,14 @@ state** read back through this server, because a model's account of what
 it did is the least reliable thing in the run, and the **trace**, because
 a task can be completed by a model that guessed an id and was lucky.
 
+**It needs its own pipeline.** `PIPEDRIVE_TEST_PIPELINE_ID` must name a
+pipeline the business does not use, and there is no default. Several
+tasks close the fixture deal — won, lost, archived — and a status
+change fires whatever automations the workspace hangs off one. A probe
+in this repository once closed a real customer's deal four times to
+prove a transition worked; the field state restored and the automations
+still ran. The same rule now covers `make integration-writes`.
+
 **It writes to the configured workspace.** The fixture — an
 organization, a person, a deal, an activity and a note, all invented and
 all named `(eval <timestamp>)` — is built through the server's own tools
