@@ -33,36 +33,61 @@ type scratch struct {
 	Title      string
 }
 
+// testPipelineStage names the pipeline this suite is allowed to write
+// to and its first stage. Everything that creates a deal goes through
+// here, so no probe can put one in a pipeline the business uses.
+func testPipelineStage(t *testing.T) (pipeline, stage int64) {
+	t.Helper()
+	pipeline = requireOwnPipeline(t)
+	var stages stagesOut
+	mustCall(t, "list_stages", map[string]any{"pipeline_id": pipeline}, &stages)
+	return pipeline, pickFirst(t, stages.Stages, "the test pipeline has no stages").ID
+}
+
+// scratchName is the one spelling of what a record this suite created
+// is called. The "mcp-test" prefix is the point: anything that escapes
+// a failed teardown is identifiable in the workspace rather than
+// anonymous, and it is only identifiable if every probe spells it the
+// same way.
+func scratchName(suffix string) string {
+	name := "mcp-test " + time.Now().UTC().Format("20060102-150405.000")
+	if suffix != "" {
+		name += " " + suffix
+	}
+	return name
+}
+
+// dropOnCleanup deletes a record this suite created when the test
+// ends. A zero id is one that was never created, or one the test body
+// deleted itself. Deletes are soft — Pipedrive purges after 30 days —
+// so even a teardown that fails leaves nothing permanent.
+func dropOnCleanup(t *testing.T, tool, idField string, id *int64) {
+	t.Helper()
+	t.Cleanup(func() {
+		if *id == 0 {
+			return
+		}
+		if res := call(t, tool, map[string]any{"action": "delete", idField: *id}); res.IsError {
+			t.Errorf("LEFT BEHIND: %s %d: %s", idField, *id, testutil.TextContent(res))
+		}
+	})
+}
+
 // newScratch builds the records and registers their deletion. Deletes
 // are soft — Pipedrive purges after 30 days — so even a teardown that
 // fails leaves nothing permanent.
 func newScratch(t *testing.T) scratch {
 	t.Helper()
-	pipeline := requireOwnPipeline(t)
+	pipeline, stage := testPipelineStage(t)
 
-	var stages stagesOut
-	mustCall(t, "list_stages", map[string]any{"pipeline_id": pipeline}, &stages)
-	stage := pickFirst(t, stages.Stages, "the test pipeline has no stages")
-
-	stamp := time.Now().UTC().Format("20060102-150405.000")
-	s := scratch{StageID: stage.ID, Title: "mcp-test " + stamp}
+	s := scratch{StageID: stage, Title: scratchName("")}
 
 	// Deleted newest-first, so a parent never goes before its children.
-	drop := func(tool, idField string, id *int64) {
-		t.Cleanup(func() {
-			if *id == 0 {
-				return
-			}
-			if res := call(t, tool, map[string]any{"action": "delete", idField: *id}); res.IsError {
-				t.Errorf("LEFT BEHIND: %s %d: %s", idField, *id, testutil.TextContent(res))
-			}
-		})
-	}
-	drop("manage_organization", "org_id", &s.OrgID)
-	drop("manage_person", "person_id", &s.PersonID)
-	drop("manage_deal", "deal_id", &s.DealID)
-	drop("manage_activity", "activity_id", &s.ActivityID)
-	drop("manage_note", "note_id", &s.NoteID)
+	dropOnCleanup(t, "manage_organization", "org_id", &s.OrgID)
+	dropOnCleanup(t, "manage_person", "person_id", &s.PersonID)
+	dropOnCleanup(t, "manage_deal", "deal_id", &s.DealID)
+	dropOnCleanup(t, "manage_activity", "activity_id", &s.ActivityID)
+	dropOnCleanup(t, "manage_note", "note_id", &s.NoteID)
 
 	newID := func(tool string, args map[string]any, key string) int64 {
 		t.Helper()
@@ -97,7 +122,7 @@ func newScratch(t *testing.T) scratch {
 	}, "person")
 	s.DealID = newID("manage_deal", map[string]any{
 		"action": "create", "title": s.Title + " deal",
-		"pipeline_id": pipeline, "stage_id": stage.ID,
+		"pipeline_id": pipeline, "stage_id": stage,
 		"org_id": s.OrgID, "person_id": s.PersonID,
 		"expected_close_date": "2027-01-31",
 	}, "deal")
