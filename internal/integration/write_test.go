@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
 	"github.com/mmedum/pipedrive-mcp/internal/server/testutil"
@@ -44,13 +45,7 @@ func undo(t *testing.T, what string, restore func() (ok bool, detail string)) {
 }
 
 func TestWrite_ActivityCompletesAndReopens(t *testing.T) {
-	requireWrites(t)
-
-	var open activitiesOut
-	mustCall(t, "list_activities", map[string]any{"status": "open", "limit": 25}, &open)
-	id := pickWhere(t, open.Activities,
-		"workspace has no open activity to round-trip",
-		func(a activityRow) bool { return !a.Done }).ID
+	id := newScratch(t).ActivityID
 
 	undo(t, fmt.Sprintf("activity %d left marked done", id), func() (bool, string) {
 		if res := call(t, "manage_activity", map[string]any{
@@ -82,14 +77,13 @@ func TestWrite_ActivityCompletesAndReopens(t *testing.T) {
 // and DELETE against /api/v1/notes, none of which v2 exposes. It
 // writes only a record it created itself.
 func TestWrite_NoteRoundTrip(t *testing.T) {
-	requireWrites(t)
-	deal := pickDeal(t)
+	s := newScratch(t)
 
 	var created noteWriteOut
 	mustCall(t, "manage_note", map[string]any{
 		"action":  "create",
 		"content": "<p>" + probeValue("note") + "</p>",
-		"deal_id": deal.ID,
+		"deal_id": s.DealID,
 	}, &created)
 	id := created.Note.ID
 	if id == 0 {
@@ -141,14 +135,10 @@ func TestWrite_NoteRoundTrip(t *testing.T) {
 // which diffs what came back — reports it. Neither is wrong, and a
 // fake cannot show the difference.
 func TestWrite_PersonFieldRoundTrips(t *testing.T) {
-	requireWrites(t)
-
-	var persons personsOut
-	mustCall(t, "list_persons", map[string]any{"limit": 25}, &persons)
-	target := pickWhere(t, persons.Persons,
-		"no person in the first page has a populated first_name",
-		func(p personRow) bool { return p.FirstName != "" })
-	id, original := target.ID, target.FirstName
+	s := newScratch(t)
+	var target personOut
+	mustCall(t, "get_person", map[string]any{"person_id": s.PersonID}, &target)
+	id, original := s.PersonID, target.Person.FirstName
 
 	undo(t, fmt.Sprintf("person %d first_name not restored", id), func() (bool, string) {
 		if res := call(t, "manage_person", map[string]any{
@@ -201,21 +191,16 @@ func TestWrite_PersonFieldRoundTrips(t *testing.T) {
 func TestWrite_PersonEmailsReplaceWholesale(t *testing.T) {
 	requireWrites(t)
 
-	var persons personsOut
-	mustCall(t, "list_persons", map[string]any{"limit": 25}, &persons)
-	id := pickWhere(t, persons.Persons,
-		"no person in the first page has an email address",
-		func(p personRow) bool { return len(p.Emails) > 0 }).ID
+	id := newScratch(t).PersonID
 
-	// The list row already carries the addresses. Read them again
-	// anyway: this set is what the restore posts back, and a
-	// wholesale replace is worth one round trip of certainty about
-	// what it is replacing.
+	// The scratch person is created with one address, which is what
+	// this appends to. Read it rather than assuming: the set read back
+	// is what a wholesale replace has to carry.
 	var before personOut
 	mustCall(t, "get_person", map[string]any{"person_id": id}, &before)
 	original := before.Person.Emails
 	if len(original) == 0 {
-		t.Skip("the listed person's emails did not survive a get")
+		t.Fatal("the scratch person was created without the address this probe appends to")
 	}
 
 	undo(t, fmt.Sprintf("person %d emails not restored", id), func() (bool, string) {
@@ -257,12 +242,10 @@ const probeEmail = "pipedrive-mcp-probe@example.com"
 func TestWrite_OrganizationNameRoundTrips(t *testing.T) {
 	requireWrites(t)
 
-	var orgs orgsOut
-	mustCall(t, "list_organizations", map[string]any{"limit": 1}, &orgs)
-	target := pickWhere(t, orgs.Organizations,
-		"workspace has no named organization",
-		func(o orgRow) bool { return o.Name != "" })
-	id, original := target.ID, target.Name
+	sc := newScratch(t)
+	var target orgOut
+	mustCall(t, "get_organization", map[string]any{"org_id": sc.OrgID}, &target)
+	id, original := sc.OrgID, target.Organization.Name
 
 	undo(t, fmt.Sprintf("organization %d name not restored", id), func() (bool, string) {
 		if res := call(t, "manage_organization", map[string]any{
@@ -297,17 +280,17 @@ func TestWrite_OrganizationNameRoundTrips(t *testing.T) {
 func TestWrite_DealDateRoundTrips(t *testing.T) {
 	requireWrites(t)
 
-	var deals dealsOut
-	mustCall(t, "list_deals", map[string]any{"limit": 100}, &deals)
-	target := pickWhere(t, deals.Deals,
-		"no deal in the first page has a real expected_close_date",
-		// 0000-00-00 is MySQL's zero date, which is what a v2 write of
-		// "" leaves behind. Restoring one is the problem this test
-		// exists to avoid creating.
-		func(d dealRow) bool {
-			return d.ExpectedCloseDate != "" && d.ExpectedCloseDate != "0000-00-00"
-		})
-	id, original, version := target.ID, target.ExpectedCloseDate, target.UpdateTime
+	// The scratch deal is created with an expected_close_date, so this
+	// has something populated to write over without borrowing one.
+	// 0000-00-00 is MySQL's zero date, which is what a v2 write of ""
+	// leaves behind — creating one is the problem this probe avoids.
+	sc := newScratch(t)
+	var target dealOut
+	mustCall(t, "get_deal", map[string]any{"deal_id": sc.DealID}, &target)
+	id, original, version := sc.DealID, target.Deal.ExpectedCloseDate, target.Deal.UpdateTime
+	if original == "" || original == "0000-00-00" {
+		t.Fatalf("the scratch deal has no usable expected_close_date (%q)", original)
+	}
 
 	undo(t, fmt.Sprintf("deal %d expected_close_date not restored", id), func() (bool, string) {
 		if res := call(t, "manage_deal", map[string]any{
@@ -324,6 +307,14 @@ func TestWrite_DealDateRoundTrips(t *testing.T) {
 	if original == probe {
 		probe = "2030-12-30"
 	}
+
+	// Pipedrive's update_time has second granularity, and this deal was
+	// created a moment ago. Writing inside the same second leaves the
+	// timestamp where it was, which would read as "expect_version
+	// cannot catch a concurrent edit" when the truth is that the clock
+	// has not ticked. Wait for the tick rather than weaken the
+	// assertion — it is the assertion that matters here.
+	time.Sleep(1100 * time.Millisecond)
 
 	var out dealWriteOut
 	mustCall(t, "manage_deal", map[string]any{
@@ -377,27 +368,28 @@ func TestWrite_CustomFieldRoundTripsByLabel(t *testing.T) {
 		t.Skip("workspace has no writable custom dropdown with two choices")
 	}
 
-	var page dealsOut
-	mustCall(t, "list_deals", map[string]any{"limit": 50}, &page)
-	deal := pickWhere(t, page.Deals,
-		"no deal in this workspace has that dropdown filled in",
-		func(d dealRow) bool {
-			v, ok := d.CustomFields[target.Name]
-			s, isString := v.(string)
-			return ok && isString && s != ""
-		})
+	// The field DEFINITION comes from the workspace, because that is
+	// what this probe exists to exercise — a label resolving to an
+	// option id upstream. The RECORD it writes to is this suite's own:
+	// the definition is shared configuration, a deal is somebody's
+	// work, and only one of those is safe to move.
+	if len(target.Options) < 2 {
+		t.Skip("the dropdown has too few choices to move between")
+	}
+	was, other := target.Options[0].Label, target.Options[1].Label
+	if was == "" || other == "" {
+		t.Skip("the dropdown's choices are unusable as a write target")
+	}
 
-	was, _ := deal.CustomFields[target.Name].(string)
-	other := ""
-	for _, o := range target.Options {
-		if o.Label != was && o.Label != "" {
-			other = o.Label
-			break
-		}
-	}
-	if other == "" {
-		t.Skip("the dropdown's other choices are unusable as a write target")
-	}
+	sc := newScratch(t)
+	deal := dealRow{ID: sc.DealID}
+
+	// Fill it first, so the overwrite guard below has something
+	// populated to refuse over.
+	mustCall(t, "manage_deal", map[string]any{
+		"action": "update", "deal_id": deal.ID,
+		"custom_fields": map[string]any{target.Name: was},
+	}, nil)
 
 	undo(t, fmt.Sprintf("deal %d left on the wrong dropdown choice", deal.ID), func() (bool, string) {
 		if res := call(t, "manage_deal", map[string]any{
