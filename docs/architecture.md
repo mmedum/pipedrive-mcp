@@ -375,8 +375,10 @@ it is protecting, and the argument that permits the write.
 - `dry_run` — a per-call input on every write. Reports what the write
   would find and change, sends nothing. Validation still runs, so a
   rehearsal catches the same input errors a real call would.
-- `overwrite` — required before an update may replace a populated field.
-  Filling an empty field destroys nothing and needs no flag.
+- `overwrite` — the list of fields an update may replace, e.g.
+  `["title", "value"]`, exactly as the refusal names them. Naming fewer
+  than it named is still refused, over the ones left out. Filling an
+  empty field destroys nothing and needs no permission.
 - `expect_version` — carries the `update_time` from the read that
   informed the write, and refuses if the record moved since. Best effort:
   Pipedrive has no compare-and-set, so this catches a concurrent edit,

@@ -354,11 +354,13 @@ the caller can already see the consequences of is friction, not safety:
   flag makes speculative LLM work safe, and a tool that honoured only
   the per-call input would make that promise false.
 - **`overwrite`** where the write would clobber a populated field the
-  caller has not read. Without it the write is refused, naming **every**
-  such field — derive that set from the same diff that produces the
-  `changed` report rather than hand-checking one field, or the guard
-  drifts from the report. Not needed to fill a field that is empty:
-  filling destroys nothing.
+  caller has not read. It is a **list of field names**, not a flag:
+  `["title", "value"]` permits exactly those two, and a write that also
+  lands on a third is still refused over the third. The refusal names
+  **every** protected field and prints the array to pass back — derive
+  that set from the same diff that produces the `changed` report rather
+  than hand-checking one field, or the guard drifts from the report.
+  Not needed to fill a field that is empty: filling destroys nothing.
 - **`expect_version`** carries the `update_time` from the read that
   informed the write. The write is refused if the record changed since.
   Best effort — Pipedrive has no atomic compare-and-set — so it catches
