@@ -66,22 +66,64 @@ func populatedFields[T any](spec []fieldSpec[T], r *T, names []string) []string 
 }
 
 // requireOverwrite refuses a write that would replace fields already
-// holding a value, unless overwrite says to go ahead. The refusal names
+// holding a value, unless the caller NAMES each one. The refusal names
 // every such field, because a caller told only that "something" would
 // be clobbered cannot decide whether they meant it.
-func requireOverwrite[T any](spec []fieldSpec[T], resource string, before *T, changed []string, overwrite bool) error {
-	if overwrite {
+//
+// overwrite used to be a bool, and a blanket one: `overwrite: true`
+// permitted replacing every populated field the write happened to
+// touch. So a caller who meant "change the title" and sent a write that
+// also landed on value got both replaced on one flag, having been told
+// about both but having agreed to nothing in particular.
+//
+// Naming them makes the permit per-field. A caller that names `title`
+// and not `value` is still refused over value, which is the case the
+// bool could not express.
+//
+// It does NOT stop a model routing around the guard, and nothing in
+// band can: whatever the refusal says, a model can echo back. Three
+// eval runs at v0.6.0 had one re-send with `overwrite: true` every
+// time, and rewriting the field description did not change that. What
+// this removes is the blanket — the model now has to be wrong about
+// each field separately, and the call records which ones it claimed.
+func requireOverwrite[T any](spec []fieldSpec[T], resource string, before *T, changed, overwrite []string, all bool) error {
+	if all {
 		return nil
 	}
 	clobbered := populatedFields(spec, before, changed)
 	if len(clobbered) == 0 {
 		return nil
 	}
+
+	named := make(map[string]bool, len(overwrite))
+	for _, f := range overwrite {
+		named[f] = true
+	}
+	var unnamed []string
+	for _, f := range clobbered {
+		if !named[f] {
+			unnamed = append(unnamed, f)
+		}
+	}
+	if len(unnamed) == 0 {
+		return nil
+	}
 	return refuse(
 		fmt.Sprintf("%s already has %s set, and this write would replace what is there",
-			resource, strings.Join(clobbered, ", ")),
-		"overwrite: true",
+			resource, strings.Join(unnamed, ", ")),
+		fmt.Sprintf("overwrite: [%s]", quotedList(unnamed)),
 	)
+}
+
+// quotedList renders field names as a JSON array body, so the refusal
+// shows the argument the caller can paste back rather than describing
+// it in prose.
+func quotedList(fields []string) string {
+	out := make([]string, len(fields))
+	for i, f := range fields {
+		out[i] = strconv.Quote(f)
+	}
+	return strings.Join(out, ", ")
 }
 
 // The projections below are the value-to-string helpers a fieldSpec
@@ -395,11 +437,17 @@ type guardedWrite[T any] struct {
 	ExpectVersion string
 	Version       func(*T) string
 
-	// Overwrite permits replacing populated fields. A transition passes
+	// Overwrite names the populated fields the caller agrees to
+	// replace. A transition passes
 	// true because it names both the change and the field it lands on,
 	// so the caller already sees the whole blast radius.
-	Overwrite bool
-	DryRun    bool
+	Overwrite []string
+	// OverwriteAll is the transition case: the caller named the
+	// transition, and the field it lands on is the field they named, so
+	// there is nothing for them to acknowledge separately. Never set
+	// from caller input.
+	OverwriteAll bool
+	DryRun       bool
 
 	Get     func(context.Context) (*T, error)
 	Predict func(*T) T
@@ -431,7 +479,7 @@ func (w guardedWrite[T]) run(ctx context.Context) (rec *T, changed []string, sto
 		// round trip that would report the same thing.
 		return before, nil, nil
 	}
-	if err = requireOverwrite(spec, w.Resource, before, changed, w.Overwrite); err != nil {
+	if err = requireOverwrite(spec, w.Resource, before, changed, w.Overwrite, w.OverwriteAll); err != nil {
 		return nil, nil, errorResult(err)
 	}
 	if w.DryRun {

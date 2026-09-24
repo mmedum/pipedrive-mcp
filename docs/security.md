@@ -56,9 +56,10 @@ Threats this server defends against:
 - **Accidental destructive action by the LLM.** Mitigated by:
   - A per-call `dry_run` input on every reshaped write, which reports
     what the write would change and sends nothing.
-  - `overwrite`, required before an update may replace content that is
-    already there, and `expect_version`, which refuses a write whose
-    record moved since it was read.
+  - `overwrite`, which names each field an update may replace and is
+    required before it may replace content that is already there, and
+    `expect_version`, which refuses a write whose record moved since it
+    was read.
   - `PIPEDRIVE_DRY_RUN=true` as a server-wide floor: every write tool
     honours it, a per-call `dry_run` can only turn a rehearsal on, and
     nothing on the wire can turn one off.

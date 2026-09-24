@@ -112,7 +112,8 @@ func TestManageDeal_Update_RefusesPopulatedFieldsAndNamesThem(t *testing.T) {
 	if !strings.HasPrefix(txt, "[refused]") {
 		t.Errorf("error = %q; want [refused]", txt)
 	}
-	for _, want := range []string{"title", "value", "overwrite: true", "deal 9"} {
+	// The refusal names the argument to paste back, not a flag to set.
+	for _, want := range []string{"title", "value", `overwrite: ["title", "value"]`, "deal 9"} {
 		if !strings.Contains(txt, want) {
 			t.Errorf("refusal %q does not mention %q", txt, want)
 		}
@@ -563,7 +564,9 @@ func TestManageDeal_UpdateOverlayCoversEveryField(t *testing.T) {
 	}
 	var out writeOut
 	res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal", map[string]any{
-		"action": "update", "deal_id": 9, "overwrite": true,
+		"action": "update", "deal_id": 9,
+		"overwrite": []string{"title", "value", "currency", "stage_id", "pipeline_id",
+			"owner_id", "person_id", "org_id", "expected_close_date", "probability"},
 		"title": "New", "value": 1234, "currency": "EUR",
 		"pipeline_id": 2, "stage_id": 4, "owner_id": 8,
 		"person_id": 3, "org_id": 7,
@@ -619,8 +622,9 @@ func TestManageActivity_UpdateOverlayCoversEveryField(t *testing.T) {
 	}
 	var out writeOut
 	res := callTool(t, activitiesReg(fake), "manage_activity", map[string]any{
-		"action": "update", "activity_id": 5, "overwrite": true,
-		"subject": "Call", "type": "call", "due_date": "2026-12-01",
+		"action": "update", "activity_id": 5,
+		"overwrite": []string{"subject", "type", "due_date", "due_time", "duration", "note", "public_description", "deal_id", "person_id", "org_id", "owner_id", "location", "participants", "busy"},
+		"subject":   "Call", "type": "call", "due_date": "2026-12-01",
 		"due_time": "10:00", "duration": "00:30", "deal_id": 9,
 		"person_id": 3, "org_id": 7, "lead_id": "abc", "owner_id": 8,
 		"note": "n", "public_description": "p", "location": "here",
@@ -654,8 +658,9 @@ func TestManagePerson_UpdateOverlayCoversEveryField(t *testing.T) {
 	}
 	var out writeOut
 	res := callTool(t, personsReg(fake), "manage_person", map[string]any{
-		"action": "update", "person_id": 3, "overwrite": true,
-		"name": "A Contact", "first_name": "A", "last_name": "Contact",
+		"action": "update", "person_id": 3,
+		"overwrite": []string{"name", "first_name", "last_name", "emails", "phones", "org_id", "owner_id"},
+		"name":      "A Contact", "first_name": "A", "last_name": "Contact",
 		"emails":   []map[string]any{{"value": "a@example.com", "primary": true}},
 		"phones":   []map[string]any{{"value": "+1000", "primary": true}},
 		"org_id":   7,
@@ -727,7 +732,8 @@ func TestManageActivity_ParticipantsOnlyUpdateIsNotASilentNoOp(t *testing.T) {
 	}
 	var out writeOut
 	res := callTool(t, activitiesReg(fake), "manage_activity", map[string]any{
-		"action": "update", "activity_id": 5, "overwrite": true,
+		"action": "update", "activity_id": 5,
+		"overwrite":    []string{"subject", "type", "due_date", "due_time", "duration", "note", "public_description", "deal_id", "person_id", "org_id", "owner_id", "location", "participants", "busy"},
 		"participants": []map[string]any{{"person_id": 99, "primary": true}},
 	}, &out)
 	if res.IsError {
@@ -809,8 +815,9 @@ func TestManagePerson_TruncationIsReportedWhenPermitted(t *testing.T) {
 	}
 	var out writeOut
 	res := callTool(t, personsReg(fake), "manage_person", map[string]any{
-		"action": "update", "person_id": 7, "overwrite": true,
-		"emails": []map[string]any{{"value": "a@example.com", "primary": true}},
+		"action": "update", "person_id": 7,
+		"overwrite": []string{"name", "first_name", "last_name", "emails", "phones", "org_id", "owner_id"},
+		"emails":    []map[string]any{{"value": "a@example.com", "primary": true}},
 	}, &out)
 	if res.IsError {
 		t.Fatalf("with overwrite the write should proceed: %s", contentText(res))

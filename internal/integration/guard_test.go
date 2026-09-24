@@ -65,7 +65,7 @@ func TestGuard_OverwriteRehearsesAndSendsNothing(t *testing.T) {
 		"action":    "update",
 		"deal_id":   deal.ID,
 		"title":     probeValue("title"),
-		"overwrite": true,
+		"overwrite": []string{"title"},
 		"dry_run":   true,
 	}, &out)
 
@@ -121,7 +121,7 @@ func TestGuard_StaleExpectVersionRefuses(t *testing.T) {
 		"action":         "update",
 		"deal_id":        deal.ID,
 		"title":          probeValue("title"),
-		"overwrite":      true,
+		"overwrite":      []string{"title"},
 		"expect_version": "1970-01-01 00:00:00",
 		"dry_run":        true,
 	})
@@ -141,7 +141,7 @@ func TestGuard_StaleExpectVersionRefuses(t *testing.T) {
 		"action":         "update",
 		"deal_id":        deal.ID,
 		"title":          probeValue("title"),
-		"overwrite":      true,
+		"overwrite":      []string{"title"},
 		"expect_version": deal.UpdateTime,
 		"dry_run":        true,
 	}, &out)

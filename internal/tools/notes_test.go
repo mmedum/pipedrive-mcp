@@ -436,7 +436,8 @@ func TestManageNote_Update_RefusesOverwritingExistingContent(t *testing.T) {
 	if !strings.Contains(txt, "note 55") {
 		t.Errorf("refusal %q does not name the note it protects", txt)
 	}
-	if !strings.Contains(txt, "overwrite: true") {
+	// The refusal hands back the argument to paste, per field.
+	if !strings.Contains(txt, `overwrite: ["content"]`) {
 		t.Errorf("refusal %q does not name the unlocking argument", txt)
 	}
 	if fake.updateCalls != 0 {
@@ -454,7 +455,7 @@ func TestManageNote_Update_OverwriteAllowsReplacement(t *testing.T) {
 		},
 	}
 	res, out := callManageNote(t, fake, map[string]any{
-		"action": "update", "note_id": 55, "content": "<p>new</p>", "overwrite": true,
+		"action": "update", "note_id": 55, "content": "<p>new</p>", "overwrite": []string{"content", "deal_id", "person_id", "org_id", "lead_id", "project_id"},
 	})
 	if res.IsError {
 		t.Fatalf("overwrite:true should permit the write, got %+v", res.Content)
@@ -530,7 +531,7 @@ func TestManageNote_Update_DryRun_SuppressesUpstream(t *testing.T) {
 	}
 	res, out := callManageNote(t, fake, map[string]any{
 		"action": "update", "note_id": 55, "content": "<p>x</p>", "deal_id": 2,
-		"overwrite": true, "dry_run": true,
+		"overwrite": []string{"content", "deal_id", "person_id", "org_id", "lead_id", "project_id"}, "dry_run": true,
 	})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
@@ -736,7 +737,7 @@ func TestManageNote_Update_NamesEveryChangedAnchor(t *testing.T) {
 	res, out := callManageNote(t, fake, map[string]any{
 		"action": "update", "note_id": 55, "content": "<p>new</p>",
 		"deal_id": 42, "person_id": 7, "org_id": 9,
-		"lead_id": "abc-123", "project_id": 5, "overwrite": true,
+		"lead_id": "abc-123", "project_id": 5, "overwrite": []string{"content", "deal_id", "person_id", "org_id", "lead_id", "project_id"},
 	})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
@@ -767,7 +768,7 @@ func TestManageNote_Update_DryRun_PredictsEveryAnchor(t *testing.T) {
 		"action": "update", "note_id": 55, "content": "<p>new</p>",
 		"deal_id": 42, "person_id": 7, "org_id": 9,
 		"lead_id": "abc-123", "project_id": 5,
-		"overwrite": true, "dry_run": true,
+		"overwrite": []string{"content", "deal_id", "person_id", "org_id", "lead_id", "project_id"}, "dry_run": true,
 	})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
@@ -792,7 +793,7 @@ func TestManageNote_Update_NoOpReportsNothingChanged(t *testing.T) {
 	same := &pipedrive.Note{ID: 55, Content: "<p>same</p>", UpdateTime: "t0", ActiveFlag: true}
 	fake := &fakeNotesClient{note: same, updated: same}
 	res, out := callManageNote(t, fake, map[string]any{
-		"action": "update", "note_id": 55, "content": "<p>same</p>", "overwrite": true,
+		"action": "update", "note_id": 55, "content": "<p>same</p>", "overwrite": []string{"content", "deal_id", "person_id", "org_id", "lead_id", "project_id"},
 	})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
@@ -882,7 +883,7 @@ func TestManageNote_Update_RefusalNamesEveryClobberedField(t *testing.T) {
 		t.Fatal("expected a refusal")
 	}
 	txt := contentText(res)
-	for _, want := range []string{"content", "deal_id", "overwrite: true"} {
+	for _, want := range []string{"content", "deal_id", `overwrite: ["content", "deal_id"]`} {
 		if !strings.Contains(txt, want) {
 			t.Errorf("refusal %q does not mention %q", txt, want)
 		}

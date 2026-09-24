@@ -202,9 +202,11 @@ write — a refusal you cannot act on is a bug.
 
 - **`dry_run`** reports what the write would find and change and sends
   nothing.
-- **`overwrite`** is required before an update may replace a field that
-  already holds a value. Filling an empty field destroys nothing and
-  needs no permission.
+- **`overwrite`** names the fields an update may replace — e.g.
+  `["title", "value"]`, exactly as the refusal lists them. Naming fewer
+  than it listed is still refused, over the ones you left out, so
+  agreeing to replace a title is not agreeing to replace a value.
+  Filling an empty field destroys nothing and needs no permission.
 - **`expect_version`** carries the `update_time` from the read that
   informed the write, and refuses if the record moved since. Best
   effort: Pipedrive has no compare-and-set, so it catches a concurrent

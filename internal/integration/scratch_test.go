@@ -96,7 +96,7 @@ func newScratch(t *testing.T) scratch {
 	// first_name populated so a probe has something to overwrite.
 	mustCall(t, "manage_person", map[string]any{
 		"action": "update", "person_id": s.PersonID,
-		"first_name": "Mcptest", "overwrite": true,
+		"first_name": "Mcptest", "overwrite": []string{"first_name"},
 	}, nil)
 	s.DealID = newID("manage_deal", map[string]any{
 		"action": "create", "title": s.Title + " deal",
