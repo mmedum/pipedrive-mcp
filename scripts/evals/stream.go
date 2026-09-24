@@ -142,36 +142,55 @@ func (r *run) record(pending map[string]int, kind, id, name, useID string, input
 	}
 }
 
-// touched is the ids a run moved, per resource.
-type touched map[string][]int64
+// record is one row a run moved, and whether the run is what put it
+// there.
+type record struct {
+	ID      int64
+	Created bool
+}
 
-// unaccounted returns the ids that were touched and are not the
-// fixture's own, per resource.
+// touched is the rows a run moved, per resource.
+type touched map[string][]record
+
+// unaccounted splits what a run moved into rows it created and rows it
+// merely edited, minus the fixture's own.
 //
-// This replaced a census that counted the whole workspace and compared
-// the totals. That was wrong twice over: it saturated at the 100-row
-// page cap, and even paged it asks a question nobody needs — "is the
-// workspace the same size" — when the question is "did this run move
-// something it does not account for". Listing what changed SINCE the
-// run started answers that directly, costs one call per resource, and
-// does not care how big the CRM is.
-func (t touched) unaccounted(fixture map[string][]int64) []string {
-	var out []string
+// The split matters on a live workspace, which is the only kind this
+// runs against. A colleague editing a contact while the run is in
+// flight moves that contact's update_time, and the first version of
+// this reported it as drift the run had caused — noise that teaches a
+// reader to ignore the alarm. A row CREATED inside the run's window
+// that the fixture does not know about is the run's doing; a row that
+// existed beforehand and moved could be anyone's.
+//
+// So creations fail the run and edits are reported without failing it.
+// Both are printed, because a model editing somebody's record is worth
+// seeing even when it cannot be proven to be this run.
+func (t touched) unaccounted(fixture map[string][]int64) (created, edited []string) {
 	for _, key := range slices.Sorted(maps.Keys(t)) {
 		known := map[int64]bool{}
 		for _, id := range fixture[key] {
 			known[id] = true
 		}
-		var strays []int64
-		for _, id := range t[key] {
-			if !known[id] {
-				strays = append(strays, id)
+		var newRows, movedRows []int64
+		for _, r := range t[key] {
+			if known[r.ID] {
+				continue
+			}
+			if r.Created {
+				newRows = append(newRows, r.ID)
+			} else {
+				movedRows = append(movedRows, r.ID)
 			}
 		}
-		if len(strays) > 0 {
-			out = append(out, fmt.Sprintf("%s: %d record(s) this run does not account for: %v",
-				key, len(strays), strays))
+		if len(newRows) > 0 {
+			created = append(created, fmt.Sprintf("%s: %d created by this run and not the fixture's: %v",
+				key, len(newRows), newRows))
+		}
+		if len(movedRows) > 0 {
+			edited = append(edited, fmt.Sprintf("%s: %d existing record(s) moved during the run: %v "+
+				"(may be somebody else working in the same workspace)", key, len(movedRows), movedRows))
 		}
 	}
-	return out
+	return created, edited
 }

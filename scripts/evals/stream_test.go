@@ -75,44 +75,45 @@ func TestParseReportsANonSuccessEnding(t *testing.T) {
 	}
 }
 
-// The census this replaced counted the whole workspace and compared
-// totals, which saturated at the 100-row page cap and asked the wrong
-// question anyway. These pin the question that matters: of the records
-// this run moved, which are not the fixture's?
-func TestUnaccountedNamesOnlyStrays(t *testing.T) {
+// A colleague editing a record while the run is in flight is not this
+// run's drift. A row created inside the window that the fixture does
+// not know about is. The first version of this check could not tell
+// them apart and reported both as drift, which is how a real run
+// flagged a contact somebody else had touched.
+func TestUnaccountedSeparatesCreatedFromEdited(t *testing.T) {
 	moved := touched{
-		"deals":      {11, 12},
-		"activities": {21},
+		"persons": {
+			{ID: 11, Created: true},  // the fixture's own
+			{ID: 22, Created: true},  // created by the run: drift
+			{ID: 33, Created: false}, // existed already, moved: not proof
+		},
 	}
-	fixture := map[string][]int64{
-		"deals":      {11, 12},
-		"activities": {21},
-	}
-	if got := moved.unaccounted(fixture); len(got) != 0 {
-		t.Errorf("the fixture's own records were reported as strays: %v", got)
-	}
+	created, edited := moved.unaccounted(map[string][]int64{"persons": {11}})
 
-	moved["activities"] = append(moved["activities"], 99)
-	got := moved.unaccounted(fixture)
-	if len(got) != 1 {
-		t.Fatalf("expected one resource to report a stray, got %v", got)
+	if len(created) != 1 || !strings.Contains(created[0], "22") {
+		t.Fatalf("a row created by the run was not reported as drift: %v", created)
 	}
-	if !strings.Contains(got[0], "activities") || !strings.Contains(got[0], "99") {
-		t.Errorf("the stray is not named: %q", got[0])
+	if strings.Contains(created[0], "33") {
+		t.Errorf("an edit to a pre-existing row was counted as created: %v", created)
+	}
+	if len(edited) != 1 || !strings.Contains(edited[0], "33") {
+		t.Fatalf("an edit to a pre-existing row was not reported at all: %v", edited)
 	}
 }
 
-// A run that moved nothing is the common case and must be silent.
+// The fixture's own records are never drift, whichever way they moved.
+func TestUnaccountedIgnoresTheFixture(t *testing.T) {
+	moved := touched{"deals": {{ID: 7, Created: true}, {ID: 8, Created: false}}}
+	created, edited := moved.unaccounted(map[string][]int64{"deals": {7, 8}})
+	if len(created) != 0 || len(edited) != 0 {
+		t.Errorf("the fixture's own rows were reported: %v / %v", created, edited)
+	}
+}
+
+// A run that moved nothing must be silent on both halves.
 func TestUnaccountedIsSilentWhenNothingMoved(t *testing.T) {
-	if got := (touched{"deals": nil}).unaccounted(map[string][]int64{}); len(got) != 0 {
-		t.Errorf("an empty run reported drift: %v", got)
-	}
-}
-
-// A fixture id that was never touched is not evidence of anything —
-// deleting it is exactly what teardown does.
-func TestUnaccountedIgnoresUntouchedFixtureIDs(t *testing.T) {
-	if got := (touched{"deals": {11}}).unaccounted(map[string][]int64{"deals": {11, 12, 13}}); len(got) != 0 {
-		t.Errorf("untouched fixture ids produced drift: %v", got)
+	created, edited := (touched{"deals": nil}).unaccounted(map[string][]int64{})
+	if len(created) != 0 || len(edited) != 0 {
+		t.Errorf("an empty run reported drift: %v / %v", created, edited)
 	}
 }

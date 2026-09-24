@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -64,6 +65,16 @@ func textOf(res *mcp.CallToolResult) string {
 // prompts, tool arguments and results, so the only way it can be safe
 // to read is for nothing in it to be anybody's data.
 func buildFixture(h *Harness) (Fixture, error) {
+	// Checked before anything is created, not when the deal is reached.
+	// Eval tasks close this deal — won, lost, archived — and every one
+	// of those fires whatever automations the workspace hangs off a
+	// status change. Failing here leaves the workspace untouched;
+	// failing three creates in leaves three records to tidy up.
+	pipeline, err := testPipeline()
+	if err != nil {
+		return Fixture{}, err
+	}
+
 	stamp := time.Now().UTC().Format("20060102-150405")
 	f := Fixture{
 		OrgName:    "Acme Industries (eval " + stamp + ")",
@@ -84,7 +95,6 @@ func buildFixture(h *Harness) (Fixture, error) {
 		return int64(n), nil
 	}
 
-	var err error
 	if f.OrgID, err = id("manage_organization", map[string]any{"action": "create", "name": f.OrgName}, "organization"); err != nil {
 		return f, fmt.Errorf("creating the organization: %w", err)
 	}
@@ -93,6 +103,7 @@ func buildFixture(h *Harness) (Fixture, error) {
 	}
 	if f.DealID, err = id("manage_deal", map[string]any{
 		"action": "create", "title": f.DealTitle, "org_id": f.OrgID, "person_id": f.PersonID,
+		"pipeline_id": pipeline,
 	}, "deal"); err != nil {
 		return f, fmt.Errorf("creating the deal: %w", err)
 	}
@@ -236,15 +247,24 @@ func listTouched(h *Harness, since string) touched {
 		if err != nil {
 			// Recorded as a stray -1 so the run says it could not look,
 			// rather than reporting silence as cleanliness.
-			out[probe.key] = []int64{-1}
+			out[probe.key] = []record{{ID: -1, Created: true}}
 			continue
 		}
 		rows, _ := res[probe.key].([]any)
 		for _, r := range rows {
 			m, _ := r.(map[string]any)
-			if id, ok := m["id"].(float64); ok {
-				out[probe.key] = append(out[probe.key], int64(id))
+			id, ok := m["id"].(float64)
+			if !ok {
+				continue
 			}
+			// add_time inside the window means this run created it.
+			// Anything older merely moved, which on a shared workspace
+			// could be a colleague rather than the model.
+			added, _ := m["add_time"].(string)
+			out[probe.key] = append(out[probe.key], record{
+				ID:      int64(id),
+				Created: added >= since,
+			})
 		}
 	}
 	return out
@@ -258,4 +278,27 @@ func fixtureIDs(f Fixture) map[string][]int64 {
 		"organizations": {f.OrgID},
 		"activities":    {f.ActivityID},
 	}
+}
+
+// pipelineEnv names a pipeline the evals may create and close deals in.
+//
+// An integration probe in this repository once closed the first open
+// deal in the workspace to prove a transition worked. The field state
+// restored; the automations that fired on each status change did not,
+// and a real customer's deal was marked won and lost four times. The
+// evals close a deal too — several tasks are about exactly that — so
+// they take the same rule: never in a pipeline the business uses.
+const pipelineEnv = "PIPEDRIVE_TEST_PIPELINE_ID"
+
+func testPipeline() (int64, error) {
+	raw := os.Getenv(pipelineEnv)
+	if raw == "" {
+		return 0, fmt.Errorf("the eval tasks close a deal, which fires this workspace's automations, so %s "+
+			"must name a pipeline the business does not use; set it to a scratch pipeline's id", pipelineEnv)
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		return 0, fmt.Errorf("%s=%q is not a pipeline id", pipelineEnv, raw)
+	}
+	return id, nil
 }
