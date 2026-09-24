@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -234,12 +235,19 @@ func TestClient_CreateActivity(t *testing.T) {
 		`"due_time":"10:00"`,
 		`"duration":"00:45"`,
 		`"org_id":59`,
-		`"person_id":73`,
+		// person_id is read-only upstream, so it travels as the
+		// primary participant. A body carrying person_id is rejected
+		// outright, which is why this asserts the translation rather
+		// than the field.
+		`"participants":[{"person_id":73,"primary":true}]`,
 		`"location":"Aalborg, Denmark"`,
 	} {
 		if !strings.Contains(sawBody, want) {
 			t.Errorf("body %q missing %q", sawBody, want)
 		}
+	}
+	if strings.Contains(sawBody, `"person_id"`) && !strings.Contains(sawBody, `"participants"`) {
+		t.Errorf("body %q carries a bare person_id, which Pipedrive rejects as read-only", sawBody)
 	}
 	if got.ID != 150 || got.Subject != "VisitorPass demo follow-up" {
 		t.Errorf("decoded activity = %+v; want id=150 subject=...", got)
@@ -280,5 +288,75 @@ func TestClient_CreateActivity_PropagatesUpstreamError(t *testing.T) {
 	}
 	if !errors.Is(err, ErrValidation) {
 		t.Errorf("err = %v; want ErrValidation", err)
+	}
+}
+
+// person_id on an activity is READ-ONLY upstream: it reports the
+// primary participant rather than setting one, and a body carrying it
+// comes back "'person_id' is a read-only field. Add a primary
+// participant to set 'person_id' instead." Confirmed against the live
+// API on 2026-09-24, which is also how the bug was found — nothing had
+// ever set it.
+func TestPrimaryParticipant(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		personID int64
+		in       []ActivityParticipant
+		want     []ActivityParticipant
+	}{
+		{"no person leaves the list alone", 0, nil, nil},
+		{"no person keeps an existing list", 0,
+			[]ActivityParticipant{{PersonID: 9, Primary: true}},
+			[]ActivityParticipant{{PersonID: 9, Primary: true}}},
+		{"a person alone becomes primary", 73, nil,
+			[]ActivityParticipant{{PersonID: 73, Primary: true}}},
+		// "person_id wins if both are set", per the tool contract.
+		{"the named person outranks a primary already in the list", 73,
+			[]ActivityParticipant{{PersonID: 9, Primary: true}},
+			[]ActivityParticipant{{PersonID: 73, Primary: true}, {PersonID: 9, Primary: false}}},
+		{"a duplicate of the named person is not sent twice", 73,
+			[]ActivityParticipant{{PersonID: 73, Primary: false}, {PersonID: 9, Primary: false}},
+			[]ActivityParticipant{{PersonID: 73, Primary: true}, {PersonID: 9, Primary: false}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := PrimaryParticipant(tc.personID, tc.in)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+// Folding is idempotent: the tools layer does it while building the
+// request so the guard can see it, and the client does it again on the
+// way out so a direct caller cannot lose the field.
+func TestPrimaryParticipant_FoldingTwiceChangesNothing(t *testing.T) {
+	once := PrimaryParticipant(73, []ActivityParticipant{{PersonID: 9, Primary: true}})
+	twice := PrimaryParticipant(73, once)
+	if !reflect.DeepEqual(once, twice) {
+		t.Errorf("folding twice gave %+v, want %+v", twice, once)
+	}
+}
+
+// A nil participants list must stay nil when no person is named. An
+// update REPLACES the collection, so a nil that became an empty slice
+// would drop every attendee the activity already had.
+func TestUpdateActivity_NoPersonSendsNoParticipants(t *testing.T) {
+	var sawBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		sawBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"success":true,"data":{"id":150,"subject":"x"}}`)
+	}))
+	defer srv.Close()
+
+	subject := "x"
+	if _, err := newTestClient(srv).UpdateActivity(context.Background(), 150,
+		UpdateActivityRequest{Subject: &subject}); err != nil {
+		t.Fatalf("UpdateActivity: %v", err)
+	}
+	if strings.Contains(sawBody, "participants") {
+		t.Errorf("body %q sends participants when none were asked for; an update replaces the collection", sawBody)
 	}
 }
