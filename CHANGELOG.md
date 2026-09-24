@@ -50,8 +50,6 @@ in full.
   authorise their own overwrite, because the field they land on is the
   field the caller named.
 
-### Changed
-
 - **The upstream v2 mirror is re-captured against a current spec.**
   `internal/pipedrive/testdata/v2-response-fields.json` holds
   Pipedrive's own description as an oracle for this package's
