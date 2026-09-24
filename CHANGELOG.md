@@ -52,6 +52,41 @@ in full.
 
 ### Fixed
 
+- **`search` returned deleted records, with nothing saying so.** Every
+  `list_` tool drops a deleted record. Pipedrive's search index keeps
+  one, and the item it hands back carries no `is_deleted`, no
+  `active_flag` and no `status`, so there is no way to tell it from a
+  live record by looking at it. After a test run the workspace read as
+  littered in `search` and clean in every list, and an LLM resolving a
+  name to an id handed back the id of a record that no longer exists.
+  Nothing downstream corrects that: `get_organization` answers for a
+  deleted organization as though it were live.
+
+  `search` now checks its hits against the matching v2 collection and
+  drops the ones that are gone. It costs ONE extra call per checkable
+  type a page holds, and none on a page that holds neither.
+
+  **Which types are checked was settled by a live probe, and the first
+  answer was wrong.** Searching for records deleted hours earlier
+  returned only organizations, which read as "Pipedrive drops deleted
+  deals and persons itself". A probe that creates a record, deletes it
+  and searches again found otherwise: **a deleted person is still in
+  the index seconds later.** Organizations stay indefinitely, persons
+  stay a while, deals go promptly. The probe
+  (`TestWrite_SearchDropsWhatItDeleted`) now runs on all three, so the
+  claim is held by a test rather than by a comment.
+
+  **Deals are deliberately not checked.** `/deals` excludes ARCHIVED
+  deals, which are alive, so absence from it does not mean deleted, and
+  checking deals that way would drop live records out of search —
+  worse than the bug being fixed. Products, files and leads have no
+  collection here to check against, and the tool description says a
+  deleted one can still appear.
+
+  Filtering happens after Pipedrive has paged, so a page can now come
+  back short, or empty with a cursor still on it. **An empty page is
+  not the end** — the description says that too.
+
 - **The live write probes and the eval fixture could close a deal the
   business was actually running.** A probe added in this cycle picked
   the first OPEN deal in the workspace and marked it won, then lost,

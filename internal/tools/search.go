@@ -11,6 +11,7 @@ import (
 
 type searchClient interface {
 	ItemSearch(ctx context.Context, opts pipedrive.SearchOptions) ([]pipedrive.SearchHit, string, error)
+	LiveIDs(ctx context.Context, itemType pipedrive.ItemType, ids []int64) (map[int64]bool, error)
 }
 
 // `lead` is included even though Phase 1 doesn't ship a lead resource
@@ -60,7 +61,10 @@ func RegisterSearch(s *mcp.Server, c searchClient) {
 			"then call list_deals(org_id=...). Returns id, type, name, relevance score, and type-specific details per hit. " +
 			"Default limit is 25, max 100. " +
 			"When `truncated` is true, more results exist — paginate via `next_cursor` or refine the term; do not treat the page as exhaustive. " +
+			"IMPORTANT: an EMPTY page is not the end. Pipedrive's search index keeps deleted organizations and persons and marks them in no way at all, " +
+			"so they are dropped after Pipedrive has paged: a page can come back short, or empty with `next_cursor` still set. Keep going until `next_cursor` is empty. " +
 			"Limitations: Pipedrive's search covers built-in fields and only varchar / monetary / phone / address custom-field types. " +
+			"A deleted product, file or lead can still appear in the results. " +
 			"For filters by stage, owner, value, dates, or other custom-field types, use list_deals with structured parameters instead.",
 		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in searchInput) (*mcp.CallToolResult, searchOutput, error) {
@@ -87,6 +91,10 @@ func RegisterSearch(s *mcp.Server, c searchClient) {
 		if err != nil {
 			return errorResult(err), searchOutput{}, nil
 		}
+		hits, err = dropDeletedHits(ctx, c, hits)
+		if err != nil {
+			return errorResult(err), searchOutput{}, nil
+		}
 		out := searchOutput{
 			Hits:       make([]searchHit, 0, len(hits)),
 			NextCursor: next,
@@ -102,6 +110,72 @@ func RegisterSearch(s *mcp.Server, c searchClient) {
 		}
 		return nil, out, nil
 	})
+}
+
+// dropDeletedHits removes the hits whose records no longer exist. It
+// costs one extra API call per checkable item type the page holds, and
+// nothing on a page that holds none.
+//
+// Pipedrive's search index can keep a deleted record and return it
+// with nothing to say so — no is_deleted, no active_flag, no status —
+// so the workspace reads as littered in search while every list_ tool
+// shows it clean. Confirmed against the live API: a deleted
+// organization stays indexed indefinitely; a deleted person stays for
+// a while after the delete.
+//
+// What is checked is whatever pipedrive.CanCheckLiveness can answer
+// for — organizations and persons. Deals are deliberately not checked:
+// /deals excludes ARCHIVED deals, which are alive, so the check would
+// drop live deals out of search. Products, files and leads are not
+// modelled here at all. Pipedrive drops deleted deals from its own
+// index, and a live probe holds that claim rather than a comment.
+//
+// A failure here fails the search. Returning the page unfiltered would
+// be the bug this exists to fix, silently, and a caller who cannot
+// tell a deleted record from a live one is the caller most likely to
+// act on it.
+func dropDeletedHits(ctx context.Context, c searchClient, hits []pipedrive.SearchHit) ([]pipedrive.SearchHit, error) {
+	byType := map[pipedrive.ItemType][]int64{}
+	for _, h := range hits {
+		t := pipedrive.ItemType(pipedrive.ItemString(h.Item, "type"))
+		if pipedrive.CanCheckLiveness(t) {
+			byType[t] = append(byType[t], pipedrive.ItemInt64(h.Item, "id"))
+		}
+	}
+	if len(byType) == 0 {
+		return hits, nil
+	}
+
+	dropped := 0
+	live := map[pipedrive.ItemType]map[int64]bool{}
+	for t, ids := range byType {
+		set, err := c.LiveIDs(ctx, t, ids)
+		if err != nil {
+			// The raw upstream error would report the search itself as
+			// rate-limited or failed, which it was not, and leave the
+			// caller nothing to do. Name the half that failed and the
+			// argument that skips it.
+			return nil, fmt.Errorf("the search matched, but checking whether its %ss still exist failed: %w"+
+				"; narrowing types to the ones you need skips that check", t, err)
+		}
+		live[t] = set
+		dropped += len(ids) - len(set)
+	}
+	if dropped == 0 {
+		// Nothing was deleted, which is the ordinary case. Hand back
+		// the page rather than copying it.
+		return hits, nil
+	}
+
+	kept := make([]pipedrive.SearchHit, 0, len(hits))
+	for _, h := range hits {
+		set, checked := live[pipedrive.ItemType(pipedrive.ItemString(h.Item, "type"))]
+		if checked && !set[pipedrive.ItemInt64(h.Item, "id")] {
+			continue
+		}
+		kept = append(kept, h)
+	}
+	return kept, nil
 }
 
 // summarizeHit translates Pipedrive's raw item map into the

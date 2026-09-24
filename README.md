@@ -276,6 +276,19 @@ cannot be filtered server-side (ask for the rows and filter on their
 `type`), and activities are not indexed by `search` (reach them through
 `list_activities`).
 
+**Pipedrive's search index keeps deleted records**, and returns them
+carrying nothing that says so — a deleted organization stays indexed
+indefinitely, a deleted person for a while after the delete. `search`
+therefore checks its hits against `/organizations` and `/persons` and
+drops the ones that are gone: one extra call per type a page holds, and
+none on a page that holds neither. Deals are *not* checked, because
+`/deals` excludes archived deals — which are alive — so the check would
+drop live records; Pipedrive drops deleted deals from its own index.
+Products, files and leads are returned unchecked, because there is no
+`list_` tool here to check them against. Because the drop happens after
+Pipedrive has paged, a page can come back short, or empty with
+`next_cursor` still set: an empty page is not the end.
+
 **Four tools sit on Pipedrive API v1**, whose sunset has passed —
 `get_note`, `list_notes`, `manage_note` and `whoami`, because v2 exposes
 no `/notes` and no `/users`. They are explicitly outside the 1.0
