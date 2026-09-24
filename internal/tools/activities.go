@@ -249,14 +249,14 @@ type manageActivityInput struct {
 	DueTime           *string                         `json:"due_time,omitempty" jsonschema:"HH:MM in 24-hour time. Omit for an all-day activity"`
 	Duration          *string                         `json:"duration,omitempty" jsonschema:"HH:MM long"`
 	DealID            *int64                          `json:"deal_id,omitempty" jsonschema:"the linked deal. Omit to leave it as it is; unlinking is not supported here"`
-	PersonID          *int64                          `json:"person_id,omitempty" jsonschema:"the linked person, who becomes the primary participant. Omit to leave it as it is; unlinking is not supported here"`
+	PersonID          *int64                          `json:"person_id,omitempty" jsonschema:"the linked person. Pipedrive stores this as the PRIMARY PARTICIPANT, so setting it rewrites participants: the named person becomes primary and anyone already there stays on as non-primary. Omit to leave it as it is; unlinking is not supported here"`
 	OrgID             *int64                          `json:"org_id,omitempty" jsonschema:"the linked organization. Omit to leave it as it is; unlinking is not supported here"`
 	LeadID            *string                         `json:"lead_id,omitempty" jsonschema:"the linked lead UUID. Omit to leave it as it is; unlinking is not supported here"`
 	OwnerID           *int64                          `json:"owner_id,omitempty" jsonschema:"the user who owns the record; omit on create to take the API token's own user"`
 	Note              *string                         `json:"note,omitempty" jsonschema:"a private note on the activity, HTML allowed. If the user did not dictate notes, leave this blank — do NOT invent meeting minutes"`
 	PublicDescription *string                         `json:"public_description,omitempty" jsonschema:"the description attendees see in the calendar invite. If the user did not provide one, leave it blank"`
 	Location          *string                         `json:"location,omitempty" jsonschema:"a single line as the user said it, such as 123 Main St or 'Zoom — link in invite'. Pipedrive parses physical addresses server-side, so do NOT pre-parse it"`
-	Participants      []pipedrive.ActivityParticipant `json:"participants,omitempty" jsonschema:"linked persons, exactly one marked primary. person_id wins if both are set. On update this REPLACES the collection"`
+	Participants      []pipedrive.ActivityParticipant `json:"participants,omitempty" jsonschema:"linked persons, exactly one marked primary. person_id wins if both are set, and the rest stay on as non-primary. On update this REPLACES the collection"`
 	Busy              *bool                           `json:"busy,omitempty" jsonschema:"whether the owner shows as busy on the calendar"`
 	Done              *bool                           `json:"done,omitempty" jsonschema:"whether the activity is finished. Prefer action complete or reopen, which say what you mean; this is here for create, to log something that already happened"`
 	DryRun            bool                            `json:"dry_run,omitempty" jsonschema:"report what the write would find and change, and send nothing"`
@@ -325,9 +325,14 @@ func createActivityAction(ctx context.Context, c activitiesClient, companyDomain
 		Note:              deref(in.Note),
 		PublicDescription: deref(in.PublicDescription),
 		Location:          deref(in.Location),
-		Participants:      in.Participants,
-		Done:              deref(in.Done),
-		Busy:              deref(in.Busy),
+		// person_id is read-only upstream: it reports the primary
+		// participant rather than setting one. PrimaryParticipant
+		// turns it into the participants entry Pipedrive accepts, and
+		// it happens HERE rather than in the client so the diff and
+		// the overwrite guard see the collection this write replaces.
+		Participants: pipedrive.PrimaryParticipant(deref(in.PersonID), in.Participants),
+		Done:         deref(in.Done),
+		Busy:         deref(in.Busy),
 	}
 	created := syntheticActivityFromRequest(req)
 	if !in.DryRun {
@@ -388,9 +393,12 @@ func activityRequestFor(in manageActivityInput) pipedrive.UpdateActivityRequest 
 		return pipedrive.UpdateActivityRequest{Done: ptr(false)}
 	default: // update
 		return pipedrive.UpdateActivityRequest{
-			Subject:           in.Subject,
-			Type:              in.Type,
-			Participants:      in.Participants,
+			Subject: in.Subject,
+			Type:    in.Type,
+			// See createActivityAction: person_id cannot be written,
+			// so it becomes the primary participant, and the guard has
+			// to see that before the write rather than after.
+			Participants:      pipedrive.PrimaryParticipant(deref(in.PersonID), in.Participants),
 			Done:              in.Done,
 			Busy:              in.Busy,
 			DueDate:           in.DueDate,
