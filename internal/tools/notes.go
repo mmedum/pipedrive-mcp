@@ -101,17 +101,17 @@ type listNotesOutput struct {
 // manage_revision): reads stay discrete, mutations of one noun share
 // a tool.
 type manageNoteInput struct {
-	Action        string `json:"action" jsonschema:"create, update or delete"`
-	NoteID        int64  `json:"note_id,omitempty" jsonschema:"the note to act on, required by update and delete and ignored by create; list_notes reports it"`
-	Content       string `json:"content,omitempty" jsonschema:"the note text, required by create. HTML is kept verbatim and plain text has its newlines turned into <br>, because Pipedrive stores what its editor renders"`
-	DealID        int64  `json:"deal_id,omitempty" jsonschema:"hang the note off this deal; on update it moves the note, which is rarely what you want"`
-	PersonID      int64  `json:"person_id,omitempty" jsonschema:"hang the note off this person"`
-	OrgID         int64  `json:"org_id,omitempty" jsonschema:"hang the note off this organization"`
-	LeadID        string `json:"lead_id,omitempty" jsonschema:"hang the note off this lead UUID"`
-	ProjectID     int64  `json:"project_id,omitempty" jsonschema:"hang the note off this project"`
-	DryRun        bool   `json:"dry_run,omitempty" jsonschema:"report what the write would find and change, and send nothing"`
-	Overwrite     bool   `json:"overwrite,omitempty" jsonschema:"allow update to replace content that is already there. Without it such an update is refused, naming the note, because a note you did not read is one somebody else wrote; a refusal is NOT a retry signal — set this only when the user asked for what is already there to be replaced, never to get past a refusal they have not seen"`
-	ExpectVersion string `json:"expect_version,omitempty" jsonschema:"the update_time from the read that informed this write; the write is refused if the note changed since. Best effort — Pipedrive has no compare-and-set — so it catches a concurrent edit, not a determined race"`
+	Action        string   `json:"action" jsonschema:"create, update or delete"`
+	NoteID        int64    `json:"note_id,omitempty" jsonschema:"the note to act on, required by update and delete and ignored by create; list_notes reports it"`
+	Content       string   `json:"content,omitempty" jsonschema:"the note text, required by create. HTML is kept verbatim and plain text has its newlines turned into <br>, because Pipedrive stores what its editor renders"`
+	DealID        int64    `json:"deal_id,omitempty" jsonschema:"hang the note off this deal; on update it moves the note, which is rarely what you want"`
+	PersonID      int64    `json:"person_id,omitempty" jsonschema:"hang the note off this person"`
+	OrgID         int64    `json:"org_id,omitempty" jsonschema:"hang the note off this organization"`
+	LeadID        string   `json:"lead_id,omitempty" jsonschema:"hang the note off this lead UUID"`
+	ProjectID     int64    `json:"project_id,omitempty" jsonschema:"hang the note off this project"`
+	DryRun        bool     `json:"dry_run,omitempty" jsonschema:"report what the write would find and change, and send nothing"`
+	Overwrite     []string `json:"overwrite,omitempty" jsonschema:"the fields this write may replace, named exactly as the refusal listed them, e.g. [\"content\"]. Omit it and an update that would replace content already there is refused, naming it — a note you did not read is one somebody else wrote. A refusal is NOT a retry signal: name a field only when the user asked for what is already there to be replaced, never to get past a refusal they have not seen"`
+	ExpectVersion string   `json:"expect_version,omitempty" jsonschema:"the update_time from the read that informed this write; the write is refused if the note changed since. Best effort — Pipedrive has no compare-and-set — so it catches a concurrent edit, not a determined race"`
 }
 
 // manageNoteOutput reports the stored record back after the write and

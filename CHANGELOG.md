@@ -20,6 +20,36 @@ MINOR release. The alternative is letting a third party decide when
 this project cuts a MAJOR. Every other tool is covered by the promise
 in full.
 
+## [Unreleased]
+
+### Changed
+
+- **BREAKING: `overwrite` names the fields it may replace.** It was a
+  bool; it is now an array of field names, e.g.
+  `overwrite: ["title", "value"]`, and the refusal prints exactly the
+  argument to pass back.
+
+  The bool was a blanket. `overwrite: true` permitted replacing every
+  populated field the write happened to touch, so a caller who meant
+  "change the title" and sent a write that also landed on `value`
+  replaced both on one flag — having been told about both, and having
+  agreed to nothing in particular. Naming them makes the permit
+  per-field: name `title` and not `value` and the write is still
+  refused, over `value`.
+
+  **This does not stop a model routing around the guard, and nothing in
+  band can** — whatever the refusal says, a model can echo back. The
+  v0.6.0 eval suite measured it: `refuse-the-overwrite` failed 3/3, the
+  model re-sending with `overwrite: true` every time, and rewriting the
+  field description to say a refusal is not a retry signal changed
+  nothing. What this removes is the blanket. A model now has to be
+  wrong about each field separately, and the call records which ones it
+  claimed.
+
+  Transitions are unaffected: `mark_won`, `move_stage` and the rest
+  authorise their own overwrite, because the field they land on is the
+  field the caller named.
+
 ## [0.6.0] - 2026-09-21
 
 ### Added
