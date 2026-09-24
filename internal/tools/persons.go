@@ -163,7 +163,7 @@ type managePersonInput struct {
 	OwnerID       *int64                   `json:"owner_id,omitempty" jsonschema:"the user who owns the record; omit on create to take the API token's own user"`
 	CustomFields  map[string]any           `json:"custom_fields,omitempty" jsonschema:"this workspace's own fields, keyed by the name get_person reports — a dropdown takes its label, a multi-select a list of labels, everything else the plain value. Omit a field to leave it as it is; a field cannot be cleared"`
 	DryRun        bool                     `json:"dry_run,omitempty" jsonschema:"report what the write would find and change, and send nothing"`
-	Overwrite     bool                     `json:"overwrite,omitempty" jsonschema:"allow update to replace fields that already hold a value. Without it such an update is refused, naming each field; a refusal is NOT a retry signal — set this only when the user asked for what is already there to be replaced, never to get past a refusal they have not seen"`
+	Overwrite     []string                 `json:"overwrite,omitempty" jsonschema:"the fields this write may replace, named exactly as the refusal listed them, e.g. [\"title\", \"value\"]. Omit it and a write that would replace a populated field is refused, naming each one. A refusal is NOT a retry signal: name a field only when the user asked for what is already there to be replaced, never to get past a refusal they have not seen. Naming fewer fields than the refusal listed is still refused, over the ones you left out"`
 	ExpectVersion string                   `json:"expect_version,omitempty" jsonschema:"the update_time from the read that informed this write; the write is refused if the person changed since"`
 }
 

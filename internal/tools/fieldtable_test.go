@@ -181,11 +181,11 @@ func TestGuardedWriteCarriesCustomFieldsIntoTheDiff(t *testing.T) {
 			Values: map[string]any{"h1": "written"},
 			Names:  map[string]string{"h1": "Renewal note"},
 		},
-		CustomOf:  func(d *pipedrive.Deal) *map[string]any { return &d.CustomFields },
-		Version:   func(*pipedrive.Deal) string { return "" },
-		Overwrite: true,
-		DryRun:    true,
-		Get:       func(context.Context) (*pipedrive.Deal, error) { return before, nil },
+		CustomOf:     func(d *pipedrive.Deal) *map[string]any { return &d.CustomFields },
+		Version:      func(*pipedrive.Deal) string { return "" },
+		OverwriteAll: true,
+		DryRun:       true,
+		Get:          func(context.Context) (*pipedrive.Deal, error) { return before, nil },
 		// An overlay that says nothing about custom fields, which is the
 		// point: every xAfterUpdate looks like this now.
 		Predict: func(d *pipedrive.Deal) pipedrive.Deal { return *d },
@@ -236,12 +236,12 @@ func TestGuardedWriteRefusesAPopulatedCustomField(t *testing.T) {
 func TestGuardedWriteWithoutCustomFields(t *testing.T) {
 	before := &pipedrive.Deal{Title: "Acme renewal"}
 	w := guardedWrite[pipedrive.Deal]{
-		Spec:      dealBaseFields,
-		Resource:  "deal 1",
-		Version:   func(*pipedrive.Deal) string { return "" },
-		Overwrite: true,
-		DryRun:    true,
-		Get:       func(context.Context) (*pipedrive.Deal, error) { return before, nil },
+		Spec:         dealBaseFields,
+		Resource:     "deal 1",
+		Version:      func(*pipedrive.Deal) string { return "" },
+		OverwriteAll: true,
+		DryRun:       true,
+		Get:          func(context.Context) (*pipedrive.Deal, error) { return before, nil },
 		Predict: func(d *pipedrive.Deal) pipedrive.Deal {
 			after := *d
 			after.Title = "Renamed"

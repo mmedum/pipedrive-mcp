@@ -213,3 +213,60 @@ func TestReopen_DoesNotClearTheLostReasonOfALostDealEither(t *testing.T) {
 			*f.lastUpdateReq.LostReason)
 	}
 }
+
+// The point of naming fields rather than passing a flag: a caller who
+// agreed to replace the title has NOT agreed to replace the value, and
+// the guard now says so. `overwrite: true` could not express that — it
+// permitted every populated field the write happened to touch, so a
+// caller who meant one thing authorised all of them.
+//
+// This does not stop a model routing around the guard; nothing in band
+// can, since anything the refusal says a model can echo back. What it
+// removes is the blanket.
+func TestOverwrite_NamingSomeFieldsStillRefusesTheRest(t *testing.T) {
+	f := &fakeDealsClient{
+		deal: &pipedrive.Deal{ID: 7, Title: "Acme renewal", Value: 5000, Status: "open"},
+	}
+	res := testutil.CallTool(t, func(s *mcp.Server) {
+		tools.RegisterDeals(s, f, "acme", tools.RegisterOptions{})
+	}, "manage_deal", map[string]any{
+		"action": "update", "deal_id": 7,
+		"title": "Acme renewal 2027", "value": 9000,
+		"overwrite": []string{"title"},
+	})
+	if !res.IsError {
+		t.Fatal("naming only title permitted replacing value as well")
+	}
+	txt := testutil.TextContent(res)
+	if !strings.Contains(txt, "value") {
+		t.Errorf("refusal %q does not name the field that was not agreed to", txt)
+	}
+	if strings.Contains(txt, `"title"`) {
+		t.Errorf("refusal %q re-lists title, which the caller did name", txt)
+	}
+	if f.updateCalls != 0 {
+		t.Errorf("a partially-agreed write still reached upstream (%d calls)", f.updateCalls)
+	}
+}
+
+// Naming every clobbered field permits the write, which is the case the
+// old bool covered and must keep working.
+func TestOverwrite_NamingEveryFieldPermitsTheWrite(t *testing.T) {
+	f := &fakeDealsClient{
+		deal:       &pipedrive.Deal{ID: 7, Title: "Acme renewal", Value: 5000, Status: "open"},
+		updateDeal: &pipedrive.Deal{ID: 7, Title: "Acme renewal 2027", Value: 9000, Status: "open"},
+	}
+	res := testutil.CallTool(t, func(s *mcp.Server) {
+		tools.RegisterDeals(s, f, "acme", tools.RegisterOptions{})
+	}, "manage_deal", map[string]any{
+		"action": "update", "deal_id": 7,
+		"title": "Acme renewal 2027", "value": 9000,
+		"overwrite": []string{"title", "value"},
+	})
+	if res.IsError {
+		t.Fatalf("naming every clobbered field should permit the write: %s", testutil.TextContent(res))
+	}
+	if f.updateCalls != 1 {
+		t.Errorf("update calls = %d, want 1", f.updateCalls)
+	}
+}
