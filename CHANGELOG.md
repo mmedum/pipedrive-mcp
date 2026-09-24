@@ -52,6 +52,51 @@ in full.
 
 ### Fixed
 
+- **`manage_activity` could not link an activity to a person.** The
+  tool has always offered `person_id`, and always described it as "the
+  linked person, who becomes the primary participant". It sent it as
+  `person_id`, and v2 rejects that outright: *"'person_id' is a
+  read-only field. Add a primary participant to set 'person_id'
+  instead."* The field REPORTS the primary participant; it does not set
+  one. So every call that set it failed, and "log a call with this
+  contact" — one of the more obvious things to ask this server — was
+  impossible.
+
+  `person_id` now travels as the primary participant, which is what the
+  description already promised. The named person becomes primary and
+  anyone already in `participants` stays on as non-primary. The field
+  is `json:"-"` on both request structs, so it cannot reach the wire
+  again by accident.
+
+  The translation happens while the tools layer BUILDS the request, not
+  in the client on the way out, because the guarded-write diff has to
+  see it: setting `person_id` replaces the participants collection, and
+  doing that below the guard would replace a populated one with no
+  refusal.
+
+  **Found by checking the request side of Pipedrive's OpenAPI
+  description against what this client sends.** The upstream mirror in
+  `internal/pipedrive/testdata/` covers RESPONSE fields only, so it had
+  nothing to say here. The spec does not declare `person_id` on the
+  activity request body, and unlike the other two undeclared fields —
+  `first_name`/`last_name` on persons, which the live suite exercises
+  every run — nothing had ever set this one. A live probe now does.
+
+- **A tool's guidance on an upstream failure never reached the LLM.**
+  `llmMessage` answers an upstream error with the API's own message and
+  nothing else, which is right when that message is the whole story and
+  wrong when a tool has something to add. `search`'s liveness check
+  found it: when its second API call failed, `search` reported a bare
+  rate-limit message, so a model read it as "the search was rate
+  limited" — when the search had matched, and narrowing `types` would
+  have avoided the failing half entirely. The careful wording that said
+  so was discarded by the `errors.As` branch before anyone saw it.
+
+  Guidance now survives, through a `hinted` error the message formatter
+  knows about. The class is unchanged — a hinted rate limit is still
+  `[rate_limited]` — and an error with no hint reads exactly as it did
+  before.
+
 - **`search` returned deleted records, with nothing saying so.** Every
   `list_` tool drops a deleted record. Pipedrive's search index keeps
   one, and the item it hands back carries no `is_deleted`, no
