@@ -100,14 +100,14 @@ func resolveWith(backend credentials.Backend) (Settings, error) {
 // Runtime is a resolved workspace with its client attached. The pair
 // travels together so the two cannot describe different workspaces:
 // the client carries the base URL and token, and the settings carry the
-// domain every tool output is labelled with.
+// domain every tool output is labeled with.
 type Runtime struct {
 	Settings Settings
 	Client   *pipedrive.Client
 }
 
 // Connect builds the Pipedrive client these settings describe,
-// honouring PIPEDRIVE_HTTP_TIMEOUT, and pairs it with the settings it
+// honoring PIPEDRIVE_HTTP_TIMEOUT, and pairs it with the settings it
 // came from. It opens no connection — the first request is the
 // caller's.
 func (s Settings) Connect(logger *slog.Logger) Runtime {

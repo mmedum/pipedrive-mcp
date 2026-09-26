@@ -20,6 +20,13 @@ MINOR release. The alternative is letting a third party decide when
 this project cuts a MAJOR. Every other tool is covered by the promise
 in full.
 
+## [Unreleased]
+
+### Changed
+
+- Tool descriptions, docs, comments and messages use American spelling.
+  No tool, input, output or resource was renamed.
+
 ## [1.0.0] - 2026-09-24
 
 ### Changed
@@ -47,7 +54,7 @@ in full.
   claimed.
 
   Transitions are unaffected: `mark_won`, `move_stage` and the rest
-  authorise their own overwrite, because the field they land on is the
+  authorize their own overwrite, because the field they land on is the
   field the caller named.
 
 - **The upstream v2 mirror is re-captured against a current spec.**
@@ -283,7 +290,7 @@ in full.
   only available workspace is a real one and the probe would have meant
   creating and deleting records in it. So the descriptions tell the
   caller to read the children first rather than the code guarding
-  against a behaviour nobody has established. If it is ever established,
+  against a behavior nobody has established. If it is ever established,
   the guard to add is `force` on the three parents; an activity is a
   leaf — notes anchor to deals, persons, organizations, leads and
   projects, never to an activity — and would still not need one.
@@ -361,7 +368,7 @@ in full.
   surface" is half a promise without the other half, so the list is
   explicit: webhooks, mail, subscriptions, saved filters, currencies,
   deal-to-lead conversion, followers, deal participants and custom-field
-  *definitions* are not modelled and are not planned for 1.x; merging
+  *definitions* are not modeled and are not planned for 1.x; merging
   records is refused by the guard contract rather than missing from the
   API; `search` finds products, files and leads that no tool can then
   act on; and four tools sit on the v1 carve-out outside the 1.0
@@ -552,13 +559,13 @@ in full.
   shipped, and updating it is a step in the release runbook rather than
   something to remember.
 
-- **`README.md` named five of the seven self-authorising transitions**,
+- **`README.md` named five of the seven self-authorizing transitions**,
   omitting `archive` and `unarchive` and so telling a reader those two
   need an `overwrite` they do not take. This is the defect v0.5.0 added
-  `TestInstructionsNameEverySelfAuthorisingAction` to catch, one
+  `TestInstructionsNameEverySelfAuthorizingAction` to catch, one
   document over: that gate reads the MCP instructions string and
   nothing read the README. The check is now one helper asserting the
-  same sentence against the same `tools.SelfAuthorisingActions()` in
+  same sentence against the same `tools.SelfAuthorizingActions()` in
   both documents.
 
 ## [0.5.0] - 2026-09-18
@@ -566,7 +573,7 @@ in full.
 ### Added
 
 - **Two gates against documentation drifting from code**, both watched
-  failing before being believed. `TestInstructionsNameEverySelfAuthorisingAction`
+  failing before being believed. `TestInstructionsNameEverySelfAuthorizingAction`
   holds the MCP instructions' transition sentence against the actions
   that actually grant their own overwrite — the first version of that
   test searched the whole instructions string and passed while the bug
@@ -688,7 +695,7 @@ in full.
   returns an `error` like every other validator in the package rather
   than a `*mcp.CallToolResult`. `manage_deal` and `manage_activity` each
   have one action table saying whether an action creates and whether it
-  authorises its own overwrite — the guard used to read
+  authorizes its own overwrite — the guard used to read
   `in.Action != "update"`, which states the rule by exclusion, so a new
   action was a transition unless it happened to be named update.
   `testutil.CallTool` and `CallToolInto` replaced 57 of the 91
@@ -711,7 +718,7 @@ in full.
   key, so one fetch, one reload and one soft-failure policy cover both
   halves and `refresh_field_cache` picks up a newly added option for
   free. An option id the cache has not heard of passes through as
-  itself, the same soft failure an unrecognised field key takes: a
+  itself, the same soft failure an unrecognized field key takes: a
   workspace can add an option at any moment, and a caller seeing a
   number is better than a caller seeing nothing. `docs/architecture.md`,
   "Option labels", carries the design and the two decisions behind it.
@@ -744,7 +751,7 @@ in full.
   tool descriptions and the README were updated when the capability
   landed; the server-level instructions were not, so a model would have
   believed a capability it had was unavailable. They now also name
-  `archive` and `unarchive` among the self-authorising transitions, and
+  `archive` and `unarchive` among the self-authorizing transitions, and
   say that a dropdown reads back as its label. Found by the v0.5.0
   release security review.
 
@@ -834,7 +841,7 @@ in full.
   discouraged. `server.New` now takes the whole `config.Config` instead of
   a `domain string` and a `tools.RegisterOptions`, so there is no
   zero-options literal for a future entry point to copy, and the workspace
-  a tool labels its output with cannot disagree with the floor it honours;
+  a tool labels its output with cannot disagree with the floor it honors;
   `--dump-schemas` calls `server.NewForSchemaDump`, whose name says no
   handler runs. And `Settings.Connect` returns a `Runtime` carrying the
   client beside the settings it was built from, so `Runtime.NewServer`
@@ -842,7 +849,7 @@ in full.
   unexported on `Settings` and `LogValue` redacts it, so neither `%+v` nor
   `slog.Any` can put a keyring token in a log line.
 
-  No behaviour change to the binary: same resolution order, same messages,
+  No behavior change to the binary: same resolution order, same messages,
   same exit codes. `config.Load()` is gone — it was a second, env-only
   domain resolver with no callers, and leaving it there invited exactly
   the bypass this change exists to remove. `config.DomainEnv` and
@@ -948,7 +955,7 @@ in full.
 
 - Writes report a `changed` list naming every field the write actually
   altered, diffed against the record read immediately before it rather
-  than against the request. Pipedrive normalises some of what it stores,
+  than against the request. Pipedrive normalizes some of what it stores,
   and the caller should see what landed rather than what was asked for.
   On a dry run the same field names what *would* change, predicted by
   overlaying the request onto the stored record — one diff function
@@ -1008,7 +1015,7 @@ in full.
 
 - The read-guard-write sequence is one mechanism rather than five.
   `guardedWrite` in `internal/tools/guard.go` owns the ordering — read,
-  check the version, predict, refuse over what would be clobbered, honour
+  check the version, predict, refuse over what would be clobbered, honor
   the rehearsal, write, re-diff against the echo — and each resource
   supplies only what differs: its field table, its record label, and how
   to fetch, predict and write.
@@ -1041,7 +1048,7 @@ in full.
   has a table entry, because a writable-but-untabled field is one that
   gets written without being guarded or reported.
 
-- `whoami` is memoised for the life of the process, behind the same
+- `whoami` is memoized for the life of the process, behind the same
   `sync.Once` shape the field caches use. Its description tells the model
   the answer does not change during a session, which is an invitation to
   call it every turn; without the memo each of those was a full v1 round
@@ -1196,7 +1203,7 @@ in full.
   `LOG_LEVEL`, `LOG_FORMAT`, `PIPEDRIVE_DRY_RUN` or `PIPEDRIVE_HTTP_TIMEOUT`
   reported green from the one command whose job is answering "can this
   start" — and the server then refused to start on it. Its auth probe also
-  honours `PIPEDRIVE_HTTP_TIMEOUT` now instead of a hard-coded 30s.
+  honors `PIPEDRIVE_HTTP_TIMEOUT` now instead of a hard-coded 30s.
 
 - The CHANGELOG gate watches `internal/app/`, and the 80% coverage gate
   covers it. The startup assembly moved out of `cmd/`, which the gate
@@ -1324,7 +1331,7 @@ in full.
 
   The linker stays the source of truth for a release build; the module
   version out of `debug.BuildInfo` is the fallback, which is the honest
-  answer when nothing stamped anything. Both spellings normalise to the
+  answer when nothing stamped anything. Both spellings normalize to the
   one the tag, the module version and the release all use. The four
   sibling servers fixed this after an outside reader compared them side
   by side; this one had not.
@@ -1455,7 +1462,7 @@ in full.
   buys no isolation the client does not already have — and it costs the
   thing this server's auth story is built on. `docs/security.md` said so
   already: "Containers can't reach the host OS keyring, so the Docker
-  path needs the env var." The containerised route therefore pushed the
+  path needs the env var." The containerized route therefore pushed the
   API token into the environment, which is precisely what `login` and the
   keyring exist to avoid, and the README's Docker section never mentioned
   it.
@@ -1551,7 +1558,7 @@ in full.
   predates the Go toolchain bump.
 - `actions/checkout` v4 to v6, `actions/setup-go` v5 to v6 and
   `goreleaser/goreleaser-action` v6 to v7, which is what the three open
-  dependabot pull requests asked for; they are closed in favour of this,
+  dependabot pull requests asked for; they are closed in favor of this,
   since each would have reintroduced a mutable tag.
 
 ### Fixed
@@ -1586,7 +1593,7 @@ in full.
 ### Changed
 - `main` is one line and the dispatch lives in `run(args, stdout,
   stderr) int`, so the unknown-command guard is held by a test of its
-  behaviour rather than of a predicate. Verified by neutering the guard
+  behavior rather than of a predicate. Verified by neutering the guard
   so the file still compiles and watching the test go red.
 
   The command paths still exit from inside. They parse package-level
@@ -1632,7 +1639,7 @@ in full.
   already happened, pass `done=true` plus the `note`. To schedule
   one, pass `due_date` (and optionally `due_time` / `duration`).
   Returns the created activity as Pipedrive echoes it (with parsed
-  structured `Location`). Honours `PIPEDRIVE_DRY_RUN=true`. v2
+  structured `Location`). Honors `PIPEDRIVE_DRY_RUN=true`. v2
   activities don't have custom fields, so no name/hash resolution
   applies on this surface.
 
@@ -1658,7 +1665,7 @@ in full.
   it server-side into structured country/locality/postal_code on
   the response) and `owner_id`. Pipedrive defaults apply for any
   field omitted. Returns the created organization as Pipedrive
-  echoes it (with the parsed structured address). Honours the
+  echoes it (with the parsed structured address). Honors the
   server-wide `PIPEDRIVE_DRY_RUN=true` env by returning a synthetic
   preview (`dry_run=true`, `id=0`); on the dry-run path the address
   is wrapped as `{value: <input>}` since no server-side parsing
@@ -1668,7 +1675,7 @@ in full.
   `name`. Optional: `first_name`, `last_name`, `emails`, `phones`
   (each `{value, primary, label}`), `org_id`, `owner_id`. Pipedrive
   defaults apply for any field omitted. Returns the created person
-  as Pipedrive echoes it. Honours the server-wide
+  as Pipedrive echoes it. Honors the server-wide
   `PIPEDRIVE_DRY_RUN=true` env by returning a synthetic preview
   (`dry_run=true`, `id=0`) without issuing the upstream POST.
   Custom-field *writing* is not yet supported (the same deferred
@@ -1680,7 +1687,7 @@ in full.
   apply for any field omitted (workspace currency, owner =
   API-token user, status = open, first stage of the chosen /
   default pipeline, etc.). Returns the created deal as Pipedrive
-  echoes it. Honours the server-wide `PIPEDRIVE_DRY_RUN=true` env
+  echoes it. Honors the server-wide `PIPEDRIVE_DRY_RUN=true` env
   by returning a synthetic preview (`dry_run=true`, `id=0`)
   without issuing the upstream POST. Custom-field *writing* is
   not yet supported (output continues to resolve hash keys to
@@ -1816,13 +1823,13 @@ destructive flag is on.
   is the first and (in Phase 1) only non-destructive write tool:
   it requires `content` plus at least one anchor
   (deal_id / person_id / org_id / lead_id / project_id), caps
-  content at 16 KiB at the MCP boundary, and honours the
+  content at 16 KiB at the MCP boundary, and honors the
   server-wide `PIPEDRIVE_DRY_RUN=true` env by returning a
   synthetic preview (id=0, dry_run=true) without issuing the
   upstream POST. `delete_note` is destructive and registers ONLY
   when `PIPEDRIVE_ENABLE_DESTRUCTIVE=true` is set on the server
   (per CLAUDE.md hard rule #3, server-build-time gating, not
-  annotation-based); also honours `PIPEDRIVE_DRY_RUN`.
+  annotation-based); also honors `PIPEDRIVE_DRY_RUN`.
 - `get_activity` and `list_activities` tools — fetch and filter
   Pipedrive activities (calls / emails / meetings / tasks). Filters
   cover status (`open` / `done` / `all`), owner, deal, person,
@@ -1835,7 +1842,7 @@ destructive flag is on.
   (off by default — these are often multi-KB HTML and would bloat
   LLM context on a sweep). `get_activity` always returns notes.
   Activity-type filtering is intentionally client-side: Pipedrive v2
-  dropped the `type` query param and the documented behaviour is to
+  dropped the `type` query param and the documented behavior is to
   filter the returned rows on `type` post-hoc. The LLM-facing
   `activitySummary` is a parallel shadow of `pipedrive.Activity`
   (matching the `dealSummary` / `personSummary` / `organizationSummary`

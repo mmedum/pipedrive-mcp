@@ -24,7 +24,7 @@ const idsPerFetch = 100
 //     than the bug this file exists to fix. Pipedrive drops deleted
 //     deals from its own search index anyway, and a live probe holds
 //     that claim.
-//   - product, file and lead are not modelled by this server at all,
+//   - product, file and lead are not modeled by this server at all,
 //     so there is no collection here to ask.
 var livenessPaths = map[ItemType]string{
 	ItemTypeOrganization: "/organizations",

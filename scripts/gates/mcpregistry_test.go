@@ -69,7 +69,7 @@ const oneBundle = "" +
 // before installing, so picking the wrong row — or guessing when there
 // are two — installs something nobody signed for.
 func TestTheBundleRowMustBeExactlyOne(t *testing.T) {
-	t.Run("picks the mcpb among other artefacts", func(t *testing.T) {
+	t.Run("picks the mcpb among other artifacts", func(t *testing.T) {
 		name, sum, err := bundleRow(sums(t, oneBundle))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)

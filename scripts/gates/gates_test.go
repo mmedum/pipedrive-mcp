@@ -202,7 +202,7 @@ require (
 )
 `
 	if !pinnedWithReason(gomod, "example.com/held") {
-		t.Error("a pin with a reason was not recognised")
+		t.Error("a pin with a reason was not recognized")
 	}
 	if pinnedWithReason(gomod, "example.com/bare") {
 		t.Error("a bare pin counted as pinned; the reason is the point")

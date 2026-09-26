@@ -11,7 +11,7 @@ A single Go binary that speaks [Model Context Protocol](https://modelcontextprot
 over stdio — protocol revisions `2026-07-28` (the current one) back to
 `2024-11-05`, negotiated per client. It runs as a subprocess of your client, on your own machine,
 against one Pipedrive workspace: search by name and get back the ids
-everything else needs, read deals, people, organisations, activities and
+everything else needs, read deals, people, organizations, activities and
 notes with their custom fields under the names your workspace gives them
 and dropdown values under their labels, create and edit any of them, and
 move a deal through its pipeline — won, lost, reopened, or into another
@@ -171,19 +171,19 @@ match names.
 
 | Tool | What it does |
 |---|---|
-| `search` | Free text across deals, people, organisations, products, files and leads — the way to turn a name into an id |
+| `search` | Free text across deals, people, organizations, products, files and leads — the way to turn a name into an id |
 | `whoami` | Which account the token acts as and which workspace it points at, plus the timezone an activity's due time is written in |
 | `get_deal` | One deal: value, currency, status, stage, the people and company on it, and custom fields under their workspace names, dropdowns as labels |
-| `list_deals` | Deals by status, pipeline, stage, owner, person, organisation or update window, cursor-paginated. Archived deals live in their own collection — pass `archived` |
+| `list_deals` | Deals by status, pipeline, stage, owner, person, organization or update window, cursor-paginated. Archived deals live in their own collection — pass `archived` |
 | `manage_deal` | Create or edit a deal, move it between stages, close it, archive it, or delete it — `create`, `update`, `move_stage`, `mark_won`, `mark_lost`, `reopen`, `archive`, `unarchive`, `delete`. Custom fields by name, dropdowns by label |
 | `get_person` | One contact: names, every email and phone with its label, the company they belong to, and custom fields |
-| `list_persons` | People by owner, linked organisation or update window, cursor-paginated |
+| `list_persons` | People by owner, linked organization or update window, cursor-paginated |
 | `manage_person` | Create, edit or delete a contact — `create`, `update`, `delete`. Name it with `name` or with `first_name`/`last_name`, never both. Custom fields by name, dropdowns by label |
 | `get_organization` | One company: the address Pipedrive parsed, how many people hang off it, and custom fields |
 | `list_organizations` | Companies by owner or update window, cursor-paginated |
 | `manage_organization` | Create, edit or delete a company — `create`, `update`, `delete`. Custom fields by name, dropdowns by label |
 | `get_activity` | One call, email, meeting or task, with its location, participants and conference details |
-| `list_activities` | Activities by status, owner, deal, person, organisation, lead or update window; notes stripped unless asked for |
+| `list_activities` | Activities by status, owner, deal, person, organization, lead or update window; notes stripped unless asked for |
 | `manage_activity` | Create or edit an activity, tick it off, or delete it — `create`, `update`, `complete`, `reopen`, `delete` |
 | `get_note` | One note: its HTML, who wrote it, and which record it hangs off |
 | `list_notes` | Notes by the record they hang off, author, date range or update window |
@@ -254,7 +254,7 @@ are a milestone of their own. `search` will *find* products, files and
 leads — its `item_type` covers them — so you can turn a name into an id
 and then do nothing else with it, which is worth knowing before you try.
 
-**Resources not modelled at all**, and not planned for 1.x: webhooks,
+**Resources not modeled at all**, and not planned for 1.x: webhooks,
 mail and mail threads, subscriptions and recurring revenue, saved
 filters, currencies, deal-to-lead conversion, followers, deal
 participants as a managed relation, and creating or altering custom
@@ -264,7 +264,7 @@ definitions are not).
 **Merging records is not here.** Pipedrive can merge two people or two
 organizations; this server cannot, and the reason is the guard contract
 rather than the API — a merge destroys one record's field values in
-favour of another's, across a record the caller has not read, and there
+favor of another's, across a record the caller has not read, and there
 is no refusal that could name what it was about to lose.
 
 **No field can be cleared** once it holds a value — Pipedrive v2 rejects
@@ -303,7 +303,7 @@ compatibility promise; see [CHANGELOG.md](CHANGELOG.md).
   it. Registration is no longer the gate: a tool that does not exist
   cannot explain why it will not act, so the refusal does it instead.
 - **`PIPEDRIVE_DRY_RUN` is a floor, not a default.** Every write tool
-  honours it. A per-call `dry_run` can turn a rehearsal on for one
+  honors it. A per-call `dry_run` can turn a rehearsal on for one
   write; nothing on the wire can turn one off while the flag is set, so
   "set it and the server cannot write" stays true whatever a model asks
   for.
@@ -333,7 +333,7 @@ domain came from, whether the token was found and in which store, and
 whether the startup auth probe reached Pipedrive — which is most of what
 goes wrong on a first run. `status --json` prints the same thing as one
 JSON object for a script that has to decide whether this server is
-authorised before starting it; `credentials.resolved` is the field to
+authorized before starting it; `credentials.resolved` is the field to
 branch on, and `probe.ran` distinguishes a skipped check from a failed
 one. The shape is in
 [docs/configuration.md](docs/configuration.md#reading-the-setup-from-a-script).
@@ -381,7 +381,7 @@ make smoke     # drive the built binary over stdio and read the reply
 ```
 
 `make check` is the definition of done: gofmt, `go vet`, golangci-lint,
-race tests with a per-package coverage floor, `govulncheck`, a licence
+race tests with a per-package coverage floor, `govulncheck`, a license
 allow-list, a leak gate refusing anything that looks like a real account's
 data in the working tree, a pinned-version gate holding every action to a
 commit SHA and every tool it installs to an exact version, a staleness

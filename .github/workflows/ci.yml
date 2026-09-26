@@ -183,7 +183,7 @@ jobs:
           if [ -f /tmp/base-schemas.json ]; then
             diff -u /tmp/base-schemas.json /tmp/pr-schemas.json || {
               # Every commit the pull request adds, not just the head
-              # one. Reading only the head drops the acknowledgement the
+              # one. Reading only the head drops the acknowledgment the
               # moment anything lands on top of the commit that carried
               # it — merging main into the branch is enough, and that is
               # a routine thing to do while a pull request is open. The
@@ -199,7 +199,7 @@ jobs:
                 echo "Schema change with SCHEMA-CHANGE: footer — OK (additive / non-breaking, treat as MINOR)"
                 exit 0
               fi
-              echo "::error::tool schema changed without an acknowledgement footer."
+              echo "::error::tool schema changed without an acknowledgment footer."
               echo "::error::Add 'SCHEMA-CHANGE: <description>' for additive/non-breaking changes,"
               echo "::error::or 'BREAKING CHANGE: <description>' for breaking ones, on any commit"
               echo "::error::in this pull request."

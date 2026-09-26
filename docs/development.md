@@ -286,7 +286,7 @@ failing.
 
 Writes need `PIPEDRIVE_INTEGRATION_WRITES=1` on top of the tag, because
 the workspace on the other end is a real CRM and Pipedrive has no undo.
-`PIPEDRIVE_DRY_RUN` overrides that: the suite honours the dry-run floor
+`PIPEDRIVE_DRY_RUN` overrides that: the suite honors the dry-run floor
 the way the server does, so under it the write probes skip. The safety
 contract each probe keeps — capture, restore from `t.Cleanup`, verify
 with a fresh read, never write a field that was empty — is written once,
