@@ -187,7 +187,7 @@ func TestTheGeneratedLauncherCoversTheTable(t *testing.T) {
 		}
 		for _, u := range f.uname {
 			if !strings.Contains(script, u) {
-				t.Errorf("the launcher recognises no machine reporting %s", u)
+				t.Errorf("the launcher recognizes no machine reporting %s", u)
 			}
 		}
 	}

@@ -317,7 +317,7 @@ func (fc *FieldCache) Encode(ctx context.Context, in map[string]any) (CustomFiel
 // The names matter because they are the only thing the caller can act
 // on. A `changed` report or an overwrite refusal that named a 40-char
 // hash would be telling them about a field they have no way to
-// recognise — and the read side has always answered in names, so the
+// recognize — and the read side has always answered in names, so the
 // write side saying anything else would read as a different field.
 type CustomFieldWrite struct {
 	Values map[string]any    // hash key → the value Pipedrive stores
@@ -332,7 +332,7 @@ func (w CustomFieldWrite) Empty() bool { return len(w.Values) == 0 }
 //
 // A 40-char key is accepted alongside a name: it is what a caller falls
 // back to when two fields share a name, and Resolve hands it out already
-// whenever the cache does not recognise a key.
+// whenever the cache does not recognize a key.
 func (e *cacheEntry) writableField(name string) (cachedField, error) {
 	// The key branch checks `custom` for the same reason the name branch
 	// does. byKey holds the built-ins too, and a built-in's key is its

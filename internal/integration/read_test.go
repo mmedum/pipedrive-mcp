@@ -177,7 +177,7 @@ func TestCustomFields_ResolveToWorkspaceWords(t *testing.T) {
 			if err != nil {
 				t.Fatalf("reading %s field metadata: %v", tc.key, err)
 			}
-			ids := unlabelledOptionIDs(fields)
+			ids := unlabeledOptionIDs(fields)
 
 			var raw map[string]any
 			mustCall(t, tc.list, map[string]any{"limit": 20}, &raw)
@@ -186,7 +186,7 @@ func TestCustomFields_ResolveToWorkspaceWords(t *testing.T) {
 				t.Skipf("workspace has no %s", tc.key)
 			}
 
-			named, labelled := 0, 0
+			named, labeled := 0, 0
 			for _, r := range rows {
 				row, _ := r.(map[string]any)
 				custom, _ := row["custom_fields"].(map[string]any)
@@ -200,7 +200,7 @@ func TestCustomFields_ResolveToWorkspaceWords(t *testing.T) {
 						continue
 					}
 					for _, one := range values(v) {
-						labelled++
+						labeled++
 						if stored[pipedrive.OptionKey(one)] {
 							// The id rather than the field's name, for
 							// the reason the hash check prints a length
@@ -214,18 +214,18 @@ func TestCustomFields_ResolveToWorkspaceWords(t *testing.T) {
 			if named == 0 {
 				t.Skipf("no %s in this workspace carries a custom field", tc.key)
 			}
-			if labelled == 0 {
+			if labeled == 0 {
 				t.Logf("key half only: no %s in this workspace has a dropdown filled in", tc.key)
 			}
 		})
 	}
 }
 
-// unlabelledOptionIDs maps a field's name to the ids it stores, rendered
+// unlabeledOptionIDs maps a field's name to the ids it stores, rendered
 // the way the cache renders them. An option whose label reads the same
 // as its id is left out: matching one would prove nothing about whether
 // the label was resolved.
-func unlabelledOptionIDs(fields []pipedrive.Field) map[string]map[string]bool {
+func unlabeledOptionIDs(fields []pipedrive.Field) map[string]map[string]bool {
 	out := map[string]map[string]bool{}
 	for _, f := range fields {
 		stored := map[string]bool{}

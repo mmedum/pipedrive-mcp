@@ -127,7 +127,7 @@ func RegisterSearch(s *mcp.Server, c searchClient) {
 // for — organizations and persons. Deals are deliberately not checked:
 // /deals excludes ARCHIVED deals, which are alive, so the check would
 // drop live deals out of search. Products, files and leads are not
-// modelled here at all. Pipedrive drops deleted deals from its own
+// modeled here at all. Pipedrive drops deleted deals from its own
 // index, and a live probe holds that claim rather than a comment.
 //
 // A failure here fails the search. Returning the page unfiltered would

@@ -190,7 +190,7 @@ func RegisterActivities(s *mcp.Server, c activitiesClient, companyDomain string,
 
 // activityActions is the closed enum manage_activity dispatches on, and
 // what it needs to know about each one: whether it creates rather than
-// writes, and whether it authorises its own overwrite. Same shape and
+// writes, and whether it authorizes its own overwrite. Same shape and
 // same reasoning as dealAction — complete and reopen name the field they
 // land on, so the caller already sees the blast radius.
 type activityAction struct {
@@ -361,7 +361,7 @@ func writeActivityAction(ctx context.Context, c activitiesClient, companyDomain 
 		Resource:      fmt.Sprintf("activity %d", in.ActivityID),
 		ExpectVersion: in.ExpectVersion,
 		Version:       func(a *pipedrive.Activity) string { return a.UpdateTime },
-		// complete and reopen authorise their own overwrite; see
+		// complete and reopen authorize their own overwrite; see
 		// activityAction.
 		Overwrite:    in.Overwrite,
 		OverwriteAll: activityActions[in.Action].transition,

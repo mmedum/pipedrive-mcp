@@ -200,7 +200,7 @@ announces itself, so an LLM client never sees a half-initialized server.
 - **Effect**: `=1` lets the suite's reversible write probes run against
   the live workspace. Without it they skip. Setting it in an MCP
   client's environment does nothing.
-- **Interaction**: `PIPEDRIVE_DRY_RUN` wins. The suite honours the
+- **Interaction**: `PIPEDRIVE_DRY_RUN` wins. The suite honors the
   dry-run floor the way the server does, so under it the write probes
   skip whatever this is set to. See
   [`development.md`](development.md#integration-suite).

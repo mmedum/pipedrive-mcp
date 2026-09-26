@@ -516,7 +516,7 @@ func TestWrite_DealReopensFromWonAndFromLost(t *testing.T) {
 //     it in no way at all, so this server drops it. This asserts our
 //     filter works.
 //   - deal, person — Pipedrive drops them itself. Nothing here filters
-//     those, so this asserts somebody else's behaviour. It is written
+//     those, so this asserts somebody else's behavior. It is written
 //     down in three comments and a CHANGELOG entry; without this it is
 //     held by nothing, and the day it changes this server starts
 //     handing back deleted records and no test moves.

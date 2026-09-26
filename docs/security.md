@@ -61,7 +61,7 @@ Threats this server defends against:
     `expect_version`, which refuses a write whose record moved since it
     was read.
   - `PIPEDRIVE_DRY_RUN=true` as a server-wide floor: every write tool
-    honours it, a per-call `dry_run` can only turn a rehearsal on, and
+    honors it, a per-call `dry_run` can only turn a rehearsal on, and
     nothing on the wire can turn one off.
   - Tool descriptions that explicitly tell the LLM not to confabulate
     values (e.g. `mark_deal_lost`'s `lost_reason`).
@@ -163,8 +163,8 @@ Two things the descriptions say plainly rather than guard:
   was run, because the only workspace available is a real one. So the
   descriptions tell the caller to read `list_notes`, `list_activities`,
   `list_persons` and `list_deals` for the record first, rather than the
-  code guarding against a behaviour nobody has established. If that
-  behaviour is ever established, the guard to add is `force`, on the
+  code guarding against a behavior nobody has established. If that
+  behavior is ever established, the guard to add is `force`, on the
   three parents — an activity is a leaf and would still not need one.
 
 `detach_product_from_deal` remains off the roadmap; products are not
@@ -178,7 +178,7 @@ Per-call `dry_run: true` is the everyday mechanism: every write takes
 it, reports what it would find and change, and sends nothing.
 
 `PIPEDRIVE_DRY_RUN=true` is the operator's floor. Every write tool
-honours it, so a call may turn a rehearsal *on* but nothing on the wire
+honors it, so a call may turn a rehearsal *on* but nothing on the wire
 can turn one *off*. That is what makes it safe to answer "use
 `PIPEDRIVE_DRY_RUN` for speculative LLM work" — a flag a tool could
 override would be a false promise, and the tool that can delete is
