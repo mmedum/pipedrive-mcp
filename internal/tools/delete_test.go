@@ -101,7 +101,7 @@ func TestDelete_DryRunSendsNothing(t *testing.T) {
 
 // PIPEDRIVE_DRY_RUN is a floor: a caller can turn a rehearsal on and
 // cannot turn one off. A delete is where that promise earns its keep.
-func TestDelete_HonoursTheDryRunFloor(t *testing.T) {
+func TestDelete_HonorsTheDryRunFloor(t *testing.T) {
 	f := &fakeDealsClient{deal: &pipedrive.Deal{ID: 7, Status: "open"}}
 	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterDeals(s, f, "acme", tools.RegisterOptions{DryRun: true})
@@ -218,7 +218,7 @@ func TestReopen_DoesNotClearTheLostReasonOfALostDealEither(t *testing.T) {
 // agreed to replace the title has NOT agreed to replace the value, and
 // the guard now says so. `overwrite: true` could not express that — it
 // permitted every populated field the write happened to touch, so a
-// caller who meant one thing authorised all of them.
+// caller who meant one thing authorized all of them.
 //
 // This does not stop a model routing around the guard; nothing in band
 // can, since anything the refusal says a model can echo back. What it

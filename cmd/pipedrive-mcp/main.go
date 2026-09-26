@@ -61,7 +61,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return cmdStatus(args[1:], stdout)
 		}
 
-		// Anything the switch did not recognise, and that is not a flag,
+		// Anything the switch did not recognize, and that is not a flag,
 		// was meant to be a subcommand. Falling through starts the server
 		// instead, which looks like a hang: it blocks on stdin and says
 		// nothing. The caller is then handed exit 0 whether it meant to

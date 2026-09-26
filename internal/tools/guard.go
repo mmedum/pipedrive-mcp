@@ -184,7 +184,7 @@ func projectOptFloat(p *float64) string {
 // missing from the table entirely, contact points projected to the
 // primary value alone (truncation invisible), and then contact points
 // projected to their values alone (re-flagging the primary and
-// relabelling invisible). Each fix chased the symptom. Stating the rule
+// relabeling invisible). Each fix chased the symptom. Stating the rule
 // in one place, with both collections written against it, is the thing
 // that stops a fourth.
 func projectCollection[E any](es []E, render func(E) string) string {
@@ -461,7 +461,7 @@ type guardedWrite[T any] struct {
 // empty, nothing was sent), a dry run (changed is what would move,
 // nothing was sent), and a real write (changed is what the upstream
 // actually altered, diffed against the echo rather than the prediction
-// because Pipedrive normalises some of what it stores).
+// because Pipedrive normalizes some of what it stores).
 func (w guardedWrite[T]) run(ctx context.Context) (rec *T, changed []string, stop *mcp.CallToolResult) {
 	before, err := w.Get(ctx)
 	if err != nil {
@@ -513,7 +513,7 @@ func (w guardedWrite[T]) predict(before *T) T {
 	return predicted
 }
 
-// SelfAuthorisingActions names every manage_* action that grants its own
+// SelfAuthorizingActions names every manage_* action that grants its own
 // overwrite — the transitions, which need no `overwrite` because the
 // field they change is the field the caller named.
 //
@@ -522,7 +522,7 @@ func (w guardedWrite[T]) predict(before *T) T {
 // `unarchive` missing from that sentence after they were added here, so
 // the instructions understated what a caller could do without asking.
 // internal/server holds the sentence against this.
-func SelfAuthorisingActions() []string {
+func SelfAuthorizingActions() []string {
 	var out []string
 	for name, a := range dealActions {
 		if a.transition {

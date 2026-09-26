@@ -74,7 +74,7 @@ func TestNew_WarmsAllFieldCaches(t *testing.T) {
 
 func TestNew_WarmGoroutineCancelsWithParentContext(t *testing.T) {
 	// The warm goroutine must abort cleanly when the parent context
-	// is cancelled — otherwise SIGTERM mid-warm leaves orphaned
+	// is canceled — otherwise SIGTERM mid-warm leaves orphaned
 	// in-flight HTTP. Drive that path: an upstream that hangs
 	// indefinitely + a parent context we cancel immediately. The
 	// warm pump should exit within the test timeout (well under the
@@ -135,7 +135,7 @@ func TestNew_WarmGoroutineCancelsWithParentContext(t *testing.T) {
 // This holds the sentence against the structure it mirrors. It cannot
 // tell prose from truth — no test can — but it closes the half that is
 // mechanical, which is the half that broke.
-func TestInstructionsNameEverySelfAuthorisingAction(t *testing.T) {
+func TestInstructionsNameEverySelfAuthorizingAction(t *testing.T) {
 	// The SENTENCE, not the whole string. Searching the whole thing
 	// passes on an action named anywhere for any reason — "archive"
 	// also appears in the paragraph warning that archiving is not
@@ -152,7 +152,7 @@ func TestInstructionsNameEverySelfAuthorisingAction(t *testing.T) {
 // reader those two needed an `overwrite` they do not take. That is the
 // same defect the test above exists for, one document over, so it is
 // the same assertion rather than a second mechanism.
-func TestREADMENamesEverySelfAuthorisingAction(t *testing.T) {
+func TestREADMENamesEverySelfAuthorizingAction(t *testing.T) {
 	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
 	if err != nil {
 		t.Fatalf("reading README.md: %v", err)
@@ -175,7 +175,7 @@ func assertTransitionSentenceIsComplete(t *testing.T, where, doc, opener, closer
 	}
 	sentence := doc[i+len(opener) : j]
 
-	for _, action := range tools.SelfAuthorisingActions() {
+	for _, action := range tools.SelfAuthorizingActions() {
 		if !strings.Contains(sentence, action) {
 			t.Errorf("%s: the transition sentence does not name %q, which grants its own overwrite; "+
 				"a caller reading it asks permission the tool does not require. Sentence: %q", where, action, sentence)
