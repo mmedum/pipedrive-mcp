@@ -47,7 +47,7 @@ type statusReport struct {
 type statusCredentials struct {
 	// Resolved is the field worth branching on: false means every tool
 	// will refuse until `login` runs or the environment supplies a
-	// token. Always present, so an unauthorised object is
+	// token. Always present, so an unauthorized object is
 	// distinguishable from a truncated or unparseable one.
 	Resolved bool `json:"resolved"`
 	// Source is "keyring" or "env", and null when nothing resolved.
@@ -178,7 +178,7 @@ func (r statusReport) writeJSON(w io.Writer) error {
 
 // orNil turns an unset string into the JSON null that says so: an empty
 // string is a value, and a caller cannot tell a value it does not
-// recognise from one that is not there.
+// recognize from one that is not there.
 func orNil(s string) *string {
 	if s == "" {
 		return nil
