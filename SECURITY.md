@@ -21,7 +21,7 @@ These are best-effort targets, not contractual SLAs. The project is
 community-maintained by a small group of maintainers. We will firm these up
 as the team grows.
 
-- Acknowledgement within **3 business days** of report.
+- Acknowledgment within **3 business days** of report.
 - Patch targeted within:
   - **30 days** for high or critical severity.
   - **90 days** for medium severity.

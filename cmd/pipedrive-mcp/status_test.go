@@ -29,7 +29,7 @@ func TestEveryRefusalIsAWholeObject(t *testing.T) {
 			SchemaVersion: statusSchemaVersion,
 			Domain:        orNil("acme"),
 			Credentials:   statusCredentials{Resolved: true, Source: orNil("keyring")},
-			Probe:         statusProbe{Ran: true, Reason: orNil("401 unauthorised")},
+			Probe:         statusProbe{Ran: true, Reason: orNil("401 unauthorized")},
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

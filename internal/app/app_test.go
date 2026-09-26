@@ -79,7 +79,7 @@ func TestResolveWith(t *testing.T) {
 		}
 	})
 
-	t.Run("a missing token stays recognisable as ErrNotFound", func(t *testing.T) {
+	t.Run("a missing token stays recognizable as ErrNotFound", func(t *testing.T) {
 		workspace(t, "acme")
 
 		// Callers branch on this: main exits with an actionable
@@ -107,7 +107,7 @@ func TestResolveWith(t *testing.T) {
 
 // TestSettings_LogValue_RedactsTheToken pins the reason the token is
 // unexported and LogValue exists: Settings is a struct main logs
-// neighbouring fields of, and one slog.Any away from a keyring token in
+// neighboring fields of, and one slog.Any away from a keyring token in
 // stderr.
 func TestSettings_LogValue_RedactsTheToken(t *testing.T) {
 	workspace(t, "acme")

@@ -57,7 +57,7 @@ type dealSummary struct {
 	UpdateTime        string         `json:"update_time,omitempty" jsonschema:"timestamp the deal was last updated"`
 	Probability       *float64       `json:"probability,omitempty" jsonschema:"deal probability override (0-100); null when the stage default applies"`
 	IsArchived        bool           `json:"is_archived,omitempty" jsonschema:"true if the deal has been archived; an archived deal cannot be edited and does not appear in list_deals unless archived is set"`
-	CustomFields      map[string]any `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label; an unrecognised field or option falls through under its stored key"`
+	CustomFields      map[string]any `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label; an unrecognized field or option falls through under its stored key"`
 	URL               string         `json:"url" jsonschema:"link to the deal in the Pipedrive web UI"`
 }
 
@@ -162,9 +162,9 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string, opts Regi
 
 // dealAction is what manage_deal needs to know about one action beyond
 // how to build its request: whether it creates rather than writes, and
-// whether it authorises its own overwrite.
+// whether it authorizes its own overwrite.
 //
-// A transition does authorise itself — it names both the change and the
+// A transition does authorize itself — it names both the change and the
 // field it lands on, so the caller already sees the whole blast radius,
 // and only a free-form update needs permission. That used to be spelled
 // as `in.Action != "update"` at the guard, which is a rule stated by
@@ -223,7 +223,7 @@ var dealBaseFields = []fieldSpec[pipedrive.Deal]{
 type manageDealInput struct {
 	Action            string         `json:"action" jsonschema:"create, update, move_stage, mark_won, mark_lost, reopen, archive, unarchive or delete"`
 	DealID            int64          `json:"deal_id,omitempty" jsonschema:"the deal to act on, required by every action except create"`
-	Title             *string        `json:"title,omitempty" jsonschema:"the deal's title, required by create. Give it a name a human would recognise; if the user did not supply one, ask rather than inventing it"`
+	Title             *string        `json:"title,omitempty" jsonschema:"the deal's title, required by create. Give it a name a human would recognize; if the user did not supply one, ask rather than inventing it"`
 	Value             *float64       `json:"value,omitempty" jsonschema:"monetary value in the deal's currency"`
 	Currency          *string        `json:"currency,omitempty" jsonschema:"ISO 4217 code such as USD, EUR or DKK; omit on create to take the workspace default"`
 	PipelineID        *int64         `json:"pipeline_id,omitempty" jsonschema:"the pipeline the deal sits in; list_pipelines reports the ids"`
@@ -353,7 +353,7 @@ func writeDealAction(ctx context.Context, c dealsClient, companyDomain string, i
 		Resource:      fmt.Sprintf("deal %d", in.DealID),
 		ExpectVersion: in.ExpectVersion,
 		Version:       func(d *pipedrive.Deal) string { return d.UpdateTime },
-		// A transition authorises its own overwrite; see dealAction.
+		// A transition authorizes its own overwrite; see dealAction.
 		Overwrite:    in.Overwrite,
 		OverwriteAll: dealActions[in.Action].transition,
 		DryRun:       in.DryRun,
@@ -555,7 +555,7 @@ func summarizeDeal(domain string, d *pipedrive.Deal, customFields map[string]any
 // What it does NOT do is pretend to know what becomes of the notes and
 // activities hanging off the deal. Pipedrive does not document that and
 // nothing here has verified it, so the description warns rather than
-// the code guarding against a behaviour nobody has established.
+// the code guarding against a behavior nobody has established.
 func deleteDealAction(ctx context.Context, c dealsClient, companyDomain string, in manageDealInput) (*mcp.CallToolResult, manageDealOutput) {
 	if err := validatePositiveID(in.DealID, "deal_id"); err != nil {
 		return errorResult(err), manageDealOutput{}

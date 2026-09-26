@@ -280,7 +280,7 @@ trap that silently returns a wrong answer instead of an error.
 > is, WHERE IT LIVES, its link […] WHO CAN SEE IT
 
 **State the cost** where one tool is much more expensive than its
-neighbour, so the caller reaches for the cheap one.
+neighbor, so the caller reaches for the cheap one.
 
 > a search costs twenty times what a read does
 
@@ -357,7 +357,7 @@ the caller can already see the consequences of is friction, not safety:
   the caller decides per write — but `PIPEDRIVE_DRY_RUN` remains a
   **floor**, not a default: a call can turn a rehearsal on and cannot
   turn one off. `docs/security.md` promises an operator that the env
-  flag makes speculative LLM work safe, and a tool that honoured only
+  flag makes speculative LLM work safe, and a tool that honored only
   the per-call input would make that promise false.
 - **`overwrite`** where the write would clobber a populated field the
   caller has not read. It is a **list of field names**, not a flag:
@@ -387,7 +387,7 @@ the description instead of adding a flag.
 Return the stored values back after a write and name every one the
 upstream changed, the way `write_values` names each value Google
 coerced. Diff against the record read before the write, not against the
-request: Pipedrive normalises some of what it stores.
+request: Pipedrive normalizes some of what it stores.
 
 **One list of field names per resource.** The diff, the overwrite guard
 and the update-request builder all walk the same names. Write them once

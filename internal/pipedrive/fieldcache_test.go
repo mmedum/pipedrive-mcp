@@ -156,20 +156,20 @@ func TestFieldCache_ResolveOptionLabels(t *testing.T) {
 	got := resolveJSON(t, optionCache(t), optionRecordJSON)
 
 	if got["Segment"] != "Enterprise" {
-		t.Errorf("enum option not labelled: %v", got["Segment"])
+		t.Errorf("enum option not labeled: %v", got["Segment"])
 	}
 	if want := []any{"EMEA", "APAC"}; !reflect.DeepEqual(got["Regions"], want) {
 		t.Errorf("set options = %v; want %v", got["Regions"], want)
 	}
 	// A string-id option, which is how Pipedrive spells the built-ins.
 	if got["Visible to"] != "Everyone" {
-		t.Errorf("string-id option not labelled: %v", got["Visible to"])
+		t.Errorf("string-id option not labeled: %v", got["Visible to"])
 	}
 	// "107" is the Renewal note's actual text. A field with no options
 	// must not be searched for one, or every varchar that happens to
 	// read like an id becomes somebody else's label.
 	if got["Renewal note"] != "107" {
-		t.Errorf("optionless field was relabelled: %v", got["Renewal note"])
+		t.Errorf("optionless field was relabeled: %v", got["Renewal note"])
 	}
 	if got["gone"] != float64(404) {
 		t.Errorf("unknown-key passthrough lost: %v", got["gone"])

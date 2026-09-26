@@ -21,7 +21,7 @@ type fakeSearchClient struct {
 	// deleted are the record ids LiveIDs leaves out of its answer, the
 	// way a v2 collection omits a deleted one. Everything not named
 	// here is live, so a test that does not care about deletion gets
-	// the behaviour it had before the check existed.
+	// the behavior it had before the check existed.
 	deleted   map[int64]bool
 	liveErr   error
 	liveCalls []pipedrive.ItemType

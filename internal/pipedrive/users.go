@@ -35,7 +35,7 @@ type User struct {
 // Note the shape difference from v2: v1 wraps single records in the
 // same {success, data} envelope, so itemEnvelope still applies.
 //
-// MEMOISED for the process lifetime, behind the same sync.Once shape the
+// MEMOIZED for the process lifetime, behind the same sync.Once shape the
 // field caches use. A token authenticates as exactly one user, and the
 // whoami tool's own description tells the model the answer does not
 // change during a session — which is an invitation to call it every turn.
@@ -45,7 +45,7 @@ type User struct {
 // acceptable for a per-workspace stdio server whose token is fixed at
 // startup, and a restart is the escape hatch.
 //
-// The first call's error is memoised too, so a failing probe does not
+// The first call's error is memoized too, so a failing probe does not
 // turn into a retry on every subsequent call.
 func (c *Client) WhoAmI(ctx context.Context) (*User, error) {
 	c.meOnce.Do(func() {

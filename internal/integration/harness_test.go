@@ -53,7 +53,7 @@ var (
 	liveClient *pipedrive.Client
 	liveDomain string
 
-	// dryRunFloor mirrors PIPEDRIVE_DRY_RUN. The suite honours it the
+	// dryRunFloor mirrors PIPEDRIVE_DRY_RUN. The suite honors it the
 	// way the binary does, so the write probes cannot run under it —
 	// every write would rehearse and every read-back would fail
 	// against a record that never moved. requireWrites skips instead.

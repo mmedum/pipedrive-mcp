@@ -78,7 +78,7 @@ func TestWhoAmI_HappyPath(t *testing.T) {
 
 func TestWhoAmI_IsAdminIsAnIntUpstream(t *testing.T) {
 	// v1 reports is_admin as 0/1 rather than a JSON boolean; the
-	// LLM-facing shadow normalises it so the LLM never sees the int.
+	// LLM-facing shadow normalizes it so the LLM never sees the int.
 	for _, tc := range []struct {
 		raw  int
 		want bool

@@ -62,7 +62,7 @@ func TestV1CarveOutStillAnswers(t *testing.T) {
 
 	// Recorded rather than asserted per probe, so the aggregate can be
 	// read after the loop. A subtest that skipped is neither answered
-	// nor failed and must not count towards either.
+	// nor failed and must not count toward either.
 	answered, failed := 0, 0
 
 	for _, p := range probes {

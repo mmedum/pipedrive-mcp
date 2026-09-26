@@ -108,7 +108,7 @@ Two shapes keep that from recurring rather than merely discouraging it.
 `server.New` takes the whole `config.Config` instead of a `domain
 string` and a `tools.RegisterOptions`, so there is no zero-options
 literal for the next entry point to copy and no way for the workspace a
-tool labels its output with to disagree with the floor it honours;
+tool labels its output with to disagree with the floor it honors;
 `--dump-schemas` calls `server.NewForSchemaDump`, whose name says no
 handler runs. And `Settings.Connect` returns a `Runtime` that carries
 the client beside the settings it came from, so `Runtime.NewServer`
@@ -358,7 +358,7 @@ buy is a correct label when the cache has not seen an option yet, which
 is what `refresh_field_cache` is for.
 
 An option id with no matching option passes through as itself, matching
-what an unrecognised field key does. Both are the same bet: a workspace
+what an unrecognized field key does. Both are the same bet: a workspace
 can add a field or an option at any moment, and a caller seeing a raw id
 is recoverable where a caller seeing nothing is not. `refresh_field_cache`
 re-reads the option tables along with the names.
@@ -467,7 +467,7 @@ useless for one and correct for another.
 After a write the tool returns the record the upstream echoed back and a
 `changed` list naming every field that actually moved — diffed against
 the pre-write read, not against the request, because Pipedrive
-normalises some of what it stores.
+normalizes some of what it stores.
 
 ### Clearing a field
 
@@ -492,14 +492,14 @@ without a deliberate decision: it would be a third v1 carve-out on an
 API whose **2026-07-31 sunset has passed**, built for a capability
 nobody has asked for. Every `manage_*` input says "omit to leave it as it is" instead,
 and the `Update*Request` types stay `*T` with `omitempty` — nil omits,
-non-nil sends, no third state, because there is no third behaviour worth
+non-nil sends, no third state, because there is no third behavior worth
 reaching for.
 
 If v2 later grows a working clear, change the `Update*Request` types and
 the input descriptions together, never one without the other.
 
 `PIPEDRIVE_DRY_RUN` sits under all of it as a server-wide floor: every
-write honours it, and a per-call `dry_run` can only turn a rehearsal on.
+write honors it, and a per-call `dry_run` can only turn a rehearsal on.
 
 Every `manage_` tool implements the full contract: per-call `dry_run`,
 `overwrite` and `expect_version`. This paragraph used to describe
@@ -584,7 +584,7 @@ Versioning is strict semver. The MCP tool surface is the public contract.
 | `v0.5.0` | Phase 4 prep | Custom fields answer to their names in both directions — readable by name with dropdowns as labels, and writable the same way. The bundle manifest and the MCP registry entry are held against the schemas they cite. The hand-rolled-versus-generated spike was answered, and answering it found three upstream-type defects that had shipped; the mirror is now checked against Pipedrive's own description. Archived deals stopped being invisible. |
 
 | `v0.6.0` | Phase 4 | The current MCP protocol revision (`2026-07-28`), deletes on the four v2 resources, the eval suite the phase plan had been gating releases on without it existing, and the v1 sunset classified rather than predicted. Its most useful output was a bug: `manage_deal reopen` had failed against the real API since it shipped, and the first eval runs found it. |
-| `v1.0.0` | Phase 5 | The stable surface. `overwrite` became the list of fields it may replace, which is the one breaking change in the range. Three defects fixed, and the pattern across all three is that a test asserted the broken behaviour as correct: the write probes edited live customer records and called the restore a success, `search` returned deleted records that every `list_` tool drops, and `manage_person` could not create a contact with a first name. |
+| `v1.0.0` | Phase 5 | The stable surface. `overwrite` became the list of fields it may replace, which is the one breaking change in the range. Three defects fixed, and the pattern across all three is that a test asserted the broken behavior as correct: the write probes edited live customer records and called the restore a success, `search` returned deleted records that every `list_` tool drops, and `manage_person` could not create a contact with a first name. |
 
 The middle tags went to release engineering rather than to phases, so the
 phase numbers and the version numbers stopped tracking each other. The
@@ -623,7 +623,7 @@ it is recorded as done rather than pending: **every serious defect found
 during the 0.4.0 work was found by driving the live API, and not one of
 them was visible to the unit tests**, which assert against fakes. Three
 guard bugs, a wire-format error, and Pipedrive's derived-`name`
-behaviour all came from real calls. `docs/development.md` has the safety
+behavior all came from real calls. `docs/development.md` has the safety
 contract the write probes keep.
 
 It is left in this list rather than deleted because the reasoning is the
@@ -658,7 +658,7 @@ a third.
   now, like every other validator in the package, and the caller wraps.
 - ~~The action taxonomy is written four times per resource~~ — `manage_deal`
   and `manage_activity` each have one `map[string]xAction` table saying
-  whether an action creates and whether it authorises its own overwrite.
+  whether an action creates and whether it authorizes its own overwrite.
   The guard posture used to read `in.Action != "update"`, which states the
   rule by exclusion: a new action was a transition unless it happened to
   be called update, whatever it did. Now an action says what it is where

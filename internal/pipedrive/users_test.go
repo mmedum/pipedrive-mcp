@@ -61,7 +61,7 @@ func TestClient_WhoAmI_MapsUnauthorized(t *testing.T) {
 	}
 }
 
-func TestClient_WhoAmI_IsMemoised(t *testing.T) {
+func TestClient_WhoAmI_IsMemoized(t *testing.T) {
 	// The tool description tells the model the answer does not change
 	// during a session, which invites a call per turn. Each one used to
 	// be a full v1 round trip.
@@ -92,7 +92,7 @@ func TestClient_WhoAmI_IsMemoised(t *testing.T) {
 	}
 }
 
-func TestClient_WhoAmI_MemoisesTheFailureToo(t *testing.T) {
+func TestClient_WhoAmI_MemoizesTheFailureToo(t *testing.T) {
 	// A failing probe must not turn into a retry on every later call.
 	hits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

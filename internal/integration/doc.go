@@ -12,7 +12,7 @@
 // It exists because the unit tests assert against fakes, and a fake
 // agrees with whatever we believed when we wrote it. Every serious
 // defect found during the 0.4.0 work — three guard bugs, a wire-format
-// error, and Pipedrive's derived-name behaviour — was found by driving
+// error, and Pipedrive's derived-name behavior — was found by driving
 // the real API, and not one was visible to the tests that mock it.
 // What lives here is therefore only what a fake cannot tell us: wire
 // format, custom-field resolution against real field definitions,

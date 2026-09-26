@@ -130,7 +130,7 @@ The release workflow runs automatically. Watch it at
 - [ ] The Claude Desktop bundle, `pipedrive-mcp_X.Y.Z.mcpb`, is on the
       release page and has a row in `SHA256SUMS`. The bundle is not an
       archive goreleaser built — a hook drops it into `dist/` and
-      `checksum.extra_files` names it — so it is the one artefact that
+      `checksum.extra_files` names it — so it is the one artifact that
       can go missing without anything else looking wrong.
 - [ ] The registry entry published. The `registry` job runs after
       `archives` and is skipped for prereleases on purpose, because an
@@ -191,7 +191,7 @@ is the number cosign signed rather than one from a local build.
 **Exit 0 on empty output is not evidence.** `gh attestation verify` and
 `cosign verify-blob` both say little when they succeed, and a command
 that verified nothing at all also says little. Check one of them against
-a deliberately corrupted copy of the artefact and confirm it exits
+a deliberately corrupted copy of the artifact and confirm it exits
 non-zero before believing the run that passed.
 
 If you delete and recreate a tag, also delete the corresponding

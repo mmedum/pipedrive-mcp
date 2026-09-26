@@ -125,7 +125,7 @@ func TestGuardedWrite_VersionCheckPrecedesEverything(t *testing.T) {
 
 func TestGuardedWrite_OverwritePermitsAndReportsTheEcho(t *testing.T) {
 	// The post-write diff is against what the upstream echoed, not
-	// against the local prediction: Pipedrive normalises some of what it
+	// against the local prediction: Pipedrive normalizes some of what it
 	// stores, and the caller should see what landed.
 	w, puts := plan(
 		rec{Version: "v1", Title: "stored"},

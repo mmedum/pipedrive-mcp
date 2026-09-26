@@ -38,7 +38,7 @@ type personSummary struct {
 	OwnerID      int64                    `json:"owner_id" jsonschema:"id of the user who owns this record"`
 	AddTime      string                   `json:"add_time,omitempty" jsonschema:"timestamp the person was created"`
 	UpdateTime   string                   `json:"update_time,omitempty" jsonschema:"timestamp the person was last updated"`
-	CustomFields map[string]any           `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label; an unrecognised field or option falls through under its stored key"`
+	CustomFields map[string]any           `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label; an unrecognized field or option falls through under its stored key"`
 	URL          string                   `json:"url" jsonschema:"link to the person in the Pipedrive web UI"`
 }
 
@@ -376,7 +376,7 @@ func summarizePerson(domain string, p *pipedrive.Person, customFields map[string
 // It does not pretend to know what becomes of the records hanging off
 // this one. Pipedrive does not document that and nothing here has
 // verified it, so the description warns rather than the code guarding
-// against a behaviour nobody has established.
+// against a behavior nobody has established.
 //
 // There is no already-deleted short-circuit, unlike manage_deal's,
 // because there is nothing here to read one from: a deal carries
