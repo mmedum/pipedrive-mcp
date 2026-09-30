@@ -22,6 +22,10 @@ in full.
 
 ## [Unreleased]
 
+### Changed
+
+- The `delete` descriptions of `manage_deal`, `manage_person` and `manage_organization` say what a live probe established: deleting one deletes only that record, not the records hanging off it. They no longer tell the caller to read the linked records first.
+
 ## [1.1.0] - 2026-09-26
 
 ### Changed
