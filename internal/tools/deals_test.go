@@ -2,6 +2,7 @@ package tools_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 
 // fakeDealsClient lets handler tests skip the real HTTP client.
 type fakeDealsClient struct {
+	me         *pipedrive.User // the signed-in user a dry-run create previews as owner
 	deal       *pipedrive.Deal
 	dealErr    error
 	deals      []pipedrive.Deal
@@ -39,6 +41,22 @@ type fakeDealsClient struct {
 	lastDeleteID int64
 
 	encodeErr error
+}
+
+// ListStages has no stages to offer, so a dry-run create previews no
+// stage it was not given.
+func (f *fakeDealsClient) ListStages(context.Context, int64) ([]pipedrive.Stage, error) {
+	return nil, errNoUser
+}
+
+// WhoAmI answers the read a dry-run create makes for its owner. The fake
+// has no signed-in user unless a test names one, and a preview then
+// shows no owner.
+func (f *fakeDealsClient) WhoAmI(context.Context) (*pipedrive.User, error) {
+	if f.me == nil {
+		return nil, errNoUser
+	}
+	return f.me, nil
 }
 
 func (f *fakeDealsClient) UpdateDeal(_ context.Context, id int64, req pipedrive.UpdateDealRequest) (*pipedrive.Deal, error) {
@@ -509,5 +527,122 @@ func TestCreateDeal_PropagatesUpstreamError(t *testing.T) {
 	}
 	if !strings.HasPrefix(contentText(res), "[validation]") {
 		t.Errorf("error text = %q; want [validation] prefix", contentText(res))
+	}
+}
+
+// errNoUser is what a fake answers when a test names no signed-in user.
+var errNoUser = errors.New("fake: no signed-in user")
+
+// defaultingDealsClient answers the reads a dry-run create makes to show
+// what Pipedrive fills in, and counts them.
+type defaultingDealsClient struct {
+	fakeDealsClient
+	whoamiCalls, stageCalls int
+}
+
+func (f *defaultingDealsClient) WhoAmI(context.Context) (*pipedrive.User, error) {
+	f.whoamiCalls++
+	return &pipedrive.User{ID: 7, DefaultCurrency: "EUR"}, nil
+}
+
+func (f *defaultingDealsClient) ListStages(_ context.Context, pipelineID int64) ([]pipedrive.Stage, error) {
+	f.stageCalls++
+	return []pipedrive.Stage{
+		{ID: 40, OrderNr: 2, PipelineID: pipelineID},
+		{ID: 39, OrderNr: 1, PipelineID: pipelineID, IsDeleted: true},
+		{ID: 41, OrderNr: 1, PipelineID: pipelineID},
+	}, nil
+}
+
+// A dry-run create fills in the owner, the currency and the first stage
+// the real create would get, links nowhere, and reads only for what the
+// call left out.
+func TestCreateDeal_DryRunShowsPipedrivesDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		args         map[string]any
+		want         dealRow
+		whoami, stgs int
+	}{
+		{"left out", map[string]any{"pipeline_id": 6},
+			dealRow{StageID: 41, PipelineID: 6, OwnerID: 7, Currency: "EUR"}, 1, 1},
+		{"given", map[string]any{"pipeline_id": 6, "stage_id": 40, "owner_id": 9, "currency": "USD"},
+			dealRow{StageID: 40, PipelineID: 6, OwnerID: 9, Currency: "USD"}, 0, 0},
+		{"no pipeline", map[string]any{},
+			dealRow{OwnerID: 7, Currency: "EUR"}, 1, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &defaultingDealsClient{}
+			h := testutil.Connect(t, func(s *mcp.Server) {
+				tools.RegisterDeals(s, fake, "acme", tools.RegisterOptions{DryRun: true})
+			})
+			defer h.Close()
+			args := map[string]any{"action": "create", "title": "Preview"}
+			for k, v := range tc.args {
+				args[k] = v
+			}
+			res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{Name: "manage_deal", Arguments: args})
+			if err != nil || res.IsError {
+				t.Fatalf("%v %s", err, contentText(res))
+			}
+			var out struct {
+				Deal dealRow `json:"deal"`
+			}
+			testutil.DecodeStructured(t, res.StructuredContent, &out)
+			d := out.Deal
+			if d.StageID != tc.want.StageID || d.PipelineID != tc.want.PipelineID || d.OwnerID != tc.want.OwnerID ||
+				d.Currency != tc.want.Currency || d.URL != "" {
+				t.Errorf("preview %+v; want stage %d, pipeline %d, owner %d, currency %q and no url",
+					d, tc.want.StageID, tc.want.PipelineID, tc.want.OwnerID, tc.want.Currency)
+			}
+			if fake.whoamiCalls != tc.whoami || fake.stageCalls != tc.stgs || fake.createCallSeen {
+				t.Errorf("whoami %d, stages %d, create %v", fake.whoamiCalls, fake.stageCalls, fake.createCallSeen)
+			}
+		})
+	}
+}
+
+// A dry-run create of a person, an organization or an activity shows the
+// signed-in user as its owner when the call names none, as the real
+// create makes it, and the owner it was given when it names one.
+func TestCreate_DryRunShowsTheOwnerPipedriveGives(t *testing.T) {
+	me := &pipedrive.User{ID: 7}
+	for _, tc := range []struct {
+		tool, key string
+		register  func(*mcp.Server)
+		args      map[string]any
+	}{
+		{"manage_person", "person", func(s *mcp.Server) {
+			tools.RegisterPersons(s, &fakePersonsClient{me: me}, "acme", tools.RegisterOptions{DryRun: true})
+		}, map[string]any{"name": "Preview"}},
+		{"manage_organization", "organization", func(s *mcp.Server) {
+			tools.RegisterOrganizations(s, &fakeOrganizationsClient{me: me}, "acme", tools.RegisterOptions{DryRun: true})
+		}, map[string]any{"name": "Preview"}},
+		{"manage_activity", "activity", func(s *mcp.Server) {
+			tools.RegisterActivities(s, &fakeActivitiesClient{me: me}, "acme", tools.RegisterOptions{DryRun: true})
+		}, map[string]any{"subject": "Preview", "type": "call"}},
+	} {
+		for _, given := range []int64{0, 9} {
+			h := testutil.Connect(t, tc.register)
+			args := map[string]any{"action": "create"}
+			for k, v := range tc.args {
+				args[k] = v
+			}
+			want := int64(7)
+			if given != 0 {
+				args["owner_id"], want = given, given
+			}
+			res, err := h.Client.CallTool(context.Background(), &mcp.CallToolParams{Name: tc.tool, Arguments: args})
+			if err != nil || res.IsError {
+				t.Fatalf("%s: %v %s", tc.tool, err, contentText(res))
+			}
+			var out map[string]any
+			testutil.DecodeStructured(t, res.StructuredContent, &out)
+			rec, _ := out[tc.key].(map[string]any)
+			if got, _ := rec["owner_id"].(float64); int64(got) != want || rec["url"] != "" {
+				t.Errorf("%s given owner %d: previews owner %v and url %v", tc.tool, given, rec["owner_id"], rec["url"])
+			}
+			h.Close()
+		}
 	}
 }

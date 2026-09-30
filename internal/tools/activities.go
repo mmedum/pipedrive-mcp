@@ -15,6 +15,8 @@ type activitiesClient interface {
 	CreateActivity(ctx context.Context, req pipedrive.CreateActivityRequest) (*pipedrive.Activity, error)
 	UpdateActivity(ctx context.Context, id int64, req pipedrive.UpdateActivityRequest) (*pipedrive.Activity, error)
 	DeleteActivity(ctx context.Context, id int64) error
+	// The read a dry-run create makes to show the owner Pipedrive gives it.
+	whoamiClient
 }
 
 const (
@@ -77,7 +79,7 @@ type activitySummary struct {
 	Note                    string                          `json:"note,omitempty" jsonschema:"private note attached to the activity; on list_activities, populated only when include_notes is true"`
 	AddTime                 string                          `json:"add_time,omitempty" jsonschema:"timestamp the activity was created"`
 	UpdateTime              string                          `json:"update_time,omitempty" jsonschema:"timestamp the activity was last updated"`
-	URL                     string                          `json:"url" jsonschema:"link to the activity in the Pipedrive web UI"`
+	URL                     string                          `json:"url" jsonschema:"link to the activity in the Pipedrive web UI; empty on a dry-run create, which has no record to link to"`
 }
 
 type getActivityInput struct {
@@ -335,7 +337,9 @@ func createActivityAction(ctx context.Context, c activitiesClient, companyDomain
 		Busy:         deref(in.Busy),
 	}
 	created := syntheticActivityFromRequest(req)
-	if !in.DryRun {
+	if in.DryRun {
+		fillOwner(ctx, c, &created.OwnerID)
+	} else {
 		a, err := c.CreateActivity(ctx, req)
 		if err != nil {
 			return errorResult(err), manageActivityOutput{}

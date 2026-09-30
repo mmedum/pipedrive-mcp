@@ -17,6 +17,8 @@ type personsClient interface {
 	DeletePerson(ctx context.Context, id int64) error
 	ResolvePersonCustomFields(ctx context.Context, raw map[string]any) map[string]any
 	EncodePersonCustomFields(ctx context.Context, in map[string]any) (pipedrive.CustomFieldWrite, error)
+	// The read a dry-run create makes to show the owner Pipedrive gives it.
+	whoamiClient
 }
 
 // allowedPersonSortFields enumerates Pipedrive v2's allowed sort_by
@@ -39,7 +41,7 @@ type personSummary struct {
 	AddTime      string                   `json:"add_time,omitempty" jsonschema:"timestamp the person was created"`
 	UpdateTime   string                   `json:"update_time,omitempty" jsonschema:"timestamp the person was last updated"`
 	CustomFields map[string]any           `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label; an unrecognized field or option falls through under its stored key"`
-	URL          string                   `json:"url" jsonschema:"link to the person in the Pipedrive web UI"`
+	URL          string                   `json:"url" jsonschema:"link to the person in the Pipedrive web UI; empty on a dry-run create, which has no record to link to"`
 }
 
 type getPersonInput struct {
@@ -234,7 +236,9 @@ func createPersonAction(ctx context.Context, c personsClient, companyDomain stri
 	req.CustomFields = cf.Values
 
 	created := syntheticPersonFromRequest(req)
-	if !in.DryRun {
+	if in.DryRun {
+		fillOwner(ctx, c, &created.OwnerID)
+	} else {
 		c, err := c.CreatePerson(ctx, req)
 		if err != nil {
 			return errorResult(err), managePersonOutput{}

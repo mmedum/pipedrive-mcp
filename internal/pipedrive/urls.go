@@ -16,7 +16,12 @@ const (
 
 // WebURL returns the Pipedrive web-UI URL for a resource by id. Tool
 // outputs include this so a human reading the LLM's transcript can jump
-// to the entity in their browser.
+// to the entity in their browser. A record with no id yet — a dry run's
+// preview of a create — has no page, and gets no URL rather than one to
+// a record that does not exist.
 func WebURL(domain string, kind WebURLKind, id int64) string {
+	if id <= 0 {
+		return ""
+	}
 	return fmt.Sprintf("https://%s.pipedrive.com/%s/%d", domain, kind, id)
 }

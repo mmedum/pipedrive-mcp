@@ -68,3 +68,27 @@ func summarizeUser(u *pipedrive.User) userSummary {
 		Active:  u.ActiveFlag,
 	}
 }
+
+// previewUser is the signed-in user, for a dry-run create to show the
+// owner Pipedrive gives a record created without one, or nil when need
+// is false or the read fails. WhoAmI is the v1 carve-out (CLAUDE.md rule
+// 1), since v2 has no users resource; the preview only reads it and
+// shows nothing if it stops answering, so no dry run depends on v1.
+func previewUser(ctx context.Context, c whoamiClient, need bool) *pipedrive.User {
+	if !need {
+		return nil
+	}
+	me, err := c.WhoAmI(ctx)
+	if err != nil {
+		return nil
+	}
+	return me
+}
+
+// fillOwner puts the signed-in user on a dry-run preview created without
+// an owner, as the real create does (TestWrite_CreateDefaultsMatchTheDryRun).
+func fillOwner(ctx context.Context, c whoamiClient, owner *int64) {
+	if me := previewUser(ctx, c, *owner == 0); me != nil {
+		*owner = me.ID
+	}
+}

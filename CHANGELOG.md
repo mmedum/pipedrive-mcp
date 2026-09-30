@@ -22,6 +22,11 @@ in full.
 
 ## [Unreleased]
 
+### Fixed
+
+- A dry-run create shows what Pipedrive fills in on the real one instead of zero values: the signed-in user as owner on `manage_deal`, `manage_person`, `manage_organization` and `manage_activity`, and on a deal that user's default currency and, given a pipeline, its first stage. A live test holds each dry run to the real create. The owner and currency come from `whoami`'s v1 endpoint; if it fails, the preview shows none.
+- A dry-run create of a deal, person, organization or activity no longer links to a record with id 0; its `url` is empty.
+
 ## [1.1.1] - 2026-09-30
 
 ### Changed
