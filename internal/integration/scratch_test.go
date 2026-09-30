@@ -75,12 +75,14 @@ func dropOnCleanup(t *testing.T, tool, idField string, id *int64) {
 
 // newScratch builds the records and registers their deletion. Deletes
 // are soft — Pipedrive purges after 30 days — so even a teardown that
-// fails leaves nothing permanent.
-func newScratch(t *testing.T) scratch {
+// fails leaves nothing permanent. It returns the struct the teardown
+// reads, so a test that deletes a record itself sets its id to zero
+// there and the teardown leaves it.
+func newScratch(t *testing.T) *scratch {
 	t.Helper()
 	pipeline, stage := testPipelineStage(t)
 
-	s := scratch{StageID: stage, Title: scratchName("")}
+	s := &scratch{StageID: stage, Title: scratchName("")}
 
 	// Deleted newest-first, so a parent never goes before its children.
 	dropOnCleanup(t, "manage_organization", "org_id", &s.OrgID)

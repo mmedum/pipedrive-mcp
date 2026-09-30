@@ -102,6 +102,14 @@ type orgsOut struct {
 	Organizations []orgRow `json:"organizations"`
 }
 
+type personsOut struct {
+	Persons []personRow `json:"persons"`
+}
+
+type activitiesOut struct {
+	Activities []activityRow `json:"activities"`
+}
+
 type orgOut struct {
 	Organization orgRow `json:"organization"`
 }
