@@ -158,14 +158,17 @@ Two things the descriptions say plainly rather than guard:
 
 - **Nothing here restores a deleted record.** Pipedrive's own UI can,
   within the 30-day window. After it, nobody can.
-- **What becomes of the records hanging off a deleted one is not
-  documented by Pipedrive and has not been verified here.** No probe
-  was run, because the only workspace available is a real one. So the
-  descriptions tell the caller to read `list_notes`, `list_activities`,
-  `list_persons` and `list_deals` for the record first, rather than the
-  code guarding against a behavior nobody has established. If that
-  behavior is ever established, the guard to add is `force`, on the
-  three parents — an activity is a leaf and would still not need one.
+- **Deleting a parent deletes only the parent.** Verified live on
+  2026-09-30 by `TestWrite_DeletingAParentLeavesWhatHangsOffIt`, on a
+  tree of records the suite creates in its own pipeline: deleting an
+  organization, a person or a deal deleted none of the others — the
+  deal still read with its status, the notes on the parent and on the
+  deal still read active, and the people, organizations and activities
+  were still listed. Whether a record still points at the deleted
+  parent is not checked. So none of the three parents needs a `force`
+  guard, and none asks the person before its delete: a soft delete that
+  reaches nothing else is the reversible case, and Pipedrive's own UI
+  restores it within the window.
 
 `detach_product_from_deal` remains off the roadmap; products are not
 part of this surface at all.
