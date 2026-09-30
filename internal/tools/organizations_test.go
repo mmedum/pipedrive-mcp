@@ -13,6 +13,7 @@ import (
 )
 
 type fakeOrganizationsClient struct {
+	me           *pipedrive.User // the signed-in user a dry-run create previews as owner
 	deleteErr    error
 	deleteCalls  int
 	lastDeleteID int64
@@ -38,6 +39,16 @@ type fakeOrganizationsClient struct {
 	getCalls      int
 
 	encodeErr error
+}
+
+// WhoAmI answers the read a dry-run create makes for its owner. The fake
+// has no signed-in user unless a test names one, and a preview then
+// shows no owner.
+func (f *fakeOrganizationsClient) WhoAmI(context.Context) (*pipedrive.User, error) {
+	if f.me == nil {
+		return nil, errNoUser
+	}
+	return f.me, nil
 }
 
 func (f *fakeOrganizationsClient) UpdateOrganization(_ context.Context, id int64, req pipedrive.UpdateOrganizationRequest) (*pipedrive.Organization, error) {

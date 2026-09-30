@@ -17,9 +17,11 @@ type User struct {
 	CompanyDomain string `json:"company_domain"`
 	Locale        string `json:"locale,omitempty"`
 	TimezoneName  string `json:"timezone_name,omitempty"`
-	Created       string `json:"created,omitempty"`
-	ActiveFlag    bool   `json:"active_flag"`
-	IsAdmin       int    `json:"is_admin,omitempty"`
+	// DefaultCurrency is the currency a deal created without one gets.
+	DefaultCurrency string `json:"default_currency,omitempty"`
+	Created         string `json:"created,omitempty"`
+	ActiveFlag      bool   `json:"active_flag"`
+	IsAdmin         int    `json:"is_admin,omitempty"`
 }
 
 // WhoAmI reports the user the API token authenticates as.
