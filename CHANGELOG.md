@@ -22,6 +22,8 @@ in full.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-09-30
+
 ### Changed
 
 - The `delete` descriptions of `manage_deal`, `manage_person` and `manage_organization` say what a live probe established: deleting one deletes only that record, not the records hanging off it. They no longer tell the caller to read the linked records first.
@@ -2030,7 +2032,8 @@ destructive flag is on.
   External callers can still branch on the error class via `errors.Is`
   and read `Status`/`Message`/`Endpoint`.
 
-[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/mmedum/pipedrive-mcp/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.6.0...v1.0.0
 [0.6.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.5.0...v0.6.0
