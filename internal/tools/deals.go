@@ -17,6 +17,9 @@ type dealsClient interface {
 	DeleteDeal(ctx context.Context, id int64) error
 	ResolveDealCustomFields(ctx context.Context, raw map[string]any) map[string]any
 	EncodeDealCustomFields(ctx context.Context, in map[string]any) (pipedrive.CustomFieldWrite, error)
+	// The reads a dry-run create makes to show what Pipedrive fills in.
+	whoamiClient
+	ListStages(ctx context.Context, pipelineID int64) ([]pipedrive.Stage, error)
 }
 
 // dealStatusOpen is Pipedrive's default status for a freshly-created
@@ -58,7 +61,7 @@ type dealSummary struct {
 	Probability       *float64       `json:"probability,omitempty" jsonschema:"deal probability override (0-100); null when the stage default applies"`
 	IsArchived        bool           `json:"is_archived,omitempty" jsonschema:"true if the deal has been archived; an archived deal cannot be edited and does not appear in list_deals unless archived is set"`
 	CustomFields      map[string]any `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label; an unrecognized field or option falls through under its stored key"`
-	URL               string         `json:"url" jsonschema:"link to the deal in the Pipedrive web UI"`
+	URL               string         `json:"url" jsonschema:"link to the deal in the Pipedrive web UI; empty on a dry-run create, which has no record to link to"`
 }
 
 // allowedDealSortFields enumerates Pipedrive v2's allowed sort_by
@@ -307,7 +310,9 @@ func createDealAction(ctx context.Context, c dealsClient, companyDomain string, 
 		CustomFields:      cf.Values,
 	}
 	created := syntheticDealFromRequest(req)
-	if !in.DryRun {
+	if in.DryRun {
+		fillDealDefaults(ctx, c, created)
+	} else {
 		c, err := c.CreateDeal(ctx, req)
 		if err != nil {
 			return errorResult(err), manageDealOutput{}
@@ -481,6 +486,42 @@ func dealAfterUpdate(before pipedrive.Deal, req pipedrive.UpdateDealRequest) pip
 		after.Probability = clone(req.Probability)
 	}
 	return after
+}
+
+// fillDealDefaults puts on a dry-run preview what Pipedrive fills in on a
+// create that leaves a field out, as a live test holds it
+// (TestWrite_CreateDefaultsMatchTheDryRun): the owner is the signed-in
+// user, the currency that user's default, and a deal given a pipeline
+// and no stage goes to the pipeline's first stage. It reads only for a
+// field the call left out. A deal given neither goes to the default
+// pipeline, which no read here names, so its stage stays unknown, as
+// does anything a read fails to settle: the preview shows no guess.
+func fillDealDefaults(ctx context.Context, c dealsClient, d *pipedrive.Deal) {
+	if me := previewUser(ctx, c, d.OwnerID == 0 || d.Currency == ""); me != nil {
+		if d.OwnerID == 0 {
+			d.OwnerID = me.ID
+		}
+		if d.Currency == "" {
+			d.Currency = me.DefaultCurrency
+		}
+	}
+	if d.StageID == 0 && d.PipelineID != 0 {
+		if stages, err := c.ListStages(ctx, d.PipelineID); err == nil {
+			d.StageID = firstStage(stages)
+		}
+	}
+}
+
+// firstStage is the id of the live stage with the lowest order, or zero.
+func firstStage(stages []pipedrive.Stage) int64 {
+	var id int64
+	order := 0
+	for _, s := range stages {
+		if !s.IsDeleted && (id == 0 || s.OrderNr < order) {
+			id, order = s.ID, s.OrderNr
+		}
+	}
+	return id
 }
 
 // syntheticDealFromRequest builds a placeholder Deal that mirrors the
