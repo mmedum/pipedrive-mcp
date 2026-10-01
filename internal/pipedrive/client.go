@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -237,15 +238,25 @@ func (c *Client) attempt(
 	resp, err := c.http.Do(req)
 	duration := time.Since(start)
 	if err != nil {
+		// *url.Error repeats the whole URL, query string included, and a
+		// search term travels there; the path is enough to say which call.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
 		c.logger.WarnContext(ctx, "pipedrive request failed",
-			slog.String("url", requestURL),
+			slog.String("path", pathOf(requestURL)),
 			slog.String("method", method),
 			slog.Int("attempt", attempt+1),
 			slog.Duration("duration", duration),
 			slog.String("error", err.Error()),
 		)
-		wrapped := fmt.Errorf("pipedrive: %s %s: %w", method, requestURL, err)
-		if shouldRetryNetwork(err) && attempt+1 < c.maxAttempts {
+		retry := shouldRetryNetwork(method, err)
+		if !retry && method != http.MethodGet && ctx.Err() == nil {
+			err = fmt.Errorf("%w; the write may have been applied, so read the record before trying again", err)
+		}
+		wrapped := fmt.Errorf("pipedrive: %s %s: %w", method, pathOf(requestURL), err)
+		if retry && attempt+1 < c.maxAttempts {
 			return true, 0, wrapped
 		}
 		return false, 0, wrapped
@@ -258,7 +269,7 @@ func (c *Client) attempt(
 	}
 
 	c.logger.DebugContext(ctx, "pipedrive response",
-		slog.String("url", requestURL),
+		slog.String("path", pathOf(requestURL)),
 		slog.String("method", method),
 		slog.Int("status", resp.StatusCode),
 		slog.Duration("duration", duration),
@@ -392,11 +403,17 @@ func parseRetryAfter(h string) time.Duration {
 	return 0
 }
 
-func shouldRetryNetwork(err error) bool {
+func shouldRetryNetwork(method string, err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
-	return true
+	if method == http.MethodGet {
+		return true
+	}
+	// A write is repeated only when it never left: a failed dial sent
+	// nothing. Any later failure may follow a commit Pipedrive made.
+	var opErr *net.OpError
+	return errors.As(err, &opErr) && opErr.Op == "dial"
 }
 
 // readBody reads up to 8 MiB. The driving case is /dealFields and

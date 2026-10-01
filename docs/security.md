@@ -67,8 +67,10 @@ Threats this server defends against:
     values (e.g. `mark_deal_lost`'s `lost_reason`).
   - Default tool-side `limit=25` on list operations to prevent runaway
     fanout.
-- **Token leakage via logs.** Mitigated by: logging never captures the
-  token; only the URL, method, status and duration.
+- **Token and search-term leakage via logs.** Mitigated by: logging never
+  captures the token, and carries only the request path, method, status
+  and duration. The query string, where a search term travels, is
+  stripped from log lines and transport errors.
 
 Threats this server **does not** defend against:
 

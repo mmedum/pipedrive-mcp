@@ -26,6 +26,8 @@ in full.
 
 - A dry-run create shows what Pipedrive fills in on the real one instead of zero values: the signed-in user as owner on `manage_deal`, `manage_person`, `manage_organization` and `manage_activity`, and on a deal that user's default currency and, given a pipeline, its first stage. A live test holds each dry run to the real create. The owner and currency come from `whoami`'s v1 endpoint; if it fails, the preview shows none.
 - A dry-run create of a deal, person, organization or activity no longer links to a record with id 0; its `url` is empty.
+- A create, update or delete whose connection drops after it was sent is no longer repeated, so a lost answer cannot make a duplicate record. The error says the write may have been applied and to read the record first. Reads still retry, and a write whose connection never opened still does.
+- Search terms no longer reach the log: log lines and transport errors carry the request path without its query string.
 
 ## [1.1.1] - 2026-09-30
 

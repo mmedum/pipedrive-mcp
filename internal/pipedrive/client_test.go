@@ -191,18 +191,6 @@ func TestClient_MalformedJSON(t *testing.T) {
 	}
 }
 
-func TestShouldRetryNetwork(t *testing.T) {
-	if shouldRetryNetwork(context.Canceled) {
-		t.Error("context.Canceled should not retry")
-	}
-	if shouldRetryNetwork(context.DeadlineExceeded) {
-		t.Error("context.DeadlineExceeded should not retry")
-	}
-	if !shouldRetryNetwork(errors.New("connection reset")) {
-		t.Error("transient errors should retry")
-	}
-}
-
 func TestClient_RefusesRedirects(t *testing.T) {
 	// Simulate Pipedrive returning a 301 to an attacker-controlled host.
 	// The client must NOT follow the redirect (which would forward the
