@@ -115,6 +115,11 @@ var (
 	// also names a token — which is where a real one would be pasted.
 	apiToken = regexp.MustCompile(`(?i)(token|secret|api[_-]?key)\W{0,4}\b[0-9a-f]{40}\b`)
 
+	// An international phone number reaches a person or a desk. Fixtures
+	// use the range set aside for fiction, 555-0100 to 555-0199.
+	phone          = regexp.MustCompile(`(?:^|[^\w+])(\+[1-9]\d{0,2}(?:[ .-]?\d{2,4}){2,5})`)
+	fictionalPhone = regexp.MustCompile(`555[ .-]?01\d{2}`)
+
 	// What an invented value looks like: a marker word, or the run of
 	// one character nobody's real data has.
 	inventedWord = regexp.MustCompile(`(?i)synthetic|fixture|nosuch|unknown|example|scratch|placeholder|smoke|dummy|sample|acme|xxx|yourcompany|mycompany`)
@@ -134,6 +139,12 @@ func findLeaks(text string) []string {
 			continue
 		}
 		found = append(found, "a company's Pipedrive subdomain: "+m[0])
+	}
+	for _, m := range phone.FindAllStringSubmatch(text, -1) {
+		if fictionalPhone.MatchString(m[1]) || invented(m[1]) {
+			continue
+		}
+		found = append(found, "a phone number outside 555-0100..0199: "+m[1])
 	}
 	for _, m := range apiToken.FindAllString(text, -1) {
 		if invented(m) {

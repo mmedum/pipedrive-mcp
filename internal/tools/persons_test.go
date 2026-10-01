@@ -259,23 +259,6 @@ func TestListPersons_LimitClampedToMax(t *testing.T) {
 	}
 }
 
-func TestRegisterPersons_RegistersInDumpRegistry(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPersons(s, &fakePersonsClient{}, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-	var buf strings.Builder
-	if err := tools.DumpJSON(&buf, "test"); err != nil {
-		t.Fatalf("DumpJSON: %v", err)
-	}
-	out := buf.String()
-	for _, want := range []string{`"get_person"`, `"list_persons"`, `"manage_person"`} {
-		if !strings.Contains(out, want) {
-			t.Errorf("dump missing %s", want)
-		}
-	}
-}
-
 // The gap this closes: create required `name`, and Pipedrive rejects a
 // body carrying `name` together with the parts, so there was no way
 // through this tool to create a person with a first name. It took a

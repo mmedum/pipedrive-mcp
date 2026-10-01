@@ -264,8 +264,9 @@ for this spec.
 **And the spec knows nothing about failure.** Across 158 operations the
 only declared statuses are `200`, `201`, and four `404`s. No `401`, no
 `403`, no `429`, no `5xx`. Every sentinel in `errors.go`, the 403
-disambiguation, the retry policy that retries 5xx on GET but never on a
-write — none of it has a source in the document.
+disambiguation, the retry policy that retries 5xx and lost connections on GET but
+never on a write (a write is repeated only when its connection was
+never made) — none of it has a source in the document.
 
 **What the spec is good for is telling us when our mirror has drifted.**
 It is a test oracle, not a code input: `spec_test.go` holds the struct

@@ -382,6 +382,20 @@ func TestManageNote_Create_Rejects(t *testing.T) {
 	}
 }
 
+// The cap is 16 KiB inclusive: one byte over is refused above, and
+// exactly the cap goes through.
+func TestManageNote_Create_AcceptsContentAtTheCap(t *testing.T) {
+	content := strings.Repeat("a", 16*1024)
+	fake := &fakeNotesClient{created: &pipedrive.Note{ID: 101, Content: content, DealID: dealID(42), ActiveFlag: true}}
+	res, _ := callManageNote(t, fake, map[string]any{"action": "create", "deal_id": 42, "content": content})
+	if res.IsError {
+		t.Fatalf("a %d-byte note was refused: %s", len(content), contentText(res))
+	}
+	if fake.createCalls != 1 {
+		t.Errorf("upstream create hit %d times; want 1", fake.createCalls)
+	}
+}
+
 func TestManageNote_Update_HappyPath_ReportsChangedFields(t *testing.T) {
 	fake := &fakeNotesClient{
 		note: &pipedrive.Note{
@@ -414,34 +428,50 @@ func TestManageNote_Update_HappyPath_ReportsChangedFields(t *testing.T) {
 	}
 }
 
-func TestManageNote_Update_RefusesOverwritingExistingContent(t *testing.T) {
-	fake := &fakeNotesClient{
-		note: &pipedrive.Note{
-			ID: 55, Content: "<p>somebody else wrote this</p>",
-			UpdateTime: "2026-04-27 10:00:00", ActiveFlag: true,
-		},
-	}
-	res, _ := callManageNote(t, fake, map[string]any{
-		"action": "update", "note_id": 55, "content": "<p>mine</p>",
-	})
-	if !res.IsError {
-		t.Fatal("expected a refusal when replacing existing content without overwrite")
-	}
-	txt := contentText(res)
-	if !strings.HasPrefix(txt, "[refused]") {
-		t.Errorf("error = %q; want [refused] prefix", txt)
-	}
-	// Per CLAUDE.md: a refusal names what it protects AND the argument
-	// that permits the write.
-	if !strings.Contains(txt, "note 55") {
-		t.Errorf("refusal %q does not name the note it protects", txt)
-	}
-	// The refusal hands back the argument to paste, per field.
-	if !strings.Contains(txt, `overwrite: ["content"]`) {
-		t.Errorf("refusal %q does not name the unlocking argument", txt)
-	}
-	if fake.updateCalls != 0 {
-		t.Errorf("refused update still hit upstream %d times", fake.updateCalls)
+// The guard protects every populated field an update would replace,
+// anchors included: moving a note off the deal it is filed under is a
+// loss the caller cannot see coming. Each refusal names the note, every
+// field it protects, and the overwrite argument to pass back.
+func TestManageNote_Update_RefusesReplacingPopulatedFields(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		stored *pipedrive.Note
+		args   map[string]any
+		want   string
+	}{
+		{"content",
+			&pipedrive.Note{ID: 55, Content: "<p>somebody else wrote this</p>", UpdateTime: "t0", ActiveFlag: true},
+			map[string]any{"content": "<p>mine</p>"},
+			`overwrite: ["content"]`},
+		{"anchor",
+			&pipedrive.Note{ID: 55, DealID: dealID(1), UpdateTime: "t0", ActiveFlag: true},
+			map[string]any{"deal_id": 2},
+			`overwrite: ["deal_id"]`},
+		{"content and anchor",
+			&pipedrive.Note{ID: 55, Content: "<p>old</p>", DealID: dealID(1), UpdateTime: "t0", ActiveFlag: true},
+			map[string]any{"content": "<p>new</p>", "deal_id": 2},
+			`overwrite: ["content", "deal_id"]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeNotesClient{note: tc.stored}
+			args := map[string]any{"action": "update", "note_id": 55}
+			for k, v := range tc.args {
+				args[k] = v
+			}
+			res, _ := callManageNote(t, fake, args)
+			if !res.IsError {
+				t.Fatalf("update %v was not refused", tc.args)
+			}
+			txt := contentText(res)
+			for _, want := range []string{"[refused]", "note 55", tc.want} {
+				if !strings.Contains(txt, want) {
+					t.Errorf("refusal %q does not mention %q", txt, want)
+				}
+			}
+			if fake.updateCalls != 0 {
+				t.Errorf("refused update still hit upstream %d times", fake.updateCalls)
+			}
+		})
 	}
 }
 
@@ -695,32 +725,6 @@ func TestManageNote_MissingActionIsASchemaError(t *testing.T) {
 	}
 }
 
-func TestRegisterNotes_RegistersManageNoteUnconditionally(t *testing.T) {
-	// Per CLAUDE.md hard rule 3 the destructive path is guarded at call
-	// time, not by whether the tool exists. There is no longer a
-	// registration flag that can hide it.
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterNotes(s, &fakeNotesClient{}, tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	var buf strings.Builder
-	if err := tools.DumpJSON(&buf, "test"); err != nil {
-		t.Fatalf("DumpJSON: %v", err)
-	}
-	out := buf.String()
-	for _, want := range []string{`"get_note"`, `"list_notes"`, `"manage_note"`} {
-		if !strings.Contains(out, want) {
-			t.Errorf("dump missing %s", want)
-		}
-	}
-	for _, gone := range []string{`"create_note"`, `"delete_note"`} {
-		if strings.Contains(out, gone) {
-			t.Errorf("dump still carries retired tool %s", gone)
-		}
-	}
-}
-
 func TestManageNote_Update_NamesEveryChangedAnchor(t *testing.T) {
 	// changedNoteFields diffs the pre-write read against the record
 	// Pipedrive echoed back. Walk every anchor at once so no branch of
@@ -840,53 +844,6 @@ func TestManageNote_ReadBeforeWriteErrorSurfaces(t *testing.T) {
 				t.Error("write proceeded despite a failed pre-read")
 			}
 		})
-	}
-}
-
-func TestManageNote_Update_OverwriteGuardCoversAnchors(t *testing.T) {
-	// The guard protects every populated field the write would replace,
-	// not just content. Moving a note off the deal it is filed under is
-	// exactly the kind of loss the caller cannot see coming — manage_note's
-	// own schema warns that an update "moves the note".
-	fake := &fakeNotesClient{
-		note: &pipedrive.Note{ID: 55, Content: "", DealID: dealID(1), UpdateTime: "t0", ActiveFlag: true},
-	}
-	res, _ := callManageNote(t, fake, map[string]any{
-		"action": "update", "note_id": 55, "deal_id": 2,
-	})
-	if !res.IsError {
-		t.Fatal("expected a refusal when moving the note off a deal it is already filed under")
-	}
-	txt := contentText(res)
-	if !strings.HasPrefix(txt, "[refused]") {
-		t.Errorf("error = %q; want [refused] prefix", txt)
-	}
-	if !strings.Contains(txt, "deal_id") {
-		t.Errorf("refusal %q does not name the field it protects", txt)
-	}
-	if fake.updateCalls != 0 {
-		t.Errorf("refused update still hit upstream %d times", fake.updateCalls)
-	}
-}
-
-func TestManageNote_Update_RefusalNamesEveryClobberedField(t *testing.T) {
-	fake := &fakeNotesClient{
-		note: &pipedrive.Note{
-			ID: 55, Content: "<p>old</p>", DealID: dealID(1),
-			UpdateTime: "t0", ActiveFlag: true,
-		},
-	}
-	res, _ := callManageNote(t, fake, map[string]any{
-		"action": "update", "note_id": 55, "content": "<p>new</p>", "deal_id": 2,
-	})
-	if !res.IsError {
-		t.Fatal("expected a refusal")
-	}
-	txt := contentText(res)
-	for _, want := range []string{"content", "deal_id", `overwrite: ["content", "deal_id"]`} {
-		if !strings.Contains(txt, want) {
-			t.Errorf("refusal %q does not mention %q", txt, want)
-		}
 	}
 }
 

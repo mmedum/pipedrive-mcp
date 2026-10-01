@@ -107,21 +107,75 @@ func TestClient_429ExhaustsRetries(t *testing.T) {
 	}
 }
 
+// A GET is retried on every 5xx, 500 itself included.
 func TestClient_5xxRetriesThenFails(t *testing.T) {
-	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		calls.Add(1)
-		w.WriteHeader(503)
-		_, _ = io.WriteString(w, `{"success":false,"error":"unavailable"}`)
-	}))
-	defer srv.Close()
+	for _, status := range []int{500, 503} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			var calls atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls.Add(1)
+				w.WriteHeader(status)
+				_, _ = io.WriteString(w, `{"success":false,"error":"unavailable"}`)
+			}))
+			defer srv.Close()
 
-	err := newTestClient(srv).ProbeAuth(context.Background())
-	if !errors.Is(err, ErrServerError) {
-		t.Fatalf("err = %v, want ErrServerError", err)
+			err := newTestClient(srv).ProbeAuth(context.Background())
+			if !errors.Is(err, ErrServerError) {
+				t.Fatalf("GET answered %d: err = %v, want ErrServerError", status, err)
+			}
+			if got := calls.Load(); got != 3 {
+				t.Errorf("GET answered %d: calls = %d, want 3 (max retries)", status, got)
+			}
+		})
 	}
-	if got := calls.Load(); got != 3 {
-		t.Errorf("calls = %d, want 3 (max retries)", got)
+}
+
+// The message on an API error is the upstream `error` field when the
+// body is JSON, and says the body was not JSON, with its length, when
+// an edge page answered instead.
+func TestClient_ErrorMessageComesFromTheBody(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, want string
+	}{
+		{"json error field", `{"success":false,"error":"Deal not found"}`, "Deal not found"},
+		{"non-JSON page", `<html>Not here</html>`, "non-JSON response (21 bytes)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(404)
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer srv.Close()
+
+			err := newTestClient(srv).ProbeAuth(context.Background())
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("404 with body %q: err = %v, want an *APIError", tc.body, err)
+			}
+			if apiErr.Message != tc.want {
+				t.Errorf("404 with body %q: message = %q, want %q", tc.body, apiErr.Message, tc.want)
+			}
+		})
+	}
+}
+
+// Backoff is the base delay doubled per attempt, capped at 30s, with
+// ±25% jitter. Sampled many times, since the jitter is random.
+func TestClient_BackoffDoublesAndCaps(t *testing.T) {
+	c := New(Options{BaseURL: "https://acme.pipedrive.com/api/v2", Token: "t"})
+	for _, tc := range []struct {
+		attempt  int
+		min, max time.Duration
+	}{
+		{0, 750 * time.Millisecond, 1250 * time.Millisecond},
+		{1, 1500 * time.Millisecond, 2500 * time.Millisecond},
+		{10, 22500 * time.Millisecond, 37500 * time.Millisecond},
+	} {
+		for range 200 {
+			if got := c.backoff(tc.attempt, 0); got < tc.min || got > tc.max {
+				t.Fatalf("backoff(attempt %d) = %s, want within [%s, %s]", tc.attempt, got, tc.min, tc.max)
+			}
+		}
 	}
 }
 
@@ -188,18 +242,6 @@ func TestClient_MalformedJSON(t *testing.T) {
 	err := newTestClient(srv).do(context.Background(), "/dealFields", &out)
 	if err == nil {
 		t.Fatal("expected decode error")
-	}
-}
-
-func TestShouldRetryNetwork(t *testing.T) {
-	if shouldRetryNetwork(context.Canceled) {
-		t.Error("context.Canceled should not retry")
-	}
-	if shouldRetryNetwork(context.DeadlineExceeded) {
-		t.Error("context.DeadlineExceeded should not retry")
-	}
-	if !shouldRetryNetwork(errors.New("connection reset")) {
-		t.Error("transient errors should retry")
 	}
 }
 

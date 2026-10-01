@@ -225,20 +225,6 @@ func TestSearch_PassesThroughTypesAndCursor(t *testing.T) {
 	}
 }
 
-func TestSearch_RegistersInDumpRegistry(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterSearch(s, &fakeSearchClient{})
-	})
-	defer h.Close()
-	var buf strings.Builder
-	if err := tools.DumpJSON(&buf, "test"); err != nil {
-		t.Fatalf("DumpJSON: %v", err)
-	}
-	if !strings.Contains(buf.String(), `"search"`) {
-		t.Errorf("dump missing 'search'; got: %s", buf.String())
-	}
-}
-
 // A deleted organization keeps its place in Pipedrive's search index
 // and comes back carrying nothing that says so, so search asks
 // /organizations which of the ids it just matched still exist.

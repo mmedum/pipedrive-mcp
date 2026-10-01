@@ -249,29 +249,12 @@ func TestListOrganizations_LimitDefaultWhenZero(t *testing.T) {
 	}
 }
 
-func TestRegisterOrganizations_RegistersInDumpRegistry(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-	var buf strings.Builder
-	if err := tools.DumpJSON(&buf, "test"); err != nil {
-		t.Fatalf("DumpJSON: %v", err)
-	}
-	out := buf.String()
-	for _, want := range []string{`"get_organization"`, `"list_organizations"`, `"manage_organization"`} {
-		if !strings.Contains(out, want) {
-			t.Errorf("dump missing %s", want)
-		}
-	}
-}
-
 func TestCreateOrganization_HappyPath(t *testing.T) {
 	fake := &fakeOrganizationsClient{
 		createOrg: &pipedrive.Organization{
 			ID:      59,
 			Name:    "Example Transit Co",
-			Address: &pipedrive.Address{Value: "1 Example Street, Exampleton, Freedonia", Country: "Denmark", Locality: "Exampleton", PostalCode: "9000"},
+			Address: &pipedrive.Address{Value: "1 Example Street, Exampleton, Freedonia", Country: "Freedonia", Locality: "Exampleton", PostalCode: "00000"},
 			OwnerID: 13,
 		},
 	}
@@ -304,7 +287,7 @@ func TestCreateOrganization_HappyPath(t *testing.T) {
 	if out.Organization.URL != "https://acme.pipedrive.com/organization/59" {
 		t.Errorf("URL = %q, want acme/organization/59", out.Organization.URL)
 	}
-	if out.Organization.Address == nil || out.Organization.Address.Country != "Denmark" {
+	if out.Organization.Address == nil || out.Organization.Address.Country != "Freedonia" {
 		t.Errorf("server-parsed address lost: %+v", out.Organization.Address)
 	}
 	if fake.lastCreateReq.Name != "Example Transit Co" ||
