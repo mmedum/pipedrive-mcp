@@ -502,17 +502,3 @@ func TestCollectionProjectionsCannotCollide(t *testing.T) {
 		})
 	}
 }
-
-func TestManageNoteHandler_DeleteIsNamedNotFallenInto(t *testing.T) {
-	// notes is the only resource whose switch default would destroy.
-	// Guard against a future action silently inheriting that branch by
-	// asserting the default errors rather than deletes.
-	if !allowedNoteActions["delete"] {
-		t.Fatal("delete is no longer a known note action; this test needs rewriting")
-	}
-	for action := range allowedNoteActions {
-		if action != "create" && action != "update" && action != "delete" {
-			t.Errorf("action %q has no explicit case in manageNoteHandler and would fall through to delete", action)
-		}
-	}
-}

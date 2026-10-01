@@ -146,18 +146,3 @@ func TestRefreshFieldCache_RunsInParallel(t *testing.T) {
 			fake.dealCalls.Load(), fake.personCalls.Load(), fake.orgCalls.Load())
 	}
 }
-
-func TestRegisterCache_RegistersInDumpRegistry(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterCache(s, &fakeCacheClient{})
-	})
-	defer h.Close()
-
-	var buf strings.Builder
-	if err := tools.DumpJSON(&buf, "test"); err != nil {
-		t.Fatalf("DumpJSON: %v", err)
-	}
-	if !strings.Contains(buf.String(), `"refresh_field_cache"`) {
-		t.Errorf("dump missing 'refresh_field_cache'; got: %s", buf.String())
-	}
-}

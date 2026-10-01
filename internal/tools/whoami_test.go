@@ -101,16 +101,3 @@ func TestWhoAmI_UpstreamErrorSurfaces(t *testing.T) {
 		t.Errorf("error = %q; want [auth] prefix", contentText(res))
 	}
 }
-
-func TestWhoAmI_RegistersInDumpRegistry(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) { tools.RegisterWhoAmI(s, &fakeWhoAmIClient{}) })
-	defer h.Close()
-
-	var buf strings.Builder
-	if err := tools.DumpJSON(&buf, "test"); err != nil {
-		t.Fatalf("DumpJSON: %v", err)
-	}
-	if !strings.Contains(buf.String(), `"whoami"`) {
-		t.Error("dump missing whoami")
-	}
-}

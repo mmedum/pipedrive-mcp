@@ -284,141 +284,49 @@ func TestGetActivity_AlwaysReturnsNotes(t *testing.T) {
 	}
 }
 
-func TestListActivities_StatusDoneMapsToTrue(t *testing.T) {
-	fake := &fakeActivitiesClient{}
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	_, _ = h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_activities",
-		Arguments: map[string]any{"status": "done"},
-	})
-	if fake.lastListOpts.Done == nil || *fake.lastListOpts.Done != true {
-		t.Errorf("status=done should map to Done=&true; got %v", fake.lastListOpts.Done)
-	}
-}
-
-func TestListActivities_StatusAllOmitsDoneFilter(t *testing.T) {
-	fake := &fakeActivitiesClient{}
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	_, _ = h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_activities",
-		Arguments: map[string]any{"status": "all"},
-	})
-	if fake.lastListOpts.Done != nil {
-		t.Errorf("status=all should leave Done nil; got %v", *fake.lastListOpts.Done)
-	}
-}
-
-func TestListActivities_DefaultsToRecencySort(t *testing.T) {
-	fake := &fakeActivitiesClient{}
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	_, _ = h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_activities",
-		Arguments: map[string]any{},
-	})
-	if fake.lastListOpts.SortBy != "update_time" || fake.lastListOpts.SortDirection != "desc" {
-		t.Errorf("default sort = %q %q; want update_time desc",
-			fake.lastListOpts.SortBy, fake.lastListOpts.SortDirection)
-	}
-}
-
-func TestListActivities_SortDirectionAloneKeepsRecencyDefault(t *testing.T) {
-	fake := &fakeActivitiesClient{}
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	_, _ = h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_activities",
-		Arguments: map[string]any{"sort_direction": "desc"},
-	})
-	if fake.lastListOpts.SortBy != "update_time" || fake.lastListOpts.SortDirection != "desc" {
-		t.Errorf("sort = %q %q; want update_time desc",
-			fake.lastListOpts.SortBy, fake.lastListOpts.SortDirection)
-	}
-}
-
-func TestListActivities_ExplicitSortByUpdateTimeStillDefaultsToAsc(t *testing.T) {
-	// Pins the documented contract: sort_by=update_time alone produces
-	// chronological asc, not the recency default. To get recency-first
-	// the user must omit sort_by entirely (or pass both update_time + desc).
-	fake := &fakeActivitiesClient{}
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	_, _ = h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_activities",
-		Arguments: map[string]any{"sort_by": "update_time"},
-	})
-	if fake.lastListOpts.SortBy != "update_time" || fake.lastListOpts.SortDirection != "asc" {
-		t.Errorf("explicit sort_by=update_time should still default direction to asc; got %q %q",
-			fake.lastListOpts.SortBy, fake.lastListOpts.SortDirection)
-	}
-}
-
-func TestListActivities_BothExplicitSortPassedThrough(t *testing.T) {
-	fake := &fakeActivitiesClient{}
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	_, _ = h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_activities",
-		Arguments: map[string]any{"sort_by": "due_date", "sort_direction": "desc"},
-	})
-	if fake.lastListOpts.SortBy != "due_date" || fake.lastListOpts.SortDirection != "desc" {
-		t.Errorf("both explicit should pass through; got %q %q",
-			fake.lastListOpts.SortBy, fake.lastListOpts.SortDirection)
-	}
-}
-
-func TestListActivities_StatusUnsetLeavesDoneNil(t *testing.T) {
-	// Unset status must produce Done=nil so Pipedrive returns both
-	// open and completed.
-	fake := &fakeActivitiesClient{}
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	_, _ = h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_activities",
-		Arguments: map[string]any{},
-	})
-	if fake.lastListOpts.Done != nil {
-		t.Errorf("unset status should leave Done nil; got %v", *fake.lastListOpts.Done)
-	}
-}
-
-func TestListActivities_ExplicitSortByDefaultsToAsc(t *testing.T) {
-	fake := &fakeActivitiesClient{}
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	_, _ = h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_activities",
-		Arguments: map[string]any{"sort_by": "due_date"},
-	})
-	if fake.lastListOpts.SortBy != "due_date" || fake.lastListOpts.SortDirection != "asc" {
-		t.Errorf("sort = %q %q; want due_date asc (chronological default)",
-			fake.lastListOpts.SortBy, fake.lastListOpts.SortDirection)
+// Each row is one way list_activities turns its arguments into the
+// request. Sort: a blank sort_by means the recency default
+// (update_time desc); naming sort_by alone gives chronological asc, even
+// for update_time. Status: unset and "all" both send no done filter, so
+// Pipedrive returns open and completed alike.
+func TestListActivities_ArgumentsReachTheRequest(t *testing.T) {
+	yes := true
+	for _, tc := range []struct {
+		name          string
+		args          map[string]any
+		wantDone      *bool
+		wantSortBy    string
+		wantDirection string
+		wantLimit     int
+	}{
+		{"nothing given", map[string]any{}, nil, "update_time", "desc", 25},
+		{"status done", map[string]any{"status": "done"}, &yes, "update_time", "desc", 25},
+		{"status all", map[string]any{"status": "all"}, nil, "update_time", "desc", 25},
+		{"direction alone keeps recency", map[string]any{"sort_direction": "desc"}, nil, "update_time", "desc", 25},
+		{"sort_by alone is ascending", map[string]any{"sort_by": "due_date"}, nil, "due_date", "asc", 25},
+		{"sort_by update_time alone is ascending too", map[string]any{"sort_by": "update_time"}, nil, "update_time", "asc", 25},
+		{"both given pass through", map[string]any{"sort_by": "due_date", "sort_direction": "desc"}, nil, "due_date", "desc", 25},
+		{"limit clamped to 100", map[string]any{"limit": 999}, nil, "update_time", "desc", 100},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeActivitiesClient{}
+			res := testutil.CallTool(t, func(s *mcp.Server) {
+				tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
+			}, "list_activities", tc.args)
+			if res.IsError {
+				t.Fatalf("list_activities %v: %s", tc.args, contentText(res))
+			}
+			got := fake.lastListOpts
+			if (got.Done == nil) != (tc.wantDone == nil) || (got.Done != nil && *got.Done != *tc.wantDone) {
+				t.Errorf("list_activities %v: done = %v; want %v", tc.args, got.Done, tc.wantDone)
+			}
+			if got.SortBy != tc.wantSortBy || got.SortDirection != tc.wantDirection {
+				t.Errorf("list_activities %v: sort = %q %q; want %q %q", tc.args, got.SortBy, got.SortDirection, tc.wantSortBy, tc.wantDirection)
+			}
+			if got.Limit != tc.wantLimit {
+				t.Errorf("list_activities %v: limit = %d; want %d", tc.args, got.Limit, tc.wantLimit)
+			}
+		})
 	}
 }
 
@@ -440,56 +348,6 @@ func TestListActivities_RejectsBadSortBy(t *testing.T) {
 	}, "list_activities", map[string]any{"sort_by": "subject"})
 	if !res.IsError {
 		t.Fatal("expected isError on bad sort_by")
-	}
-}
-
-func TestListActivities_LimitClampedToMax(t *testing.T) {
-	fake := &fakeActivitiesClient{}
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	_, _ = h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_activities",
-		Arguments: map[string]any{"limit": 999},
-	})
-	if fake.lastListOpts.Limit != 100 {
-		t.Errorf("limit=%d; want 100 (clamped from 999)", fake.lastListOpts.Limit)
-	}
-}
-
-func TestListActivities_LimitDefaultWhenZero(t *testing.T) {
-	fake := &fakeActivitiesClient{}
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, fake, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	_, _ = h.Client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "list_activities",
-		Arguments: map[string]any{},
-	})
-	if fake.lastListOpts.Limit != 25 {
-		t.Errorf("limit=%d; want 25 (default)", fake.lastListOpts.Limit)
-	}
-}
-
-func TestRegisterActivities_RegistersInDumpRegistry(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterActivities(s, &fakeActivitiesClient{}, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	var buf strings.Builder
-	if err := tools.DumpJSON(&buf, "test"); err != nil {
-		t.Fatalf("DumpJSON: %v", err)
-	}
-	out := buf.String()
-	for _, want := range []string{`"get_activity"`, `"list_activities"`, `"manage_activity"`} {
-		if !strings.Contains(out, want) {
-			t.Errorf("dump missing %s", want)
-		}
 	}
 }
 

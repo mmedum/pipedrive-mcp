@@ -249,23 +249,6 @@ func TestListOrganizations_LimitDefaultWhenZero(t *testing.T) {
 	}
 }
 
-func TestRegisterOrganizations_RegistersInDumpRegistry(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-	var buf strings.Builder
-	if err := tools.DumpJSON(&buf, "test"); err != nil {
-		t.Fatalf("DumpJSON: %v", err)
-	}
-	out := buf.String()
-	for _, want := range []string{`"get_organization"`, `"list_organizations"`, `"manage_organization"`} {
-		if !strings.Contains(out, want) {
-			t.Errorf("dump missing %s", want)
-		}
-	}
-}
-
 func TestCreateOrganization_HappyPath(t *testing.T) {
 	fake := &fakeOrganizationsClient{
 		createOrg: &pipedrive.Organization{

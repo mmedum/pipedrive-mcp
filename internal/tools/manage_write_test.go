@@ -206,23 +206,31 @@ func TestManageDeal_MarkLost_DoesNotInventALostReason(t *testing.T) {
 // validates the resulting state: "Lost reason and lost time must can
 // only be set when status is lost". Sending it with status:open is
 // refused whatever the deal was before, so reopen sends the status
-// alone and the old reason stays on the record.
+// alone and the old reason stays on the record. Reopening a won deal
+// was broken the same way; three live eval runs were what found it.
 func TestManageDeal_Reopen_SendsStatusOnly(t *testing.T) {
-	fake := &fakeDealsClient{
-		deal:       &pipedrive.Deal{ID: 9, Status: "lost", LostReason: "budget", UpdateTime: "t0"},
-		updateDeal: &pipedrive.Deal{ID: 9, Status: "open", UpdateTime: "t1"},
-	}
-	res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal",
-		map[string]any{"action": "reopen", "deal_id": 9}, nil)
-	if res.IsError {
-		t.Fatalf("unexpected isError: %s", contentText(res))
-	}
-	if fake.lastUpdateReq.Status == nil || *fake.lastUpdateReq.Status != "open" {
-		t.Errorf("status = %v; want open", fake.lastUpdateReq.Status)
-	}
-	if fake.lastUpdateReq.LostReason != nil {
-		t.Errorf("lost_reason sent as %q; Pipedrive refuses it alongside status:open and fails the whole write",
-			*fake.lastUpdateReq.LostReason)
+	for _, before := range []*pipedrive.Deal{
+		{ID: 9, Status: "lost", LostReason: "budget", UpdateTime: "t0"},
+		{ID: 9, Status: "won", UpdateTime: "t0"},
+	} {
+		t.Run(before.Status, func(t *testing.T) {
+			fake := &fakeDealsClient{
+				deal:       before,
+				updateDeal: &pipedrive.Deal{ID: 9, Status: "open", UpdateTime: "t1"},
+			}
+			res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal",
+				map[string]any{"action": "reopen", "deal_id": 9}, nil)
+			if res.IsError {
+				t.Fatalf("unexpected isError: %s", contentText(res))
+			}
+			if fake.lastUpdateReq.Status == nil || *fake.lastUpdateReq.Status != "open" {
+				t.Errorf("status = %v; want open", fake.lastUpdateReq.Status)
+			}
+			if fake.lastUpdateReq.LostReason != nil {
+				t.Errorf("lost_reason sent as %q; Pipedrive refuses it alongside status:open and fails the whole write",
+					*fake.lastUpdateReq.LostReason)
+			}
+		})
 	}
 }
 
@@ -337,63 +345,60 @@ func TestManagePerson_UpdateGuardAndChangedReport(t *testing.T) {
 	}
 }
 
-func TestManagePerson_RefusesReplacingAName(t *testing.T) {
-	fake := &fakePersonsClient{person: &pipedrive.Person{ID: 3, Name: "A Contact", UpdateTime: "t0"}}
-
-	res := callTool(t, personsReg(fake), "manage_person", map[string]any{"action": "update", "person_id": 3, "name": "Someone Else"}, nil)
-	if !res.IsError {
-		t.Fatal("expected a refusal")
-	}
-	if !strings.Contains(contentText(res), "name") {
-		t.Errorf("refusal %q does not name the field", contentText(res))
-	}
-}
-
-func TestManagePerson_EmailsReplaceWholesale(t *testing.T) {
+// An update that would replace a populated field is refused without
+// overwrite, names the field, and sends nothing. One row per resource
+// handler, since each builds its own request and diff.
+func TestManageUpdate_RefusesReplacingAPopulatedField(t *testing.T) {
+	person := &fakePersonsClient{person: &pipedrive.Person{ID: 3, Name: "A Contact", UpdateTime: "t0"}}
 	// Pipedrive replaces a contact-point collection rather than merging
-	// into it, so the guard must treat an existing email as populated.
-	fake := &fakePersonsClient{
-		person: &pipedrive.Person{
-			ID: 3, Name: "A Contact", UpdateTime: "t0",
-			Emails: []pipedrive.ContactPoint{{Value: "old@example.com", Primary: true}},
-		},
-	}
+	// into it, so an existing email counts as populated.
+	withEmail := &fakePersonsClient{person: &pipedrive.Person{
+		ID: 3, Name: "A Contact", UpdateTime: "t0",
+		Emails: []pipedrive.ContactPoint{{Value: "old@example.com", Primary: true}},
+	}}
+	org := &fakeOrganizationsClient{org: &pipedrive.Organization{
+		ID: 47, Name: "Acme Inc", UpdateTime: "t0",
+		Address: &pipedrive.Address{Value: "123 Main St, Springfield"},
+	}}
+	activity := &fakeActivitiesClient{activity: &pipedrive.Activity{ID: 5, Subject: "Call", Note: "what was said", UpdateTime: "t0"}}
 
-	res := callTool(t, personsReg(fake), "manage_person", map[string]any{
-		"action": "update", "person_id": 3,
-		"emails": []map[string]any{{"value": "new@example.com", "primary": true}},
-	}, nil)
-	if !res.IsError {
-		t.Fatal("replacing an existing email collection should be refused without overwrite")
-	}
-	if !strings.Contains(contentText(res), "emails") {
-		t.Errorf("refusal %q does not name emails", contentText(res))
+	for _, tc := range []struct {
+		name, tool, field string
+		register          func(*mcp.Server)
+		args              map[string]any
+		updates           func() int
+	}{
+		{"person name", "manage_person", "name", personsReg(person),
+			map[string]any{"action": "update", "person_id": 3, "name": "Someone Else"},
+			func() int { return person.updateCalls }},
+		{"person emails", "manage_person", "emails", personsReg(withEmail),
+			map[string]any{"action": "update", "person_id": 3,
+				"emails": []map[string]any{{"value": "new@example.com", "primary": true}}},
+			func() int { return withEmail.updateCalls }},
+		{"organization address", "manage_organization", "address", orgsReg(org),
+			map[string]any{"action": "update", "org_id": 47, "address": "456 Other Rd"},
+			func() int { return org.updateCalls }},
+		{"activity note", "manage_activity", "note", activitiesReg(activity),
+			map[string]any{"action": "update", "activity_id": 5, "note": "something else"},
+			func() int { return activity.updateCalls }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := callTool(t, tc.register, tc.tool, tc.args, nil)
+			if !res.IsError {
+				t.Fatalf("%s %v was not refused", tc.tool, tc.args)
+			}
+			txt := contentText(res)
+			if !strings.HasPrefix(txt, "[refused]") || !strings.Contains(txt, tc.field) {
+				t.Errorf("%s refusal = %q; want [refused] naming %q", tc.tool, txt, tc.field)
+			}
+			if n := tc.updates(); n != 0 {
+				t.Errorf("%s: a refused update still sent %d writes", tc.tool, n)
+			}
+		})
 	}
 }
 
 // -------------------------------------------------------- organizations
-
-func TestManageOrganization_UpdateAddressGuard(t *testing.T) {
-	fake := &fakeOrganizationsClient{
-		org: &pipedrive.Organization{
-			ID: 47, Name: "Acme Inc", UpdateTime: "t0",
-			Address: &pipedrive.Address{Value: "123 Main St, Springfield"},
-		},
-	}
-
-	res := callTool(t, orgsReg(fake), "manage_organization", map[string]any{
-		"action": "update", "org_id": 47, "address": "456 Other Rd",
-	}, nil)
-	if !res.IsError {
-		t.Fatal("replacing a stored address should be refused without overwrite")
-	}
-	if !strings.Contains(contentText(res), "address") {
-		t.Errorf("refusal %q does not name address", contentText(res))
-	}
-	if fake.updateCalls != 0 {
-		t.Error("refused update still reached upstream")
-	}
-}
 
 func TestManageOrganization_UpdateHappyPath(t *testing.T) {
 	fake := &fakeOrganizationsClient{
@@ -465,20 +470,6 @@ func TestManageActivity_CompleteAndReopen(t *testing.T) {
 				t.Errorf("update calls = %d; want 1", fake.updateCalls)
 			}
 		})
-	}
-}
-
-func TestManageActivity_UpdateRefusesPopulatedNote(t *testing.T) {
-	fake := &fakeActivitiesClient{
-		activity: &pipedrive.Activity{ID: 5, Subject: "Call", Note: "what was said", UpdateTime: "t0"},
-	}
-	res := callTool(t, activitiesReg(fake), "manage_activity",
-		map[string]any{"action": "update", "activity_id": 5, "note": "something else"}, nil)
-	if !res.IsError {
-		t.Fatal("expected a refusal over an existing note")
-	}
-	if !strings.Contains(contentText(res), "note") {
-		t.Errorf("refusal %q does not name note", contentText(res))
 	}
 }
 
@@ -907,25 +898,52 @@ func TestManageWrite_CustomFieldsAreResolvedOnEveryPath(t *testing.T) {
 // is diffed and guarded like a typed one, and that a refusal from the
 // encoder stops the write.
 
-func TestManageDeal_CustomFieldReachesTheRequestAndTheReport(t *testing.T) {
-	fake := &fakeDealsClient{
+// A custom field reaches the request under its stored key and the
+// report under the name the caller can act on, on every resource.
+func TestManageUpdate_CustomFieldReachesTheRequestAndTheReport(t *testing.T) {
+	deal := &fakeDealsClient{
 		deal: &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "open", UpdateTime: "t0"},
 		updateDeal: &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "open", UpdateTime: "t1",
 			CustomFields: map[string]any{"cf_segment": "Enterprise"}},
 	}
-	var out writeOut
-	res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal",
-		map[string]any{"action": "update", "deal_id": 9,
-			"custom_fields": map[string]any{"Segment": "Enterprise"}}, &out)
-	if res.IsError {
-		t.Fatalf("unexpected isError: %s", contentText(res))
+	person := &fakePersonsClient{
+		person:       &pipedrive.Person{ID: 5, Name: "Ada", UpdateTime: "t0"},
+		updatePerson: &pipedrive.Person{ID: 5, Name: "Ada", UpdateTime: "t1", CustomFields: map[string]any{"cf_tier": "Gold"}},
 	}
-	if got := fake.lastUpdateReq.CustomFields["cf_segment"]; got != "Enterprise" {
-		t.Errorf("request custom_fields = %v; want the encoded value under its stored key", fake.lastUpdateReq.CustomFields)
+	org := &fakeOrganizationsClient{
+		org:       &pipedrive.Organization{ID: 3, Name: "Acme", UpdateTime: "t0"},
+		updateOrg: &pipedrive.Organization{ID: 3, Name: "Acme", UpdateTime: "t1", CustomFields: map[string]any{"cf_region": "EMEA"}},
 	}
-	// Reported under the name the caller can act on, not the stored key.
-	if !changedSet(out.Changed)["Segment"] {
-		t.Errorf("changed = %v; want Segment", out.Changed)
+	for _, tc := range []struct {
+		tool, name, key, value string
+		register               func(*mcp.Server)
+		args                   map[string]any
+		sent                   func() map[string]any
+	}{
+		{"manage_deal", "Segment", "cf_segment", "Enterprise", dealsReg(deal, tools.RegisterOptions{}),
+			map[string]any{"action": "update", "deal_id": 9},
+			func() map[string]any { return deal.lastUpdateReq.CustomFields }},
+		{"manage_person", "Tier", "cf_tier", "Gold", personsReg(person),
+			map[string]any{"action": "update", "person_id": 5},
+			func() map[string]any { return person.lastUpdateReq.CustomFields }},
+		{"manage_organization", "Region", "cf_region", "EMEA", orgsReg(org),
+			map[string]any{"action": "update", "org_id": 3},
+			func() map[string]any { return org.lastUpdateReq.CustomFields }},
+	} {
+		t.Run(tc.tool, func(t *testing.T) {
+			tc.args["custom_fields"] = map[string]any{tc.name: tc.value}
+			var out writeOut
+			res := callTool(t, tc.register, tc.tool, tc.args, &out)
+			if res.IsError {
+				t.Fatalf("unexpected isError: %s", contentText(res))
+			}
+			if got := tc.sent()[tc.key]; got != tc.value {
+				t.Errorf("request custom_fields = %v; want %s=%s", tc.sent(), tc.key, tc.value)
+			}
+			if !changedSet(out.Changed)[tc.name] {
+				t.Errorf("changed = %v; want %s", out.Changed, tc.name)
+			}
+		})
 	}
 }
 
@@ -1043,46 +1061,6 @@ func TestManageDeal_CustomFieldDryRunSendsNothing(t *testing.T) {
 	}
 	if fake.updateCalls != 0 {
 		t.Errorf("dry run sent %d updates", fake.updateCalls)
-	}
-}
-
-func TestManagePerson_CustomFieldReachesTheRequest(t *testing.T) {
-	fake := &fakePersonsClient{
-		person:       &pipedrive.Person{ID: 5, Name: "Ada", UpdateTime: "t0"},
-		updatePerson: &pipedrive.Person{ID: 5, Name: "Ada", UpdateTime: "t1", CustomFields: map[string]any{"cf_tier": "Gold"}},
-	}
-	var out writeOut
-	res := callTool(t, personsReg(fake), "manage_person",
-		map[string]any{"action": "update", "person_id": 5,
-			"custom_fields": map[string]any{"Tier": "Gold"}}, &out)
-	if res.IsError {
-		t.Fatalf("unexpected isError: %s", contentText(res))
-	}
-	if got := fake.lastUpdateReq.CustomFields["cf_tier"]; got != "Gold" {
-		t.Errorf("request custom_fields = %v", fake.lastUpdateReq.CustomFields)
-	}
-	if !changedSet(out.Changed)["Tier"] {
-		t.Errorf("changed = %v; want Tier", out.Changed)
-	}
-}
-
-func TestManageOrganization_CustomFieldReachesTheRequest(t *testing.T) {
-	fake := &fakeOrganizationsClient{
-		org:       &pipedrive.Organization{ID: 3, Name: "Acme", UpdateTime: "t0"},
-		updateOrg: &pipedrive.Organization{ID: 3, Name: "Acme", UpdateTime: "t1", CustomFields: map[string]any{"cf_region": "EMEA"}},
-	}
-	var out writeOut
-	res := callTool(t, orgsReg(fake), "manage_organization",
-		map[string]any{"action": "update", "org_id": 3,
-			"custom_fields": map[string]any{"Region": "EMEA"}}, &out)
-	if res.IsError {
-		t.Fatalf("unexpected isError: %s", contentText(res))
-	}
-	if got := fake.lastUpdateReq.CustomFields["cf_region"]; got != "EMEA" {
-		t.Errorf("request custom_fields = %v", fake.lastUpdateReq.CustomFields)
-	}
-	if !changedSet(out.Changed)["Region"] {
-		t.Errorf("changed = %v; want Region", out.Changed)
 	}
 }
 

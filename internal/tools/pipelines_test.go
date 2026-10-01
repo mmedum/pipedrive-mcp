@@ -1,7 +1,10 @@
 package tools_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -168,25 +171,62 @@ func TestListStages_OmittedFilterMeansAll(t *testing.T) {
 	}
 }
 
-func TestListPipelines_RegistersInDumpRegistry(t *testing.T) {
-	// Sanity: after Register runs, the dump-schemas registry has our
-	// tools recorded so --dump-schemas (and the CI schema-diff gate)
-	// sees them. We assert presence, not exclusivity, so other tests
-	// in this binary can register their own tools without ordering.
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterPipelines(s, &fakePipelinesClient{}, "acme")
-	})
-	defer h.Close()
+// Every Register records its tools in the dump registry, which is what
+// --dump-schemas and the schema-diff gate read. Each row swaps in an
+// empty registry, so a Register that skips it cannot hide behind tools
+// another test registered.
+func TestRegister_RecordsItsToolsForTheSchemaDump(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		register func(*mcp.Server)
+		want     []string
+	}{
+		{"deals", func(s *mcp.Server) { tools.RegisterDeals(s, &fakeDealsClient{}, "acme", tools.RegisterOptions{}) },
+			[]string{"get_deal", "list_deals", "manage_deal"}},
+		{"persons", func(s *mcp.Server) { tools.RegisterPersons(s, &fakePersonsClient{}, "acme", tools.RegisterOptions{}) },
+			[]string{"get_person", "list_persons", "manage_person"}},
+		{"organizations", func(s *mcp.Server) {
+			tools.RegisterOrganizations(s, &fakeOrganizationsClient{}, "acme", tools.RegisterOptions{})
+		}, []string{"get_organization", "list_organizations", "manage_organization"}},
+		{"activities", func(s *mcp.Server) {
+			tools.RegisterActivities(s, &fakeActivitiesClient{}, "acme", tools.RegisterOptions{})
+		}, []string{"get_activity", "list_activities", "manage_activity"}},
+		{"notes", func(s *mcp.Server) { tools.RegisterNotes(s, &fakeNotesClient{}, tools.RegisterOptions{}) },
+			[]string{"get_note", "list_notes", "manage_note"}},
+		{"pipelines", func(s *mcp.Server) { tools.RegisterPipelines(s, &fakePipelinesClient{}, "acme") },
+			[]string{"list_pipelines", "list_stages"}},
+		{"search", func(s *mcp.Server) { tools.RegisterSearch(s, &fakeSearchClient{}) }, []string{"search"}},
+		{"whoami", func(s *mcp.Server) { tools.RegisterWhoAmI(s, &fakeWhoAmIClient{}) }, []string{"whoami"}},
+		{"cache", func(s *mcp.Server) { tools.RegisterCache(s, &fakeCacheClient{}) }, []string{"refresh_field_cache"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			saved := tools.Default
+			tools.Default = tools.New()
+			t.Cleanup(func() { tools.Default = saved })
 
-	var buf strings.Builder
-	if err := tools.DumpJSON(&buf, "test"); err != nil {
-		t.Fatalf("DumpJSON: %v", err)
-	}
-	out := buf.String()
-	for _, want := range []string{`"list_pipelines"`, `"list_stages"`} {
-		if !strings.Contains(out, want) {
-			t.Errorf("dump missing %s; got: %s", want, out)
-		}
+			h := testutil.Connect(t, tc.register)
+			defer h.Close()
+
+			var buf bytes.Buffer
+			if err := tools.DumpJSON(&buf, "test"); err != nil {
+				t.Fatalf("DumpJSON: %v", err)
+			}
+			var doc struct {
+				Tools []struct {
+					Name string `json:"name"`
+				} `json:"tools"`
+			}
+			if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
+				t.Fatalf("decode dump: %v", err)
+			}
+			got := make([]string, 0, len(doc.Tools))
+			for _, tool := range doc.Tools {
+				got = append(got, tool.Name)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("registering %s dumped tools %v; want %v", tc.name, got, tc.want)
+			}
+		})
 	}
 }
 

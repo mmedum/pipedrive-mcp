@@ -6,13 +6,13 @@ func TestClampLimit(t *testing.T) {
 	tests := []struct {
 		in, want int
 	}{
-		{-1, defaultListLimit},
-		{0, defaultListLimit},
+		{-1, 25},
+		{0, 25},
 		{1, 1},
 		{25, 25},
 		{100, 100},
-		{101, maxListLimit},
-		{99999, maxListLimit},
+		{101, 100},
+		{99999, 100},
 	}
 	for _, tc := range tests {
 		if got := clampLimit(tc.in); got != tc.want {

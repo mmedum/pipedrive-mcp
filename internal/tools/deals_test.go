@@ -357,24 +357,6 @@ func TestListDeals_LimitDefaultWhenZero(t *testing.T) {
 	}
 }
 
-func TestRegisterDeals_RegistersInDumpRegistry(t *testing.T) {
-	h := testutil.Connect(t, func(s *mcp.Server) {
-		tools.RegisterDeals(s, &fakeDealsClient{}, "acme", tools.RegisterOptions{})
-	})
-	defer h.Close()
-
-	var buf strings.Builder
-	if err := tools.DumpJSON(&buf, "test"); err != nil {
-		t.Fatalf("DumpJSON: %v", err)
-	}
-	out := buf.String()
-	for _, want := range []string{`"get_deal"`, `"list_deals"`, `"manage_deal"`} {
-		if !strings.Contains(out, want) {
-			t.Errorf("dump missing %s; got: %s", want, out)
-		}
-	}
-}
-
 func TestCreateDeal_HappyPath(t *testing.T) {
 	fake := &fakeDealsClient{
 		createDeal: &pipedrive.Deal{
