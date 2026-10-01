@@ -254,7 +254,7 @@ func TestCreateOrganization_HappyPath(t *testing.T) {
 		createOrg: &pipedrive.Organization{
 			ID:      59,
 			Name:    "Example Transit Co",
-			Address: &pipedrive.Address{Value: "1 Example Street, Exampleton, Freedonia", Country: "Denmark", Locality: "Exampleton", PostalCode: "9000"},
+			Address: &pipedrive.Address{Value: "1 Example Street, Exampleton, Freedonia", Country: "Freedonia", Locality: "Exampleton", PostalCode: "00000"},
 			OwnerID: 13,
 		},
 	}
@@ -287,7 +287,7 @@ func TestCreateOrganization_HappyPath(t *testing.T) {
 	if out.Organization.URL != "https://acme.pipedrive.com/organization/59" {
 		t.Errorf("URL = %q, want acme/organization/59", out.Organization.URL)
 	}
-	if out.Organization.Address == nil || out.Organization.Address.Country != "Denmark" {
+	if out.Organization.Address == nil || out.Organization.Address.Country != "Freedonia" {
 		t.Errorf("server-parsed address lost: %+v", out.Organization.Address)
 	}
 	if fake.lastCreateReq.Name != "Example Transit Co" ||

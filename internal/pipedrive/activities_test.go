@@ -204,7 +204,7 @@ func TestClient_CreateActivity(t *testing.T) {
 			"duration":"00:45",
 			"done":false,
 			"busy":false,
-			"location":{"value":"Exampleton, Denmark","country":"Denmark","locality":"Exampleton","postal_code":"9000"}
+			"location":{"value":"Exampleton, Freedonia","country":"Freedonia","locality":"Exampleton","postal_code":"00000"}
 		}}`)
 	}))
 	defer srv.Close()
@@ -217,7 +217,7 @@ func TestClient_CreateActivity(t *testing.T) {
 		Duration: "00:45",
 		OrgID:    59,
 		PersonID: 73,
-		Location: "Exampleton, Denmark",
+		Location: "Exampleton, Freedonia",
 	})
 	if err != nil {
 		t.Fatalf("CreateActivity: %v", err)
@@ -240,7 +240,7 @@ func TestClient_CreateActivity(t *testing.T) {
 		// outright, which is why this asserts the translation rather
 		// than the field.
 		`"participants":[{"person_id":73,"primary":true}]`,
-		`"location":"Exampleton, Denmark"`,
+		`"location":"Exampleton, Freedonia"`,
 	} {
 		if !strings.Contains(sawBody, want) {
 			t.Errorf("body %q missing %q", sawBody, want)
@@ -252,7 +252,7 @@ func TestClient_CreateActivity(t *testing.T) {
 	if got.ID != 150 || got.Subject != "Widget demo follow-up" {
 		t.Errorf("decoded activity = %+v; want id=150 subject=...", got)
 	}
-	if got.Location == nil || got.Location.Country != "Denmark" {
+	if got.Location == nil || got.Location.Country != "Freedonia" {
 		t.Errorf("server-parsed location lost: %+v", got.Location)
 	}
 }

@@ -212,7 +212,7 @@ func TestClient_CreateOrganization(t *testing.T) {
 		_, _ = io.WriteString(w, `{"success":true,"data":{
 			"id":59,
 			"name":"Example Transit Co",
-			"address":{"value":"1 Example Street, Exampleton, Freedonia","country":"Denmark","locality":"Exampleton","postal_code":"9000"},
+			"address":{"value":"1 Example Street, Exampleton, Freedonia","country":"Freedonia","locality":"Exampleton","postal_code":"00000"},
 			"owner_id":13
 		}}`)
 	}))
@@ -244,7 +244,7 @@ func TestClient_CreateOrganization(t *testing.T) {
 	if got.ID != 59 || got.Name != "Example Transit Co" {
 		t.Errorf("decoded org = %+v; want id=59 name=\"Example Transit Co\"", got)
 	}
-	if got.Address == nil || got.Address.Country != "Denmark" || got.Address.Locality != "Exampleton" {
+	if got.Address == nil || got.Address.Country != "Freedonia" || got.Address.Locality != "Exampleton" {
 		t.Errorf("server-parsed address lost: %+v", got.Address)
 	}
 }

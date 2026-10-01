@@ -363,7 +363,7 @@ func TestCreateActivity_HappyPath(t *testing.T) {
 			DueDate:  "2026-05-06",
 			DueTime:  "10:00",
 			Duration: "00:45",
-			Location: &pipedrive.ActivityLocation{Value: "Exampleton, Denmark", Country: "Denmark", Locality: "Exampleton"},
+			Location: &pipedrive.ActivityLocation{Value: "Exampleton, Freedonia", Country: "Freedonia", Locality: "Exampleton"},
 		},
 	}
 	res := testutil.CallTool(t, func(s *mcp.Server) {
@@ -377,7 +377,7 @@ func TestCreateActivity_HappyPath(t *testing.T) {
 		"duration":  "00:45",
 		"org_id":    59,
 		"person_id": 73,
-		"location":  "Exampleton, Denmark",
+		"location":  "Exampleton, Freedonia",
 	})
 	if res.IsError {
 		t.Fatalf("unexpected isError: %+v", res.Content)
@@ -400,7 +400,7 @@ func TestCreateActivity_HappyPath(t *testing.T) {
 	if out.Activity.URL != "https://acme.pipedrive.com/activity/150" {
 		t.Errorf("URL = %q, want acme/activity/150", out.Activity.URL)
 	}
-	if out.Activity.Location == nil || out.Activity.Location.Country != "Denmark" {
+	if out.Activity.Location == nil || out.Activity.Location.Country != "Freedonia" {
 		t.Errorf("server-parsed location lost: %+v", out.Activity.Location)
 	}
 	if fake.lastCreateReq.Subject != "Widget demo follow-up" ||
@@ -410,7 +410,7 @@ func TestCreateActivity_HappyPath(t *testing.T) {
 		fake.lastCreateReq.Duration != "00:45" ||
 		fake.lastCreateReq.OrgID != 59 ||
 		fake.lastCreateReq.PersonID != 73 ||
-		fake.lastCreateReq.Location != "Exampleton, Denmark" {
+		fake.lastCreateReq.Location != "Exampleton, Freedonia" {
 		t.Errorf("upstream request lost fields: %+v", fake.lastCreateReq)
 	}
 }
