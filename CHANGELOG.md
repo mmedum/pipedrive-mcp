@@ -22,6 +22,8 @@ in full.
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-10-01
+
 ### Fixed
 
 - A dry-run create shows what Pipedrive fills in on the real one instead of zero values: the signed-in user as owner on `manage_deal`, `manage_person`, `manage_organization` and `manage_activity`, and on a deal that user's default currency and, given a pipeline, its first stage. A live test holds each dry run to the real create. The owner and currency come from `whoami`'s v1 endpoint; if it fails, the preview shows none.
@@ -2039,7 +2041,8 @@ destructive flag is on.
   External callers can still branch on the error class via `errors.Is`
   and read `Status`/`Message`/`Endpoint`.
 
-[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/mmedum/pipedrive-mcp/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/mmedum/pipedrive-mcp/compare/v0.6.0...v1.0.0
