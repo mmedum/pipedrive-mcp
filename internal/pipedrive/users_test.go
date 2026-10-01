@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 )
 
@@ -110,5 +111,30 @@ func TestClient_WhoAmI_MemoizesTheFailureToo(t *testing.T) {
 	}
 	if hits != 1 {
 		t.Errorf("upstream hits = %d; want 1", hits)
+	}
+}
+
+// A caller who gives up says nothing about the account, so the next
+// call asks Pipedrive again rather than replaying the cancellation.
+func TestClient_WhoAmI_ACanceledCallIsNotMemoized(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = io.WriteString(w, `{"success":true,"data":{"id":13,"name":"A User"}}`)
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := c.WhoAmI(canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled call: err = %v, want context.Canceled", err)
+	}
+	got, err := c.WhoAmI(context.Background())
+	if err != nil || got == nil || got.ID != 13 {
+		t.Fatalf("call after a canceled one = %+v, %v; want user 13", got, err)
+	}
+	if _, err := c.WhoAmI(context.Background()); err != nil || hits.Load() != 1 {
+		t.Errorf("third call: err %v after %d requests; want the answer memoized after one", err, hits.Load())
 	}
 }

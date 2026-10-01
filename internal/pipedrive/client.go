@@ -53,9 +53,10 @@ type Client struct {
 	maxAttempts int           // retry attempts for 429 and 5xx; default 3
 	baseDelay   time.Duration // base for jittered exponential backoff; default 1s
 
-	me     *User     // memoized whoami; see WhoAmI
-	meOnce sync.Once // guards me
-	meErr  error     // the first WhoAmI's error, replayed to later callers
+	meMu   sync.Mutex // guards me, meErr and meDone
+	me     *User      // memoized whoami; see WhoAmI
+	meErr  error      // the memoized WhoAmI's error, replayed to later callers
+	meDone bool       // whether me or meErr holds an answer
 
 	dealFields         *FieldCache // lazy-loaded; first ListDeals/GetDeal triggers fetch
 	personFields       *FieldCache // lazy-loaded; first GetPerson triggers fetch
