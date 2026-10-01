@@ -47,17 +47,25 @@ type User struct {
 // acceptable for a per-workspace stdio server whose token is fixed at
 // startup, and a restart is the escape hatch.
 //
-// The first call's error is memoized too, so a failing probe does not
-// turn into a retry on every subsequent call.
+// The first answer's error is memoized too, so a failing probe does not
+// turn into a retry on every subsequent call. A call its own caller
+// canceled is not an answer: it says nothing about the account, so the
+// next call asks again.
 func (c *Client) WhoAmI(ctx context.Context) (*User, error) {
-	c.meOnce.Do(func() {
-		var resp itemEnvelope[User]
-		if err := c.doV1(ctx, "/users/me", &resp); err != nil {
-			c.meErr = err
-			return
+	c.meMu.Lock()
+	defer c.meMu.Unlock()
+	if c.meDone {
+		return c.me, c.meErr
+	}
+	var resp itemEnvelope[User]
+	if err := c.doV1(ctx, "/users/me", &resp); err != nil {
+		if ctx.Err() != nil {
+			return nil, err
 		}
-		u := resp.Data
-		c.me = &u
-	})
-	return c.me, c.meErr
+		c.meErr, c.meDone = err, true
+		return nil, err
+	}
+	u := resp.Data
+	c.me, c.meDone = &u, true
+	return c.me, nil
 }
