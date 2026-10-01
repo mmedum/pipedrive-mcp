@@ -115,10 +115,12 @@ var (
 	// also names a token — which is where a real one would be pasted.
 	apiToken = regexp.MustCompile(`(?i)(token|secret|api[_-]?key)\W{0,4}\b[0-9a-f]{40}\b`)
 
-	// An international phone number reaches a person or a desk. Fixtures
-	// use the range set aside for fiction, 555-0100 to 555-0199.
-	phone          = regexp.MustCompile(`(?:^|[^\w+])(\+[1-9]\d{0,2}(?:[ .-]?\d{2,4}){2,5})`)
-	fictionalPhone = regexp.MustCompile(`555[ .-]?01\d{2}`)
+	// An international phone number, written with + or 00, reaches a
+	// person or a desk. Fixtures use the range set aside for fiction,
+	// 555-0100 to 555-0199, as the number's last digits. A national number
+	// with neither prefix is not caught: too much else has its shape.
+	phone          = regexp.MustCompile(`(?:^|[^\w+])((?:\+|00)[1-9]\d{0,2}(?:[ .-]?\(?\d{1,4}\)?){2,5})`)
+	fictionalPhone = regexp.MustCompile(`555[ .-]?01\d{2}$`)
 
 	// What an invented value looks like: a marker word, or the run of
 	// one character nobody's real data has.
@@ -141,7 +143,7 @@ func findLeaks(text string) []string {
 		found = append(found, "a company's Pipedrive subdomain: "+m[0])
 	}
 	for _, m := range phone.FindAllStringSubmatch(text, -1) {
-		if fictionalPhone.MatchString(m[1]) || invented(m[1]) {
+		if digits(m[1]) < 9 || fictionalPhone.MatchString(m[1]) || invented(m[1]) {
 			continue
 		}
 		found = append(found, "a phone number outside 555-0100..0199: "+m[1])
@@ -153,6 +155,18 @@ func findLeaks(text string) []string {
 		found = append(found, "what looks like an API token: "+m)
 	}
 	return found
+}
+
+// digits counts the digits in s. A phone number with its country code
+// has at least nine; a sum, a version or a diff count has fewer.
+func digits(s string) int {
+	n := 0
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			n++
+		}
+	}
+	return n
 }
 
 // invented reports whether a match is obviously made up, either by
