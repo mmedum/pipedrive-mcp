@@ -84,7 +84,9 @@ func TestClient_ItemSearch_QueryConstruction(t *testing.T) {
 }
 
 func TestClient_ItemSearch_EmptyResults(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	var sawQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawQuery = r.URL.RawQuery
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"success":true,"data":{"items":[]},"additional_data":{}}`)
 	}))
@@ -99,6 +101,10 @@ func TestClient_ItemSearch_EmptyResults(t *testing.T) {
 	}
 	if next != "" {
 		t.Errorf("cursor = %q, want empty", next)
+	}
+	// No types named means every type, which is no item_types at all.
+	if strings.Contains(sawQuery, "item_types") {
+		t.Errorf("query %q carries item_types although none were asked for", sawQuery)
 	}
 }
 

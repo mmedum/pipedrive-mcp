@@ -2,6 +2,7 @@ package tools_test
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -144,10 +145,15 @@ func TestManageDeal_Transitions(t *testing.T) {
 		args        map[string]any
 		wantStatus  string
 		wantChanged string
+		// The reason and the pipeline ride along only when given.
+		wantLostReason string
+		wantPipeline   int64
 	}{
-		{"mark_won", map[string]any{"action": "mark_won", "deal_id": 9}, "won", "status"},
-		{"mark_lost", map[string]any{"action": "mark_lost", "deal_id": 9, "lost_reason": "budget"}, "lost", "status"},
-		{"move_stage", map[string]any{"action": "move_stage", "deal_id": 9, "stage_id": 4}, "", "stage_id"},
+		{"mark_won", map[string]any{"action": "mark_won", "deal_id": 9}, "won", "status", "", 0},
+		{"mark_lost", map[string]any{"action": "mark_lost", "deal_id": 9, "lost_reason": "budget"}, "lost", "status", "budget", 0},
+		{"move_stage", map[string]any{"action": "move_stage", "deal_id": 9, "stage_id": 4}, "", "stage_id", "", 0},
+		{"move_stage across pipelines", map[string]any{"action": "move_stage", "deal_id": 9, "stage_id": 4, "pipeline_id": 3},
+			"", "stage_id", "", 3},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -176,6 +182,12 @@ func TestManageDeal_Transitions(t *testing.T) {
 			}
 			if !changedSet(out.Changed)[tc.wantChanged] {
 				t.Errorf("changed = %v; want %q", out.Changed, tc.wantChanged)
+			}
+			if got := fake.lastUpdateReq.LostReason; tc.wantLostReason != "" && (got == nil || *got != tc.wantLostReason) {
+				t.Errorf("%s sent lost_reason %v; want %q", tc.name, got, tc.wantLostReason)
+			}
+			if got := fake.lastUpdateReq.PipelineID; tc.wantPipeline != 0 && (got == nil || *got != tc.wantPipeline) {
+				t.Errorf("%s sent pipeline_id %v; want %d", tc.name, got, tc.wantPipeline)
 			}
 		})
 	}
@@ -235,17 +247,26 @@ func TestManageDeal_Reopen_SendsStatusOnly(t *testing.T) {
 }
 
 func TestManageDeal_MoveStage_RequiresStageID(t *testing.T) {
-	fake := &fakeDealsClient{deal: &pipedrive.Deal{ID: 9, UpdateTime: "t0"}}
-	res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal",
-		map[string]any{"action": "move_stage", "deal_id": 9}, nil)
-	if !res.IsError {
-		t.Fatal("move_stage without stage_id must be rejected")
-	}
-	if !strings.HasPrefix(contentText(res), "[validation]") {
-		t.Errorf("error = %q; want [validation]", contentText(res))
-	}
-	if fake.getCalls != 0 {
-		t.Error("a request rejected on its own arguments should cost no round trip")
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{"missing", map[string]any{"action": "move_stage", "deal_id": 9}},
+		{"zero", map[string]any{"action": "move_stage", "deal_id": 9, "stage_id": 0}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeDealsClient{deal: &pipedrive.Deal{ID: 9, UpdateTime: "t0"}}
+			res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal", tc.args, nil)
+			if !res.IsError {
+				t.Fatalf("move_stage %v must be rejected", tc.args)
+			}
+			if !strings.HasPrefix(contentText(res), "[validation]") {
+				t.Errorf("error = %q; want [validation]", contentText(res))
+			}
+			if fake.getCalls != 0 {
+				t.Error("a request rejected on its own arguments should cost no round trip")
+			}
+		})
 	}
 }
 
@@ -597,6 +618,35 @@ func TestManageDeal_DryRunOverlayPredictsWithoutWriting(t *testing.T) {
 	}
 	if fake.updateCalls != 0 {
 		t.Error("dry run reached upstream")
+	}
+}
+
+// A change past the first decimal is still a change. Read as equal, a
+// cents-only edit to a deal's value would be skipped as a no-op and
+// reported as already applied.
+func TestManageDeal_ACentsOnlyChangeIsAChange(t *testing.T) {
+	prob := 60.21
+	for _, tc := range []struct {
+		field string
+		to    float64
+	}{
+		{"value", 100.24},
+		{"probability", 60.24},
+	} {
+		t.Run(tc.field, func(t *testing.T) {
+			fake := &fakeDealsClient{deal: &pipedrive.Deal{ID: 9, Value: 100.21, Probability: &prob, Status: "open", UpdateTime: "t0"}}
+			var out writeOut
+			res := callTool(t, dealsReg(fake, tools.RegisterOptions{}), "manage_deal", map[string]any{
+				"action": "update", "deal_id": 9, "dry_run": true,
+				"overwrite": []string{tc.field}, tc.field: tc.to,
+			}, &out)
+			if res.IsError {
+				t.Fatalf("unexpected isError: %s", contentText(res))
+			}
+			if !slices.Equal(out.Changed, []string{tc.field}) {
+				t.Errorf("dry-run update of %s to %v: changed = %v; want [%s]", tc.field, tc.to, out.Changed, tc.field)
+			}
+		})
 	}
 }
 

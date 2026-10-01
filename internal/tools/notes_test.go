@@ -382,6 +382,20 @@ func TestManageNote_Create_Rejects(t *testing.T) {
 	}
 }
 
+// The cap is 16 KiB inclusive: one byte over is refused above, and
+// exactly the cap goes through.
+func TestManageNote_Create_AcceptsContentAtTheCap(t *testing.T) {
+	content := strings.Repeat("a", 16*1024)
+	fake := &fakeNotesClient{created: &pipedrive.Note{ID: 101, Content: content, DealID: dealID(42), ActiveFlag: true}}
+	res, _ := callManageNote(t, fake, map[string]any{"action": "create", "deal_id": 42, "content": content})
+	if res.IsError {
+		t.Fatalf("a %d-byte note was refused: %s", len(content), contentText(res))
+	}
+	if fake.createCalls != 1 {
+		t.Errorf("upstream create hit %d times; want 1", fake.createCalls)
+	}
+}
+
 func TestManageNote_Update_HappyPath_ReportsChangedFields(t *testing.T) {
 	fake := &fakeNotesClient{
 		note: &pipedrive.Note{

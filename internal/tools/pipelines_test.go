@@ -213,7 +213,9 @@ func TestRegister_RecordsItsToolsForTheSchemaDump(t *testing.T) {
 			}
 			var doc struct {
 				Tools []struct {
-					Name string `json:"name"`
+					Name         string                 `json:"name"`
+					InputSchema  *struct{ Type string } `json:"inputSchema"`
+					OutputSchema *struct{ Type string } `json:"outputSchema"`
 				} `json:"tools"`
 			}
 			if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
@@ -222,6 +224,14 @@ func TestRegister_RecordsItsToolsForTheSchemaDump(t *testing.T) {
 			got := make([]string, 0, len(doc.Tools))
 			for _, tool := range doc.Tools {
 				got = append(got, tool.Name)
+				// The dump is what the schema-diff gate compares, so a
+				// tool recorded without its schemas hides every change.
+				if tool.InputSchema == nil || tool.InputSchema.Type != "object" {
+					t.Errorf("%s dumped input schema %+v; want an object schema", tool.Name, tool.InputSchema)
+				}
+				if tool.OutputSchema == nil || tool.OutputSchema.Type != "object" {
+					t.Errorf("%s dumped output schema %+v; want an object schema", tool.Name, tool.OutputSchema)
+				}
 			}
 			if !slices.Equal(got, tc.want) {
 				t.Errorf("registering %s dumped tools %v; want %v", tc.name, got, tc.want)
