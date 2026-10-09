@@ -10,9 +10,9 @@ For the operations run book see [`operations.md`](operations.md).
 
 | Tool | Version | Purpose |
 | --- | --- | --- |
-| Go | `1.26.6` | Build and test. The `toolchain` directive in `go.mod` fetches it automatically. Keep it in step with `GO_VERSION` in `.github/workflows/ci.yml` — a newer local Go silently passes what CI will fail. |
-| `golangci-lint` | `v2.13.2` | Lint gate. Install with `make install-tools`, which pins it. |
-| `govulncheck` | `v1.1.4` | Vulnerability gate. Install with `make install-tools`, which pins it. |
+| Go | `1.27.2` | Build and test. The `go` directive in `go.mod` fetches it automatically. Keep it in step with `GO_VERSION` in `.github/workflows/ci.yml` — a newer local Go silently passes what CI will fail. |
+| `golangci-lint` | `v2.14.0` | Lint gate. Install with `make install-tools`, which pins it. |
+| `govulncheck` | `v1.8.0` | Vulnerability gate. Install with `make install-tools`, which pins it. |
 | `go-licenses` | `v1.6.0` | License compatibility gate. Install with `make install-tools`, which pins it. |
 | `gitleaks` | latest | Secret-scan gate. Install per https://github.com/gitleaks/gitleaks. Optional locally. |
 | `cosign` | latest | Signature verification only — release pipeline does signing. Optional. |

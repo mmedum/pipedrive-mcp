@@ -8,9 +8,9 @@ VERSION  ?= dev
 PKG       = github.com/mmedum/pipedrive-mcp
 LDFLAGS   = -s -w -X $(PKG)/internal/version.Version=$(VERSION)
 GOBIN    := $(shell $(GO) env GOPATH)/bin
-GOVULNCHECK_VERSION ?= v1.1.4
+GOVULNCHECK_VERSION ?= v1.8.0
 GO_LICENSES_VERSION ?= v1.6.0
-GOLANGCI_LINT_VERSION ?= v2.13.2
+GOLANGCI_LINT_VERSION ?= v2.14.0
 
 .PHONY: all
 all: check

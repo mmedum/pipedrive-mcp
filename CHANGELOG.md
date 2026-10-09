@@ -22,6 +22,15 @@ in full.
 
 ## [Unreleased]
 
+### Changed
+
+- On macOS and Windows, the server now honors `SSL_CERT_FILE` and `SSL_CERT_DIR`, a Go 1.27 change: when either is set, it trusts the certificates they name instead of the system's. If Pipedrive's certificate stops verifying after the upgrade, check whether one of them is set.
+- `golangci-lint` is pinned to v2.14.0 and `govulncheck` to v1.8.0. Neither old pin can read Go 1.27.2: golangci-lint v2.13.2 fails to load the standard library, and govulncheck v1.1.4 panics on it.
+
+### Security
+
+- Built with Go 1.27.2, which fixes nine advisories in `net/http`, its HTTP/2 code, `crypto/tls` and `net/textproto` that `govulncheck` found reachable from this server.
+
 ## [1.1.2] - 2026-10-01
 
 ### Fixed

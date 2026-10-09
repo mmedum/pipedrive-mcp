@@ -153,11 +153,11 @@ base ref:
 watched source path changed.
 
 **Run the gates against the pinned toolchain**, not whatever `go` is on
-PATH: `export GOTOOLCHAIN=go1.26.6` (the `toolchain` line in `go.mod`,
+PATH: `export GOTOOLCHAIN=go1.27.2` (the `go` line in `go.mod`,
 and `GO_VERSION` in `.github/workflows/ci.yml` — keep all three in step).
 A newer local Go silently passes things CI will fail.
 
-One known exception: `make licenses` fails under `GOTOOLCHAIN=go1.26.6`
+One known exception: `make licenses` fails under `GOTOOLCHAIN=go1.27.2`
 on a machine whose local Go is newer, because Go downloads the pinned
 toolchain into the module cache and `go-licenses` cannot resolve stdlib
 packages from there (`does not have module info`). CI installs a real SDK
