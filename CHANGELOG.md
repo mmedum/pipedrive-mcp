@@ -20,7 +20,16 @@ MINOR release. The alternative is letting a third party decide when
 this project cuts a MAJOR. Every other tool is covered by the promise
 in full.
 
-## [Unreleased]
+## [1.1.3] - 2026-10-10
+
+### Changed
+
+- On macOS and Windows, the server now honors `SSL_CERT_FILE` and `SSL_CERT_DIR`, a Go 1.27 change: when either is set, it trusts the certificates they name instead of the system's. If Pipedrive's certificate stops verifying after the upgrade, check whether one of them is set.
+- `golangci-lint` is pinned to v2.14.0 and `govulncheck` to v1.8.0. Neither old pin can read Go 1.27.2: golangci-lint v2.13.2 fails to load the standard library, and govulncheck v1.1.4 panics on it.
+
+### Security
+
+- Built with Go 1.27.2, which fixes nine advisories in `net/http`, its HTTP/2 code, `crypto/tls` and `net/textproto` that `govulncheck` found reachable from this server.
 
 ## [1.1.2] - 2026-10-01
 
@@ -2042,7 +2051,7 @@ destructive flag is on.
   External callers can still branch on the error class via `errors.Is`
   and read `Status`/`Message`/`Endpoint`.
 
-[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.2...HEAD
+[1.1.3]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/mmedum/pipedrive-mcp/compare/v1.0.0...v1.1.0

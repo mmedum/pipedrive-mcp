@@ -9,10 +9,10 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: "1.26.6"
-  GOVULNCHECK_VERSION: "v1.1.4"
+  GO_VERSION: "1.27.2"
+  GOVULNCHECK_VERSION: "v1.8.0"
   GO_LICENSES_VERSION: "v1.6.0"
-  GOLANGCI_LINT_VERSION: "v2.13.2"
+  GOLANGCI_LINT_VERSION: "v2.14.0"
 
 # bash on every runner, for every `run` step in this file. The Windows
 # runner defaults to PowerShell, which reads a flag like
