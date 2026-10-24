@@ -164,7 +164,7 @@ func cmdLogin(args []string) int {
 
 	raw := strings.TrimSpace(*domainFlag)
 	if raw == "" {
-		raw = strings.TrimSpace(os.Getenv(config.DomainEnv))
+		raw = config.Lookup(os.Getenv, config.DomainEnv)
 	}
 	if raw == "" {
 		prompted, err := promptDomain(os.Stdin, os.Stderr)
@@ -249,7 +249,7 @@ func cmdLogout(args []string) int {
 		domain = d
 	} else {
 		ucPath, _ := userconfig.DefaultPath()
-		d, _, err := app.ResolveDomain(os.Getenv(config.DomainEnv), ucPath)
+		d, _, err := app.ResolveDomain(config.Lookup(os.Getenv, config.DomainEnv), ucPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "logout: %v\n", err)
 			return 2

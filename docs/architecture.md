@@ -695,6 +695,27 @@ agrees with the declaration — and the recorded hash is what stops this
 repository acquiring the same gap from the other side. The stamped
 manifest is checked too, after the version is substituted rather than
 before.
+
+The gate has since taken on the family's bundle rules (the standard's
+§10b), each with a test watched failing. The gate and the packer start
+from one function that reads the manifest once from one root, and a key
+that appears twice is refused, because Go's decode merges it while the
+validator and the host keep the last. Every command starts with
+`${__dirname}/` and names a staged program, never `LICENSE` or
+`README.md`; `entry_point` is the file the default command runs; and the
+name, `server.type`, the Claude Desktop floor, a privacy policy and the
+platforms the staged table carries are held. The settings the bundle
+asks for come from `config.Vars`, the registry of every variable the
+server reads, less `bundleLeftOut` with a reason each, and a reason for a
+variable the server does not read is refused. `mcp_config.args` is `[]`
+and no platform override carries `env` or `args`, since a host replaces
+the base with them. The defaults are started through `config.Load` and
+must configure the server as no environment does, naming the fields that
+differ. Every set of the switches is started and the refused ones held to
+`bundleRefused`; the one switch, the dry-run floor, refuses nothing, so
+the list is empty. Load and each reader outside it take every variable
+through `config.Lookup`, and a test holds every `PIPEDRIVE_` name the
+code spells to the registry.
 **Explicitly not in 0.5.0.** Products, leads, files, projects and goals
 are new resources and belong to their own milestone. Field clearing is
 blocked on Pipedrive v2, not on us. The v1 sunset migration is its own

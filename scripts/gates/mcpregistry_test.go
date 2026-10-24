@@ -48,13 +48,11 @@ func TestGithubRepoStripsTheMajorVersion(t *testing.T) {
 	}
 }
 
-// sums writes a checksum file. This repository's is SHA256SUMS rather
-// than checksums.txt, which is the one place this generator differs
-// from its siblings — the name is the caller's, so the tests pass a
-// path rather than assuming one.
+// sums writes a checksum file, named as the release names it. The name
+// is the caller's, so the tests pass a path rather than assuming one.
 func sums(t *testing.T, body string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "SHA256SUMS")
+	path := filepath.Join(t.TempDir(), "checksums.txt")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -99,8 +97,10 @@ func TestTheBundleRowMustBeExactlyOne(t *testing.T) {
 		// The message has to say where to look: the bundle is not an
 		// archive goreleaser built, so the usual reason it is absent is
 		// that nothing named it in checksum.extra_files.
-		if !strings.Contains(err.Error(), "SHA256SUMS") {
-			t.Errorf("the error does not name this repository's checksum file: %v", err)
+		for _, want := range []string{"checksums.txt", "checksum.extra_files"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the error does not name %s: %v", want, err)
+			}
 		}
 	})
 

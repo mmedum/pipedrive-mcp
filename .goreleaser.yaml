@@ -1,6 +1,6 @@
 # goreleaser config for pipedrive-mcp.
 #
-# This file owns: cross-compiled archives, SHA256SUMS, cosign-signed
+# This file owns: cross-compiled archives, checksums.txt, cosign-signed
 # blobs, CycloneDX SBOM, GitHub Release publishing.
 #
 # It does NOT own:
@@ -58,7 +58,7 @@ universal_binaries:
       # one. `checksum.extra_files` covers it and `release.extra_files`
       # uploads it — both, or the bundle ships unsigned, or is hashed and
       # never published, looking no different either way.
-      post: go run ./scripts/gates mcpb-pack dist {{ .Version }} dist/pipedrive-mcp-{{ .Version }}.mcpb
+      post: go run ./scripts/gates mcpb-pack dist {{ .Version }} dist/pipedrive-mcp_{{ .Version }}.mcpb
 
 archives:
   - id: default
@@ -75,12 +75,12 @@ archives:
       - CHANGELOG.md
 
 checksum:
-  name_template: SHA256SUMS
+  name_template: checksums.txt
   algorithm: sha256
   # The bundle is not an archive goreleaser built, so packing it in the
   # post hook is only half of what puts it here — the checksum step
   # covers its own artifacts, and a file a hook dropped into dist/ is not
-  # one. Naming it is the other half, and being in SHA256SUMS is what
+  # one. Naming it is the other half, and being in checksums.txt is what
   # gets it signed, because the signature is over that file.
   extra_files:
     - glob: ./dist/*.mcpb
@@ -88,7 +88,7 @@ checksum:
 signs:
   # One signature, over the checksum file, in cosign's bundle format —
   # the same shape the four sibling MCP servers use. Every archive and
-  # every SBOM is covered by its hash in SHA256SUMS, so signing each
+  # every SBOM is covered by its hash in checksums.txt, so signing each
   # artifact separately bought a longer asset list rather than more
   # assurance.
   #
@@ -151,8 +151,8 @@ release:
   prerelease: auto
   mode: replace
   # Checksummed is not uploaded. Without this the bundle is named in
-  # SHA256SUMS and absent from the release, which is a hash of something
-  # nobody can download.
+  # checksums.txt and absent from the release, which is a hash of
+  # something nobody can download.
   extra_files:
     - glob: ./dist/*.mcpb
   # The notes come first and the verification block after, matching the
@@ -162,15 +162,14 @@ release:
   footer: |
     ---
 
-    Verify a binary signature:
+    Verify a download against the signed checksums:
 
     ```sh
-    cosign verify-blob \
-      --certificate pipedrive-mcp-{{ .Version }}-linux-amd64.tar.gz.cert \
-      --signature   pipedrive-mcp-{{ .Version }}-linux-amd64.tar.gz.sig \
-      --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.+' \
-      --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-      pipedrive-mcp-{{ .Version }}-linux-amd64.tar.gz
+    sha256sum -c checksums.txt --ignore-missing
+    cosign verify-blob checksums.txt \
+      --bundle checksums.txt.bundle \
+      --certificate-identity 'https://github.com/mmedum/pipedrive-mcp/.github/workflows/release.yml@refs/tags/{{ .Tag }}' \
+      --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
     ```
 
     Verify the SLSA build-provenance attestation:

@@ -108,7 +108,7 @@ The release workflow runs automatically. Watch it at
       - Archives present for `darwin/{amd64,arm64}`,
         `linux/{amd64,arm64}`, `windows/amd64` (`.tar.gz` for
         unix-likes, `.zip` for windows).
-      - `SHA256SUMS` plus `SHA256SUMS.bundle`, the one signature over
+      - `checksums.txt` plus `checksums.txt.bundle`, the one signature over
         the release. Every archive and every SBOM is covered by its
         hash in that file, so there are no per-artifact `.sig`/`.cert`.
       - `<archive>.cdx.json` (CycloneDX SBOM) per archive.
@@ -117,10 +117,10 @@ The release workflow runs automatically. Watch it at
 - [ ] Verify the signature locally. Use the archive filename goreleaser
       actually produces — no `v` prefix, `.tar.gz` extension:
 
-      sha256sum -c SHA256SUMS --ignore-missing
+      sha256sum -c checksums.txt --ignore-missing
 
-      cosign verify-blob SHA256SUMS \
-        --bundle SHA256SUMS.bundle \
+      cosign verify-blob checksums.txt \
+        --bundle checksums.txt.bundle \
         --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.+' \
         --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 - [ ] Verify the build attestation with `gh attestation verify`:
@@ -128,7 +128,7 @@ The release workflow runs automatically. Watch it at
       gh attestation verify pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz \
         --owner mmedum
 - [ ] The Claude Desktop bundle, `pipedrive-mcp_X.Y.Z.mcpb`, is on the
-      release page and has a row in `SHA256SUMS`. The bundle is not an
+      release page and has a row in `checksums.txt`. The bundle is not an
       archive goreleaser built — a hook drops it into `dist/` and
       `checksum.extra_files` names it — so it is the one artifact that
       can go missing without anything else looking wrong.
@@ -185,7 +185,7 @@ ago could not be published at all.
 gh workflow run publish-mcp.yml --ref main -f tag=vX.Y.Z
 ```
 
-It reads the PUBLISHED release's `SHA256SUMS`, so the hash in the entry
+It reads the PUBLISHED release's `checksums.txt`, so the hash in the entry
 is the number cosign signed rather than one from a local build.
 
 **Exit 0 on empty output is not evidence.** `gh attestation verify` and

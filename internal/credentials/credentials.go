@@ -23,6 +23,8 @@ import (
 	"strings"
 
 	"github.com/zalando/go-keyring"
+
+	"github.com/mmedum/pipedrive-mcp/internal/config"
 )
 
 // ServiceName is the keyring service identifier. Same value across all
@@ -30,7 +32,7 @@ import (
 const ServiceName = "pipedrive-mcp"
 
 // EnvVar is the env-var fallback. Documented for CI use.
-const EnvVar = "PIPEDRIVE_API_TOKEN"
+const EnvVar = config.EnvAPIToken
 
 // Source identifies which path a resolved token came from. Useful for
 // log fields and tests.
@@ -80,7 +82,7 @@ func Default() Backend { return realBackend{} }
 // treated as "fall through", but a broken keyring is surfaced so the
 // user knows to set the env var or fix DBus.
 func Resolve(b Backend, domain string) (string, Source, error) {
-	if envToken := strings.TrimSpace(os.Getenv(EnvVar)); envToken != "" {
+	if envToken := config.Lookup(os.Getenv, EnvVar); envToken != "" {
 		return envToken, SourceEnv, nil
 	}
 

@@ -107,7 +107,7 @@ jobs:
           # "Could not find subject at path …".
           #
           # The bundle is a subject in its own right. It was covered only
-          # transitively, through its row in SHA256SUMS, which means a
+          # transitively, through its row in checksums.txt, which means a
           # verifier had to hold the checksum file AND its signature to
           # say anything about the .mcpb. `gh attestation verify` on the
           # bundle itself answered "no attestation found" — for the one
@@ -115,8 +115,8 @@ jobs:
           subject-path: |
             dist/pipedrive-mcp-*.tar.gz
             dist/pipedrive-mcp-*.zip
-            dist/pipedrive-mcp-*.mcpb
-            dist/SHA256SUMS
+            dist/pipedrive-mcp_*.mcpb
+            dist/checksums.txt
 
   # The registry entry, in its own workflow so it can also be run by hand
   # against a tag that already shipped. publish-mcp.yml says why.

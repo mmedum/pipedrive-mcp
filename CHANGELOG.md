@@ -20,6 +20,25 @@ MINOR release. The alternative is letting a third party decide when
 this project cuts a MAJOR. Every other tool is covered by the promise
 in full.
 
+## [Unreleased]
+
+### Added
+
+- The Claude Desktop bundle carries `LICENSE` and `README.md` at its root, as the release archives do.
+- The bundle's manifest names Pipedrive's privacy policy, <https://www.pipedrive.com/en/privacy>, which the manifest specification asks of a server that sends user data to a service.
+- The bundle gate holds the manifest to the server's own settings: it asks for every variable the server reads, less a few left out with a reason; its defaults start the server as no environment does; no command line argument or platform override's `env` can configure the server past those checks; every command starts with `${__dirname}/` and runs the program staged for its platform; and the gate and the packer read the manifest once, refusing a key that appears twice.
+
+### Changed
+
+- The Claude Desktop bundle is `pipedrive-mcp_<version>.mcpb`, where it was `pipedrive-mcp-<version>.mcpb`. A script that downloads it by name needs the new name.
+- The release's checksum file is `checksums.txt`, signed as `checksums.txt.bundle`, where they were `SHA256SUMS` and `SHA256SUMS.bundle`. A script that downloads or verifies them by name needs the new names.
+
+### Fixed
+
+- The verification command at the foot of every release page works: it checks `checksums.txt` against its cosign bundle. It named a `.cert` and a `.sig` beside each archive, which no release has carried since 0.3.1.
+- `PIPEDRIVE_DRY_RUN` set to spaces alone is unset, as an empty one is, and the spaces around its value are dropped; both were refused at start. The other variables already read this way, and now all of them read through one rule.
+- A company domain is lowered A to Z only, so a character Unicode lowers into a to z, such as the Kelvin sign, is refused rather than read as `k`, which would name another workspace.
+
 ## [1.1.3] - 2026-10-10
 
 ### Changed
@@ -2051,6 +2070,7 @@ destructive flag is on.
   External callers can still branch on the error class via `errors.Is`
   and read `Status`/`Message`/`Endpoint`.
 
+[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.3...HEAD
 [1.1.3]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.0...v1.1.1

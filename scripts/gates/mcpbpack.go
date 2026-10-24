@@ -40,45 +40,69 @@ func packMCPB(dist, version, out string) error {
 	if err != nil {
 		return err
 	}
-	return writeBundle(out, stamped, sources, generatedFiles())
+	generated := generatedFiles()
+	err = os.MkdirAll(filepath.Dir(out), 0o750)
+	if err != nil {
+		return err
+	}
+	file, err := os.Create(out) //nolint:gosec // the output path is the caller's
+	if err != nil {
+		return err
+	}
+	if err = writeBundle(file, stamped, sources, generated); err != nil {
+		_ = file.Close()
+		return err
+	}
+	fmt.Printf("  %s: %d files, version stamped\n", out, len(sources)+len(generated)+1)
+	return nil
 }
 
-// stampedManifest checks the committed manifest and returns it with the
-// real version written in.
+// stampedManifest is the committed manifest with the real version
+// written in, as the bundle carries it.
 //
-// The version goes in through a decode and an encode. A sed over JSON is
-// how a quote ends up inside a string.
+// It starts where the gate starts, read once, so the release packs no
+// manifest the gate would refuse; the placeholder version is among
+// those checks, because a committed manifest claiming a version means
+// somebody stamped it in the tree, and the next build would ship
+// whatever they left behind. The version goes in through a decode and
+// an encode, because a sed over JSON is how a quote ends up inside a
+// string, and the encoded document is what is held to the schema again.
 func stampedManifest(version string) ([]byte, error) {
 	if version == "" || version == placeholderVersion {
 		return nil, fmt.Errorf("pack needs the real version; %q is the committed placeholder", version)
 	}
-	m, document, err := readManifestBoth(manifestPath)
+	raw, _, problems, err := committedManifest(".")
 	if err != nil {
 		return nil, err
 	}
-	// Refused rather than overwritten: a committed manifest claiming a
-	// version means somebody stamped it in the tree, and the next build
-	// would ship whatever they left behind.
-	if m.Version != placeholderVersion {
-		return nil, fmt.Errorf("%s says version %q; the committed manifest must carry the placeholder %q",
-			manifestPath, m.Version, placeholderVersion)
-	}
-	if problems := validateManifest(m, bundleFiles, launcherNames()); len(problems) > 0 {
-		sort.Strings(problems)
+	if len(problems) > 0 {
 		return nil, fmt.Errorf("the manifest does not describe the bundle this would pack:\n  %s",
 			strings.Join(problems, "\n  "))
 	}
-
+	var document map[string]any
+	err = json.Unmarshal(raw, &document)
+	if err != nil {
+		return nil, err
+	}
 	document["version"] = version
+	stamped, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return nil, err
+	}
 
-	// After the substitution, not before: the committed manifest is
-	// checked by the gate on every commit, and what ships is this
-	// document, with a version that came from a tag rather than from the
-	// file somebody reviewed.
-	if err := checkAgainstSchema(document); err != nil {
+	// The document that ships, decoded back from the bytes that ship: the
+	// committed manifest is checked by the gate on every commit, and what
+	// the bundle carries is this, with a version that came from a tag
+	// rather than from the file somebody reviewed.
+	var shipped map[string]any
+	err = json.Unmarshal(stamped, &shipped)
+	if err != nil {
+		return nil, err
+	}
+	if err = checkAgainstSchema(".", shipped); err != nil {
 		return nil, fmt.Errorf("the stamped manifest would not satisfy the schema it cites: %w", err)
 	}
-	return json.MarshalIndent(document, "", "  ")
+	return stamped, nil
 }
 
 // stagedSources resolves every staged name to the file it comes from.
@@ -109,18 +133,14 @@ func generatedFiles() map[string][]byte {
 	return out
 }
 
-// writeBundle writes the deflate zip: the manifest at the root and the
-// binaries under server/.
-func writeBundle(out string, stamped []byte, sources map[string]string, generated map[string][]byte) error {
-	if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
-		return err
+// writeBundle writes the deflate zip to file and closes it: the manifest
+// at the root, the binaries and the launcher under server/, and the
+// license and the README beside the manifest.
+func writeBundle(file io.WriteCloser, stamped []byte, sources map[string]string, generated map[string][]byte) error {
+	modes := map[string]os.FileMode{}
+	for _, f := range bundleFiles {
+		modes[f.path] = f.mode()
 	}
-	file, err := os.Create(out) //nolint:gosec // the output path is the caller's
-	if err != nil {
-		return err
-	}
-	defer func() { _ = file.Close() }()
-
 	zw := zip.NewWriter(file)
 	if err := addEntry(zw, "manifest.json", stamped, 0o644); err != nil {
 		return err
@@ -135,31 +155,31 @@ func writeBundle(out string, stamped []byte, sources map[string]string, generate
 	}
 	sort.Strings(paths)
 	for _, p := range paths {
+		// 0755 on the launcher and every staged binary, 0644 on what is
+		// there to be read. The packer forces the execute bit on the
+		// entry point alone and copies the filesystem mode for the rest,
+		// so the Windows binary arrives unrunnable unless it is staged
+		// executable, and a launcher installed unrunnable fails every
+		// Linux user at first use.
 		if body, ok := generated[p]; ok {
-			// 0755: the launcher is the Linux entry point, and a
-			// bundle that installs it unrunnable fails at first use.
-			if err := addEntry(zw, p, body, 0o755); err != nil {
+			if err := addEntry(zw, p, body, modes[p]); err != nil {
 				return err
 			}
 			continue
 		}
-		// 0755 on every staged binary. The packer forces the execute bit
-		// on the entry point alone and copies the filesystem mode for the
-		// rest, so the Windows binary arrives unrunnable unless it is
-		// staged executable.
-		//
 		// Streamed rather than read whole: the macOS slot is a universal
 		// binary, so holding one in memory to deflate it is tens of
 		// megabytes for no reason.
-		if err := addFile(zw, p, sources[p], 0o755); err != nil {
+		if err := addFile(zw, p, sources[p], modes[p]); err != nil {
 			return err
 		}
 	}
 	if err := zw.Close(); err != nil {
 		return err
 	}
-	fmt.Printf("  %s: %d files, version stamped\n", out, len(sources)+len(generated)+1)
-	return nil
+	// Close's error is the pack's: the last of the archive can reach the
+	// disk only there, and a bundle cut short must not pass.
+	return file.Close()
 }
 
 func addEntry(zw *zip.Writer, name string, body []byte, mode os.FileMode) error {

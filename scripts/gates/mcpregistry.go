@@ -144,8 +144,7 @@ func bundleRow(checksums string) (name, sum string, err error) {
 		return "", "", fmt.Errorf("%s has no checksum rows", checksums)
 	case name == "":
 		return "", "", fmt.Errorf("%s lists no .mcpb among %d rows; the bundle was not packed, "+
-			"or was not named in checksum.extra_files. Note this repository's checksum file is "+
-			"SHA256SUMS rather than checksums.txt", checksums, rows)
+			"or was not named in checksum.extra_files of .goreleaser.yaml", checksums, rows)
 	}
 	return name, sum, nil
 }

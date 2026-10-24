@@ -61,20 +61,20 @@ policy; that one is the **runtime** policy.
 ## Provenance
 
 Every release is signed via [cosign](https://github.com/sigstore/cosign)
-keyless OIDC. One signature covers the release: `SHA256SUMS` is signed,
+keyless OIDC. One signature covers the release: `checksums.txt` is signed,
 and it holds the hash of every archive and every SBOM. Verify with
 (replace `X.Y.Z` with the release version — goreleaser strips the `v`
 prefix from archive filenames):
 
 ```sh
-sha256sum -c SHA256SUMS --ignore-missing
+sha256sum -c checksums.txt --ignore-missing
 
-cosign verify-blob SHA256SUMS \
-  --bundle SHA256SUMS.bundle \
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.bundle \
   --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.*' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 ```
 
 A CycloneDX SBOM is attached per-archive (e.g.
 `pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.cdx.json`); each SBOM's hash is
-in the signed `SHA256SUMS`.
+in the signed `checksums.txt`.

@@ -70,5 +70,5 @@ func ResolveDomain(envValue, ucPath string) (string, DomainSource, error) {
 // and the real userconfig path.
 func ResolveDomainAtStartup() (string, DomainSource, error) {
 	ucPath, _ := userconfig.DefaultPath() // empty path falls through cleanly
-	return ResolveDomain(os.Getenv(config.DomainEnv), ucPath)
+	return ResolveDomain(config.Lookup(os.Getenv, config.DomainEnv), ucPath)
 }

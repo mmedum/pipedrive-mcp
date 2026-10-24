@@ -23,6 +23,13 @@ func TestLoad_Required(t *testing.T) {
 			env:  map[string]string{"PIPEDRIVE_COMPANY_DOMAIN": "Acme.Corp"},
 			want: "is not a valid Pipedrive subdomain",
 		},
+		{
+			// Only A to Z are lowered. Unicode lowers the Kelvin sign to
+			// k, which would read this as the workspace kacme.
+			name: "a letter Unicode lowers into a to z",
+			env:  map[string]string{"PIPEDRIVE_COMPANY_DOMAIN": "\u212aacme"},
+			want: "\"\u212aacme\" is not a valid Pipedrive subdomain",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
