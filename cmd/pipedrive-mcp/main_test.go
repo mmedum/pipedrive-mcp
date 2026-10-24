@@ -130,6 +130,27 @@ func TestPromptDomain_StripsCR(t *testing.T) {
 	}
 }
 
+// The prompt is the domain's reader, so it drops the spaces around what
+// was typed; ValidateDomain does not.
+func TestPromptDomain_TrimsSpaces(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer r.Close()
+	go func() {
+		defer w.Close()
+		_, _ = w.WriteString(" \tacme  \r\n")
+	}()
+	got, err := promptDomain(r, io.Discard)
+	if err != nil {
+		t.Fatalf("promptDomain: %v", err)
+	}
+	if got != "acme" {
+		t.Errorf("domain = %q, want acme", got)
+	}
+}
+
 func TestPromptDomain_RejectsEmpty(t *testing.T) {
 	cases := []string{"", "\n", "   \n", "\t\n"}
 	for _, in := range cases {

@@ -40,10 +40,11 @@ const errNoDomain = "no domain configured: set " + config.DomainEnv + ", or run 
 // An empty/missing value in both sources returns a clear error pointing
 // the operator at `pipedrive-mcp login`. Inputs are passed explicitly
 // so tests can drive the resolution without env or filesystem
-// manipulation.
+// manipulation. envValue is the variable as config.Lookup reads it,
+// which has already dropped the spaces around it.
 func ResolveDomain(envValue, ucPath string) (string, DomainSource, error) {
-	if raw := strings.TrimSpace(envValue); raw != "" {
-		domain, err := config.ValidateDomain(raw)
+	if envValue != "" {
+		domain, err := config.ValidateDomain(envValue)
 		if err != nil {
 			return "", "", fmt.Errorf("config: %s: %w", config.DomainEnv, err)
 		}
@@ -70,5 +71,5 @@ func ResolveDomain(envValue, ucPath string) (string, DomainSource, error) {
 // and the real userconfig path.
 func ResolveDomainAtStartup() (string, DomainSource, error) {
 	ucPath, _ := userconfig.DefaultPath() // empty path falls through cleanly
-	return ResolveDomain(os.Getenv(config.DomainEnv), ucPath)
+	return ResolveDomain(config.Lookup(os.Getenv, config.DomainEnv), ucPath)
 }

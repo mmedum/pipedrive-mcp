@@ -74,16 +74,18 @@ Or take a signed archive from the
 your `PATH`. Nothing about a release has to be taken on trust:
 
 ```bash
-# --ignore-missing, because SHA256SUMS covers every archive and every
-# SBOM, and you will have downloaded one of them.
-sha256sum -c SHA256SUMS --ignore-missing
-
 # One signature over the checksum file, keyless, tied to the release
-# workflow's own identity.
-cosign verify-blob SHA256SUMS \
-  --bundle SHA256SUMS.bundle \
-  --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.*' \
+# workflow's own identity on a tag. Check it first: until it passes, the
+# checksums are only what the release says now.
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.bundle \
+  --certificate-identity-regexp '^https://github\.com/mmedum/pipedrive-mcp/\.github/workflows/release\.yml@refs/tags/' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+
+# --ignore-missing, because checksums.txt covers every archive and every
+# SBOM, and you will have downloaded one of them. On macOS, use
+# shasum -a 256 -c in place of sha256sum -c.
+sha256sum -c checksums.txt --ignore-missing
 
 # And the archive itself carries build provenance.
 gh attestation verify pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz --owner mmedum
@@ -386,7 +388,8 @@ allow-list, a leak gate refusing anything that looks like a real account's
 data in the working tree, a pinned-version gate holding every action to a
 commit SHA and every tool it installs to an exact version, a staleness
 gate over the dependency pins, a manifest gate holding the installable
-bundle to its schema, a link gate over the changelog's version headings,
+bundle to its schema, to the files the packer stages and to the server's
+own settings, a link gate over the changelog's version headings,
 and a stdio smoke test. CI adds a schema diff against the base branch
 that fails an unacknowledged change to the tool surface, and a changelog
 gate that fails source changes with no entry under `[Unreleased]`.

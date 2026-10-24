@@ -38,9 +38,9 @@ the previous MAJOR.MINOR. Older versions are unsupported.
 
 | Version         | Supported |
 | --------------- | --------- |
-| 1.1.x (current) | yes       |
-| 1.0.x           | yes       |
-| < 1.0           | no        |
+| 1.2.x (current) | yes       |
+| 1.1.x           | yes       |
+| < 1.1           | no        |
 
 The table above describes what is shipped today, not what is planned.
 It was written forward once — declaring `1.x` current and everything
@@ -61,20 +61,23 @@ policy; that one is the **runtime** policy.
 ## Provenance
 
 Every release is signed via [cosign](https://github.com/sigstore/cosign)
-keyless OIDC. One signature covers the release: `SHA256SUMS` is signed,
+keyless OIDC. One signature covers the release: `checksums.txt` is signed,
 and it holds the hash of every archive and every SBOM. Verify with
 (replace `X.Y.Z` with the release version — goreleaser strips the `v`
 prefix from archive filenames):
 
 ```sh
-sha256sum -c SHA256SUMS --ignore-missing
-
-cosign verify-blob SHA256SUMS \
-  --bundle SHA256SUMS.bundle \
-  --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.*' \
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.bundle \
+  --certificate-identity-regexp '^https://github\.com/mmedum/pipedrive-mcp/\.github/workflows/release\.yml@refs/tags/' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+
+sha256sum -c checksums.txt --ignore-missing       # on macOS: shasum -a 256 -c
 ```
+
+The signature is checked first: until it passes, `checksums.txt` is only
+what the release assets say now.
 
 A CycloneDX SBOM is attached per-archive (e.g.
 `pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.cdx.json`); each SBOM's hash is
-in the signed `SHA256SUMS`.
+in the signed `checksums.txt`.

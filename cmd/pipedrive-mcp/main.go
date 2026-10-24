@@ -154,17 +154,17 @@ func cmdLogin(args []string) int {
 			"Stores a Pipedrive API token in the OS keyring and records the\n"+
 			"workspace domain in user config so subsequent server runs\n"+
 			"resolve them automatically. The domain may be supplied via\n"+
-			"--domain, PIPEDRIVE_COMPANY_DOMAIN, or interactively. The token\n"+
+			"--domain, "+config.DomainEnv+", or interactively. The token\n"+
 			"is read without echo and validated before storage.\n")
 	}
-	domainFlag := fs.String("domain", "", "Pipedrive workspace subdomain (overrides PIPEDRIVE_COMPANY_DOMAIN)")
+	domainFlag := fs.String("domain", "", "Pipedrive workspace subdomain (overrides "+config.DomainEnv+")")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 
 	raw := strings.TrimSpace(*domainFlag)
 	if raw == "" {
-		raw = strings.TrimSpace(os.Getenv(config.DomainEnv))
+		raw = config.Lookup(os.Getenv, config.DomainEnv)
 	}
 	if raw == "" {
 		prompted, err := promptDomain(os.Stdin, os.Stderr)
@@ -209,7 +209,7 @@ func cmdLogin(args []string) int {
 	// with a missing config dir is still a usable install via env.
 	if ucPath, err := userconfig.DefaultPath(); err == nil {
 		if err := userconfig.SetDefaultDomain(ucPath, domain); err != nil {
-			fmt.Fprintf(os.Stderr, "login: warning: %v (set PIPEDRIVE_COMPANY_DOMAIN to use this token)\n", err)
+			fmt.Fprintf(os.Stderr, "login: warning: %v (set %s to use this token)\n", err, config.DomainEnv)
 		} else {
 			fmt.Fprintf(os.Stderr, "login: default domain recorded in %s\n", ucPath)
 		}
@@ -234,7 +234,7 @@ func cmdLogout(args []string) int {
 			"flag/env, defaults to the workspace recorded by the most\n"+
 			"recent successful `pipedrive-mcp login`.\n")
 	}
-	domainFlag := fs.String("domain", "", "Pipedrive workspace subdomain (overrides PIPEDRIVE_COMPANY_DOMAIN and userconfig)")
+	domainFlag := fs.String("domain", "", "Pipedrive workspace subdomain (overrides "+config.DomainEnv+" and userconfig)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -249,7 +249,7 @@ func cmdLogout(args []string) int {
 		domain = d
 	} else {
 		ucPath, _ := userconfig.DefaultPath()
-		d, _, err := app.ResolveDomain(os.Getenv(config.DomainEnv), ucPath)
+		d, _, err := app.ResolveDomain(config.Lookup(os.Getenv, config.DomainEnv), ucPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "logout: %v\n", err)
 			return 2
@@ -319,8 +319,8 @@ func promptDomain(in *os.File, prompt io.Writer) (string, error) {
 	if err != nil && err != io.EOF {
 		return "", err
 	}
-	line = strings.TrimRight(line, "\r\n")
-	if strings.TrimSpace(line) == "" {
+	line = strings.TrimSpace(line)
+	if line == "" {
 		return "", errors.New("empty subdomain")
 	}
 	return line, nil
