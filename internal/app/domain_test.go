@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mmedum/pipedrive-mcp/internal/config"
+	"github.com/mmedum/pipedrive-mcp/internal/userconfig"
 )
 
 func TestResolveDomain(t *testing.T) {
@@ -30,9 +33,22 @@ func TestResolveDomain(t *testing.T) {
 		}
 	})
 
+	// The variable's spaces are dropped where it is read, by
+	// config.Lookup, so this goes through the startup path that reads it.
 	t.Run("env whitespace is treated as empty", func(t *testing.T) {
-		ucPath := writeUserConfig(t, `{"default_domain":"fromfile"}`)
-		got, src, err := ResolveDomain("   ", ucPath)
+		dir := t.TempDir()
+		for _, name := range []string{"HOME", "XDG_CONFIG_HOME", "AppData"} {
+			t.Setenv(name, dir)
+		}
+		ucPath, err := userconfig.DefaultPath()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = userconfig.SetDefaultDomain(ucPath, "fromfile"); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(config.DomainEnv, "   ")
+		got, src, err := ResolveDomainAtStartup()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

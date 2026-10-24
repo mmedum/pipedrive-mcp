@@ -161,10 +161,10 @@ type manifest struct {
 	} `json:"compatibility"`
 }
 
-// mcpbGate runs every check against the committed manifest, on the
-// names the packer stages.
-func mcpbGate() error {
-	_, m, problems, err := committedManifest(".")
+// mcpbGate runs every check against the committed manifest under root,
+// on the names the packer stages.
+func mcpbGate(root string) error {
+	_, m, problems, err := committedManifest(root)
 	if err != nil {
 		return err
 	}
@@ -177,42 +177,55 @@ func mcpbGate() error {
 	return nil
 }
 
-// committedManifest is where the gate and the packer both start: the
-// committed manifest under root, read once and decoded once, and every
-// problem manifestProblems finds in it. The packer ships this document
-// with the real version stamped in and encoded again, not these bytes,
-// and holds what it stamps to the vendored schema too.
+// committedManifest is where the gate, the packer and the registry
+// entry all start: the committed manifest under root, read once and
+// decoded once into the struct the checks read and once into the
+// document the schema check and the packer's stamp read, and every
+// problem manifestProblems finds in it. The packer ships document with
+// the real version stamped in and encoded again, not the committed
+// bytes, and holds what it stamps to the vendored schema too.
 //
 // A key repeated in one object is refused before anything else is
-// checked. The decode into manifest merges a repeated object into the
-// first, while the schema validator, the packer's encode and the host
-// each keep the last, so every other check would read a document that
-// is not the one shipped.
-func committedManifest(root string) (raw []byte, m manifest, problems []string, err error) {
-	raw, err = os.ReadFile(filepath.Join(root, manifestPath)) //nolint:gosec // a repository path from a constant
+// checked, and so is one that differs from another only in case. The
+// decode into manifest merges a repeated object into the first and
+// matches a key in any case, while the schema validator, the packer's
+// encode and the host each keep the last or keep both, so every other
+// check would read a document that is not the one shipped.
+func committedManifest(root string) (document map[string]any, m manifest, problems []string, err error) {
+	raw, err := os.ReadFile(filepath.Join(root, manifestPath)) //nolint:gosec // a repository path from a constant
 	if err != nil {
 		return nil, manifest{}, nil, err
 	}
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return raw, manifest{}, []string{fmt.Sprintf("the manifest does not decode: %v", err)}, nil
+	if err = json.Unmarshal(raw, &m); err != nil {
+		return nil, manifest{}, []string{fmt.Sprintf("the manifest does not decode: %v", err)}, nil
 	}
-	if repeated := repeatedKeys(raw); len(repeated) > 0 {
+	repeated, err := repeatedKeys(raw)
+	if err != nil {
+		return nil, manifest{}, []string{fmt.Sprintf("the manifest's keys cannot be read: %v", err)}, nil
+	}
+	if len(repeated) > 0 {
 		for _, at := range repeated {
-			problems = append(problems, fmt.Sprintf("the manifest has %s more than once; the gate's decode merges "+
-				"a repeated key, and the schema, the packer and the host keep the last, so they would read "+
-				"different documents", at))
+			problems = append(problems, fmt.Sprintf("the manifest has %s more than once, case aside; the gate's "+
+				"decode merges a repeated key and matches one in any case, while the schema, the packer and the "+
+				"host keep the last or keep both, so they would read different documents", at))
 		}
-		return raw, manifest{}, problems, nil
+		return nil, manifest{}, problems, nil
 	}
-	return raw, m, manifestProblems(raw, m, bundleFiles, root), nil
+	if err = json.Unmarshal(raw, &document); err != nil {
+		return nil, manifest{}, []string{fmt.Sprintf("the manifest does not decode: %v", err)}, nil
+	}
+	return document, m, manifestProblems(document, m, bundleFiles, root), nil
 }
 
 // repeatedKeys is the path of every key an object in raw has more than
-// once, each once, in document order: "server" at the top level,
-// "server.mcp_config.env.PIPEDRIVE_DRY_RUN" inside, and [i] for an
-// element of a list. A document that is not JSON has none here, since
-// the decode reports it.
-func repeatedKeys(raw []byte) []string {
+// once, each once, in document order, counting two keys that differ
+// only in case as one: Go's decode into a struct matches a key in any
+// case. The path is "server" at the top level,
+// "server.mcp_config.env.PIPEDRIVE_DRY_RUN" inside, [i] for an element
+// of a list, and ["a.b"] for a key that holds a dot or a bracket, so no
+// two keys share a path. A document whose tokens cannot be walked is an
+// error rather than one with no repeats.
+func repeatedKeys(raw []byte) ([]string, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	var repeated []string
 	var walk func(path string) error
@@ -223,19 +236,27 @@ func repeatedKeys(raw []byte) []string {
 		}
 		switch tok {
 		case json.Delim('{'):
-			seen := map[string]int{}
+			// classes is each key in the object with how many keys fold
+			// to it.
+			type class struct {
+				key string
+				n   int
+			}
+			var classes []class
 			for dec.More() {
 				keyTok, keyErr := dec.Token()
 				if keyErr != nil {
 					return keyErr
 				}
 				key, _ := keyTok.(string)
-				at := key
-				if path != "" {
-					at = path + "." + key
+				at := keyPath(path, key)
+				i := slices.IndexFunc(classes, func(c class) bool { return strings.EqualFold(c.key, key) })
+				if i < 0 {
+					classes = append(classes, class{key: key})
+					i = len(classes) - 1
 				}
-				seen[key]++
-				if seen[key] == 2 {
+				classes[i].n++
+				if classes[i].n == 2 {
 					repeated = append(repeated, at)
 				}
 				err = walk(at)
@@ -256,10 +277,22 @@ func repeatedKeys(raw []byte) []string {
 		_, err = dec.Token() // the closing brace or bracket
 		return err
 	}
-	if walk("") != nil {
-		return nil
+	if err := walk(""); err != nil {
+		return nil, err
 	}
-	return repeated
+	return repeated, nil
+}
+
+// keyPath is the path of key inside the object at path: joined by a dot,
+// or quoted in brackets when the key holds a dot or a bracket itself.
+func keyPath(path, key string) string {
+	if strings.ContainsAny(key, ".[]") {
+		return path + "[" + strconv.Quote(key) + "]"
+	}
+	if path == "" {
+		return key
+	}
+	return path + "." + key
 }
 
 // manifestProblems is every check the gate and the packer both run, so
@@ -267,11 +300,11 @@ func repeatedKeys(raw []byte) []string {
 // version, the API token sentence, the manifest's own declaration and
 // the vendored schema it cites, the referential checks against the
 // staged names, the launcher's names, what the bundle says it is, the
-// settings it asks for, and the LICENSE beside it. raw is the manifest
-// and m the same decoded, files the staged layout, and root the
-// repository the files beside the manifest are read from. Sorted, so
-// one run reads the same as the next.
-func manifestProblems(raw []byte, m manifest, files []staged, root string) []string {
+// settings it asks for, and the LICENSE beside it. document is the
+// manifest decoded as JSON and m the same decoded into the struct, files
+// the staged layout, and root the repository the files beside the
+// manifest are read from. Sorted, so one run reads the same as the next.
+func manifestProblems(document map[string]any, m manifest, files []staged, root string) []string {
 	problems := validateManifest(m, files)
 	problems = append(problems, checkLauncherNames(files, launcherNames())...)
 
@@ -303,10 +336,7 @@ func manifestProblems(raw []byte, m manifest, files []staged, root string) []str
 
 	// And against the schema the manifest cites, which the checks above
 	// only name.
-	var document map[string]any
-	if err := json.Unmarshal(raw, &document); err != nil {
-		problems = append(problems, fmt.Sprintf("the manifest does not decode: %v", err))
-	} else if err := checkAgainstSchema(root, document); err != nil {
+	if err := checkAgainstSchema(root, document); err != nil {
 		problems = append(problems, err.Error())
 	}
 
@@ -614,9 +644,9 @@ const (
 // bundleLeftOut is every variable the server reads that the bundle does
 // not ask for, with why.
 var bundleLeftOut = map[string]string{
-	"LOG_LEVEL":                       diagnostics,
-	"LOG_FORMAT":                      diagnostics,
-	config.EnvPrefix + "HTTP_TIMEOUT": tuning,
+	config.EnvLogLevel:    diagnostics,
+	config.EnvLogFormat:   diagnostics,
+	config.EnvHTTPTimeout: tuning,
 }
 
 // bundleVarsFrom is the settings the bundle asks for at install: every
@@ -655,6 +685,7 @@ type userConfigOption struct {
 	Title       string          `json:"title"`
 	Description string          `json:"description"`
 	Required    bool            `json:"required"`
+	Sensitive   bool            `json:"sensitive"`
 	Default     json.RawMessage `json:"default"`
 	value       any
 }
@@ -697,18 +728,20 @@ func turnedNames(m manifest, keys []string) string {
 //
 // Every setting bundleVarsFrom derives is asked for and reaches its
 // variable, and nothing else is. A switch is asked as a boolean, so
-// Claude Desktop shows it as one. An optional key has a default,
-// because the reference host passes ${user_config.x} to the server as
-// written when it has none and the person leaves the field blank. The
-// environment the defaults give the server configures it as no
-// environment does: a bundle install may turn on nothing an
-// unconfigured server leaves off. The sets of switches the server
-// refuses together are the ones bundleRefused declares. mcp_config.args
-// is there and empty, and a platform override carries neither env nor
-// args, an empty one included: the reference host replaces the base's
-// with an override's rather than merging, and an argument would
-// configure the server past every check on env. leftOut is
-// bundleLeftOut, or a test's.
+// Claude Desktop shows it as one, and a credential is marked sensitive.
+// An optional key has a default, because the reference host passes
+// ${user_config.x} to the server as written when it has none and the
+// person leaves the field blank. A default is one the defaults check can
+// see: on no required key, on no key whose variable config.Load does not
+// read, and holding no ${ for the host to expand. The environment the
+// defaults give the server configures it as no environment does: a
+// bundle install may turn on nothing an unconfigured server leaves off.
+// The sets of switches the server refuses together are the ones
+// bundleRefused declares. mcp_config.args is there and empty, and a
+// platform override carries neither env nor args, an empty one included:
+// the reference host replaces the base's with an override's rather than
+// merging, and an argument would configure the server past every check
+// on env. leftOut is bundleLeftOut, or a test's.
 func settingProblems(m manifest, leftOut map[string]string) []string {
 	asked, problems := bundleVarsFrom(config.Vars(), leftOut)
 	problems = append(problems, argsProblems(m)...)
@@ -718,6 +751,7 @@ func settingProblems(m manifest, leftOut map[string]string) []string {
 				"passes ${user_config.%s} to the server as written when the field is left blank", key, key))
 		}
 	}
+	problems = append(problems, unseenDefaultProblems(m, asked)...)
 	switches, asking := askedProblems(m, asked, leftOut)
 	problems = append(problems, asking...)
 	defaults, defaultsErr := defaultsProblems(m)
@@ -756,10 +790,11 @@ func argsProblems(m manifest) []string {
 
 // askedProblems holds user_config and mcp_config.env to the settings
 // asked, both ways: each asked setting has its key, reaches its variable
-// under that key, and is a boolean if it is a switch; every key is a
-// setting's; and every variable env sets is asked for, rather than left
-// out or not read at all. switches is the key of every switch asked for,
-// sorted.
+// under that key, is a boolean if it is a switch, and is sensitive if it
+// is a secret; every key is a setting's; and every variable env sets is
+// asked for, rather than left out or not read at all. A bundle asking
+// for no secret is refused too, since the sensitive check would then
+// read nothing. switches is the key of every switch asked for, sorted.
 func askedProblems(m manifest, asked []config.Var, leftOut map[string]string) (switches, problems []string) {
 	askedName, askedKey := map[string]bool{}, map[string]bool{}
 	for _, v := range asked {
@@ -780,6 +815,14 @@ func askedProblems(m manifest, asked []config.Var, leftOut map[string]string) (s
 					key, cmp.Or(opt.Type, "field with no type"), v.Name))
 			}
 		}
+		if v.Secret && !opt.Sensitive {
+			problems = append(problems, fmt.Sprintf("user_config.%s is not sensitive; %s is a credential, so mark "+
+				"it \"sensitive\": true and Claude Desktop stores it as one", key, v.Name))
+		}
+	}
+	if !slices.ContainsFunc(asked, func(v config.Var) bool { return v.Secret }) {
+		problems = append(problems, "the bundle asks for no variable config.Vars marks secret, so no field is held "+
+			"to sensitive; the API token is one")
 	}
 	for _, key := range slices.Sorted(maps.Keys(m.UserConfig)) {
 		if !askedKey[key] {
@@ -808,10 +851,14 @@ func askedProblems(m manifest, asked []config.Var, leftOut map[string]string) (s
 //
 // A variable spending a required key with no default is left out, since
 // the person supplies it and it is theirs either way: the API token and
-// the company domain. One with a default is not: Claude Desktop's form
-// may fill it in from the default, and a person may accept it unread. A
-// default that is a list or an object is not guessed at: its variable is
-// left out, and its key is in unreadable with what it is.
+// the company domain. A default that is a list or an object is not
+// guessed at: its variable is left out, and its key is in unreadable
+// with what it is.
+//
+// What this builds is checked only as far as config.Load reads it, and
+// Load reads neither the token nor the domain. So a default on either,
+// or on any required key, is not checked here: unseenDefaultProblems
+// refuses it.
 //
 // It reads mcp_config.env alone. That is sound only because
 // settingProblems refuses an argument and an override's env; relaxing
@@ -850,6 +897,69 @@ func hostEnv(m manifest, turned ...string) (env, unreadable map[string]string) {
 		}
 	}
 	return env, unreadable
+}
+
+// unseenDefaultProblems refuses every default the defaults check cannot
+// see. A required key takes none: the person gives it, and Claude
+// Desktop's form may fill one in that they accept unread. A key whose
+// variable config.Load does not read takes none either, since starting
+// Load from the defaults says nothing about it. And no default holds a
+// ${: the host expands ${HOME}, ${DOCUMENTS}, ${DESKTOP},
+// ${DOWNLOADS}, ${__dirname} and ${pathSeparator} in a default as well
+// as ${user_config.x}, where the defaults check substitutes only the
+// last, and an env value is exactly ${user_config.<key>}, so a default
+// has no use for one.
+func unseenDefaultProblems(m manifest, asked []config.Var) []string {
+	loaded := loadedVars()
+	var problems []string
+	for _, v := range asked {
+		key := bundleKey(v.Name)
+		opt, ok := m.UserConfig[key]
+		switch {
+		case !ok || opt.Default == nil:
+		case opt.Required:
+			problems = append(problems, fmt.Sprintf("user_config.%s is required and has a default; the person "+
+				"gives it, and Claude Desktop's form may fill one in that they accept unread", key))
+		case !loaded[v.Name]:
+			problems = append(problems, fmt.Sprintf("user_config.%s has a default, and config.Load does not read %s, "+
+				"so the defaults check cannot see what it does; ask for it with none", key, v.Name))
+		}
+	}
+	for _, key := range slices.Sorted(maps.Keys(m.UserConfig)) {
+		if holdsReference(m.UserConfig[key].value) {
+			problems = append(problems, fmt.Sprintf("user_config.%s defaults to a value holding ${, which the host "+
+				"expands and the defaults check does not", key))
+		}
+	}
+	return problems
+}
+
+// holdsReference reports whether a decoded default holds ${ in a string
+// anywhere inside it.
+func holdsReference(value any) bool {
+	switch v := value.(type) {
+	case string:
+		return strings.Contains(v, "${")
+	case []any:
+		return slices.ContainsFunc(v, holdsReference)
+	case map[string]any:
+		for _, inner := range v {
+			if holdsReference(inner) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// loadedVars is every variable config.Load reads, seen by starting it.
+func loadedVars() map[string]bool {
+	read := map[string]bool{}
+	_, _ = config.Load(gateDomain, func(name string) string {
+		read[name] = true
+		return ""
+	})
+	return read
 }
 
 // gateDomain is the workspace the defaults check starts the server for.
@@ -902,8 +1012,9 @@ func defaultsProblems(m manifest) (problems []string, defaultsErr error) {
 
 // fieldDiff names the fields of two values of one struct type that
 // differ. An unexported field cannot be read out through Interface, so
-// it is compared with Value.Equal where its type compares; one that does
-// not, and differs, is reported unnamed.
+// it is compared with Value.Equal where its type compares by value; one
+// that does not is compared as reflect.DeepEqual would, and reported
+// unnamed whenever it differs, beside any named field that differs too.
 func fieldDiff(a, b any) []string {
 	va, vb := reflect.ValueOf(a), reflect.ValueOf(b)
 	var fields []string
@@ -919,22 +1030,87 @@ func fieldDiff(a, b any) []string {
 			if !va.Field(i).Equal(vb.Field(i)) {
 				fields = append(fields, f.Name)
 			}
-		default:
+		case !deepEqual(va.Field(i), vb.Field(i)):
 			unnamed = true
 		}
 	}
-	if unnamed && len(fields) == 0 && !reflect.DeepEqual(a, b) {
+	if unnamed {
 		fields = append(fields, "an unexported field")
 	}
 	return fields
 }
 
-// strictlyComparable reports whether every value of t compares with
-// Value.Equal. An interface type compares as a type, but Equal panics on
-// a dynamic value that does not, so one anywhere inside t rules it out.
+// deepEqual is reflect.DeepEqual over two values of one type read
+// through reflection, which reads an unexported field that Interface
+// cannot return: a pointer or an interface is followed, a slice or a map
+// is compared element by element, and a func is equal only to a nil one.
+// A value that points back into itself is not one this compares; the
+// server's configuration holds none.
+func deepEqual(x, y reflect.Value) bool {
+	switch x.Kind() {
+	case reflect.Array:
+		return elementsEqual(x, y)
+	case reflect.Slice:
+		return x.IsNil() == y.IsNil() && x.Len() == y.Len() && elementsEqual(x, y)
+	case reflect.Map:
+		return mapsEqual(x, y)
+	case reflect.Pointer, reflect.Interface:
+		if x.IsNil() || y.IsNil() {
+			return x.IsNil() == y.IsNil()
+		}
+		if x.Elem().Type() != y.Elem().Type() {
+			return false
+		}
+		return deepEqual(x.Elem(), y.Elem())
+	case reflect.Struct:
+		for i := range x.NumField() {
+			if !deepEqual(x.Field(i), y.Field(i)) {
+				return false
+			}
+		}
+		return true
+	case reflect.Func:
+		return x.IsNil() && y.IsNil()
+	default:
+		// A boolean, a number or a string, which Equal compares by value,
+		// or a channel or an unsafe pointer, which it compares by
+		// identity, as DeepEqual does.
+		return x.Equal(y)
+	}
+}
+
+// mapsEqual compares two maps of one type, key by key.
+func mapsEqual(x, y reflect.Value) bool {
+	if x.IsNil() != y.IsNil() || x.Len() != y.Len() {
+		return false
+	}
+	for _, key := range x.MapKeys() {
+		if other := y.MapIndex(key); !other.IsValid() || !deepEqual(x.MapIndex(key), other) {
+			return false
+		}
+	}
+	return true
+}
+
+// elementsEqual compares two arrays or two slices of one length.
+func elementsEqual(x, y reflect.Value) bool {
+	for i := range x.Len() {
+		if !deepEqual(x.Index(i), y.Index(i)) {
+			return false
+		}
+	}
+	return true
+}
+
+// strictlyComparable reports whether every value of t compares by value
+// with Value.Equal. An interface type compares as a type, but Equal
+// panics on a dynamic value that does not, so one anywhere inside t
+// rules it out. So does a pointer, a channel, an unsafe pointer or a
+// func: Equal compares the first three by address, which says nothing
+// about the configuration they reach.
 func strictlyComparable(t reflect.Type) bool {
 	switch t.Kind() {
-	case reflect.Interface:
+	case reflect.Interface, reflect.Pointer, reflect.Chan, reflect.UnsafePointer, reflect.Func:
 		return false
 	case reflect.Struct:
 		for i := range t.NumField() {
@@ -1259,19 +1435,6 @@ func launcherNamesIn(body string) []string {
 	return out
 }
 
-// readManifest decodes a manifest file, for the registry entry.
-func readManifest(path string) (manifest, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // a repository path from a constant
-	if err != nil {
-		return manifest{}, err
-	}
-	var m manifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		return manifest{}, fmt.Errorf("%s is not valid JSON: %w", path, err)
-	}
-	return m, nil
-}
-
 // licenseOf reads the SPDX identifier the LICENSE file under root
 // carries, so the manifest cannot claim a different one; "" for a
 // license it does not recognize.
@@ -1299,12 +1462,20 @@ func licenseOf(root string) (string, error) {
 // The two entry points, in this repository's command signature.
 
 func mcpbCmd(_ io.Writer, _ []string) error {
-	return mcpbGate()
+	root, err := moduleRoot()
+	if err != nil {
+		return err
+	}
+	return mcpbGate(root)
 }
 
 func mcpbPackCmd(_ io.Writer, args []string) error {
 	if len(args) < 3 {
 		return fmt.Errorf("usage: gates mcpb-pack DIST VERSION OUT")
 	}
-	return packMCPB(args[0], args[1], args[2])
+	root, err := moduleRoot()
+	if err != nil {
+		return err
+	}
+	return packMCPB(root, args[0], args[1], args[2])
 }

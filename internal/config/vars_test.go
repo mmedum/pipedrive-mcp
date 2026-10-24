@@ -82,6 +82,20 @@ func TestVarsDescribeWhatLoadDoes(t *testing.T) {
 	}
 }
 
+// The credential is marked secret, so the bundle gate holds its field
+// to sensitive; nothing else is.
+func TestVarsMarkTheSecrets(t *testing.T) {
+	var secrets []string
+	for _, v := range registry(t) {
+		if v.Secret {
+			secrets = append(secrets, v.Name)
+		}
+	}
+	if want := []string{"PIPEDRIVE_API_TOKEN"}; !slices.Equal(secrets, want) {
+		t.Errorf("secrets %v, want %v", secrets, want)
+	}
+}
+
 // Load reads each variable once, and records each once for Vars. Two
 // settings on one variable would leave it to whichever Load reads last.
 func TestLoadReadsEachVariableOnce(t *testing.T) {
@@ -166,30 +180,33 @@ func (emptyKeyring) Get(string, string) (string, error) { return "", nil }
 func (emptyKeyring) Set(string, string, string) error   { return nil }
 func (emptyKeyring) Delete(string, string) error        { return nil }
 
-// Every PIPEDRIVE_ variable the server's code spells is one EnvVars
-// lists, so a variable read outside Load cannot escape the bundle gate.
-// So is every one scripts/ spells: the smoke test sets them for the
-// server, and a misspelling there tests a configuration nobody asked
-// for. The eval harness's own variables, PIPEDRIVE_TEST_ and a name, are
-// left out, since the harness reads them itself and the server never
-// does. Tests are not read: the integration suite's switch is the
-// suite's own. A name is seen as a string literal, or as a chain of
-// literals and EnvPrefix joined by +; one built from any other constant,
-// or through a format verb, is not seen. The scan must read every root
-// and find a name outside the config package, or it read too little.
-func TestEveryVariableTheCodeNamesIsInEnvVars(t *testing.T) {
-	known := map[string]bool{}
-	for _, name := range config.EnvVars() {
-		known[name] = true
-	}
-	name := regexp.MustCompile(`^PIPEDRIVE_[A-Z0-9][A-Z0-9_]*$`)
-	found := map[string]string{}
-	elsewhere := 0
+// The scan below reads every non-test Go file under cmd/, internal/ and
+// scripts/, where the smoke test and the eval harness set and read
+// variables too. Tests are not read: the integration suite's switch is
+// the suite's own.
+
+// sourceFile is one Go file the scan read.
+type sourceFile struct {
+	// dir is the file's package directory from the repository root,
+	// such as internal/config.
+	dir  string
+	file *ast.File
+}
+
+// scanRoots are the trees the scan reads, from this package.
+var scanRoots = []string{"../../cmd", "../../internal", "../../scripts"}
+
+// configDir is this package's directory, where every name is spelled.
+const configDir = "internal/config"
+
+// sources parses every non-test Go file under scanRoots, and refuses a
+// root it found none in, since that scan read too little.
+func sources(t *testing.T) (*token.FileSet, []sourceFile) {
+	t.Helper()
 	fset := token.NewFileSet()
-	roots := []string{"../../cmd", "../../internal", "../../scripts"}
-	evals := filepath.Join("..", "..", "scripts", "evals") + string(filepath.Separator)
-	files := map[string]int{}
-	for _, root := range roots {
+	var files []sourceFile
+	for _, root := range scanRoots {
+		parsed := 0
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 				return err
@@ -198,74 +215,369 @@ func TestEveryVariableTheCodeNamesIsInEnvVars(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			files[root]++
-			outside := filepath.Dir(path) != filepath.Join("..", "..", "internal", "config")
-			harnessOwn := func(word string) bool {
-				return strings.HasPrefix(path, evals) && strings.HasPrefix(word, "PIPEDRIVE_TEST_")
-			}
-			spell := func(s string, at token.Pos) {
-				for _, word := range strings.FieldsFunc(s, func(r rune) bool {
-					return r != '_' && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
-				}) {
-					if name.MatchString(word) && !harnessOwn(word) {
-						found[word] = fset.Position(at).String()
-						if outside {
-							elsewhere++
-						}
-					}
-				}
-			}
-			var visit func(n ast.Node) bool
-			visit = func(n ast.Node) bool {
-				switch n := n.(type) {
-				case *ast.BinaryExpr:
-					if n.Op != token.ADD {
-						return true
-					}
-					// A + chain is read in order: each run of literals
-					// and EnvPrefix is one string, and any other operand
-					// ends the run and is read on its own.
-					run, at := "", n.Pos()
-					for _, op := range operands(n) {
-						if s, ok := joined(op); ok {
-							if run == "" {
-								at = op.Pos()
-							}
-							run += s
-							continue
-						}
-						spell(run, at)
-						run = ""
-						ast.Inspect(op, visit)
-					}
-					spell(run, at)
-					return false
-				case *ast.BasicLit:
-					if s, err := strconv.Unquote(n.Value); n.Kind == token.STRING && err == nil {
-						spell(s, n.Pos())
-					}
-				}
-				return true
-			}
-			ast.Inspect(f, visit)
+			parsed++
+			dir := strings.TrimPrefix(filepath.ToSlash(filepath.Dir(path)), "../../")
+			files = append(files, sourceFile{dir: dir, file: f})
 			return nil
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-	}
-	for _, root := range roots {
-		if files[root] == 0 {
+		if parsed == 0 {
 			t.Errorf("the scan parsed no Go file under %s; it read too little", root)
 		}
 	}
-	if elsewhere == 0 {
-		t.Error("the scan found no PIPEDRIVE_ name outside internal/config; it read too little")
+	return fset, files
+}
+
+// spelling is a word a string in the code spells, and where.
+type spelling struct{ word, at string }
+
+// nameRune reports whether r can be part of a variable's name.
+func nameRune(r rune) bool {
+	return r == '_' || ('A' <= r && r <= 'Z') || ('0' <= r && r <= '9')
+}
+
+// spellings is every word the strings in f spell. A word is a run of
+// capitals, digits and _, bounded by anything else. A string is a
+// literal, or a run of a + chain made of literals and EnvPrefix, read as
+// one string, in order; any other operand ends the run and is read on
+// its own. A run that another operand continues ends in a prefix rather
+// than a name, so its last word is dropped when nothing bounds it:
+// EnvPrefix + "ENABLE_" + kind spells nothing, and "set " + x +
+// EnvPrefix + "NEW" spells PIPEDRIVE_NEW. A name built from any other
+// constant, or through a format verb, is not seen.
+func spellings(fset *token.FileSet, f *ast.File) []spelling {
+	var out []spelling
+	spell := func(s string, at token.Pos, continued bool) {
+		words := strings.FieldsFunc(s, func(r rune) bool { return !nameRune(r) })
+		if continued && len(words) > 0 && nameRune(rune(s[len(s)-1])) {
+			words = words[:len(words)-1]
+		}
+		for _, word := range words {
+			out = append(out, spelling{word: word, at: fset.Position(at).String()})
+		}
+	}
+	var visit func(n ast.Node) bool
+	visit = func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.BinaryExpr:
+			if n.Op != token.ADD {
+				return true
+			}
+			run, at, started := "", n.Pos(), false
+			for _, op := range operands(n) {
+				if s, ok := joined(op); ok {
+					if !started {
+						at, started = op.Pos(), true
+					}
+					run += s
+					continue
+				}
+				spell(run, at, true)
+				run, started = "", false
+				ast.Inspect(op, visit)
+			}
+			spell(run, at, false)
+			return false
+		case *ast.BasicLit:
+			if s, err := strconv.Unquote(n.Value); n.Kind == token.STRING && err == nil {
+				spell(s, n.Pos(), false)
+			}
+		}
+		return true
+	}
+	ast.Inspect(f, visit)
+	return out
+}
+
+// harnessOwn reports whether a word is one of the eval harness's own
+// variables, PIPEDRIVE_TEST_ and a name, which the harness reads itself
+// and the server never does.
+func harnessOwn(dir, word string) bool {
+	return strings.HasPrefix(dir, "scripts/evals") && strings.HasPrefix(word, "PIPEDRIVE_TEST_")
+}
+
+// Every PIPEDRIVE_ variable the code spells is one EnvVars lists, so a
+// variable read outside Load cannot escape the bundle gate, and a
+// misspelling in scripts/ cannot test a configuration nobody asked for.
+// The harness's own are left out.
+func TestEveryVariableTheCodeNamesIsInEnvVars(t *testing.T) {
+	known := map[string]bool{}
+	for _, name := range config.EnvVars() {
+		known[name] = true
+	}
+	pattern := regexp.MustCompile(`^PIPEDRIVE_[A-Z0-9][A-Z0-9_]*$`)
+	fset, files := sources(t)
+	found := map[string]string{}
+	for _, f := range files {
+		for _, s := range spellings(fset, f.file) {
+			if pattern.MatchString(s.word) && !harnessOwn(f.dir, s.word) {
+				found[s.word] = s.at
+			}
+		}
+	}
+	if len(found) == 0 {
+		t.Fatal("the scan found no PIPEDRIVE_ name; it read too little")
 	}
 	for _, v := range slices.Sorted(maps.Keys(found)) {
 		if !known[v] {
 			t.Errorf("%s names %s, which EnvVars does not list", found[v], v)
 		}
+	}
+}
+
+// Each variable the server reads is spelled once, in this package, and
+// everything else, a message or the smoke test's environment included,
+// uses its constant. LOG_LEVEL and LOG_FORMAT carry no prefix, so a
+// pattern cannot find them; the names come from EnvVars instead. Never
+// seeing one spelled means the scan read too little.
+func TestEachVariableIsSpelledOnce(t *testing.T) {
+	fset, files := sources(t)
+	at := map[string][]string{}
+	for _, name := range config.EnvVars() {
+		at[name] = nil
+	}
+	for _, f := range files {
+		for _, s := range spellings(fset, f.file) {
+			if places, ok := at[s.word]; ok {
+				at[s.word] = append(places, s.at)
+			}
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(at)) {
+		switch places := at[name]; {
+		case len(places) == 0:
+			t.Errorf("the scan never saw %s spelled; it read too little", name)
+		case len(places) > 1:
+			t.Errorf("%s is spelled %d times, at %s; spell it once in %s and use its constant",
+				name, len(places), strings.Join(places, ", "), configDir)
+		case !strings.Contains(filepath.ToSlash(places[0]), configDir+"/"):
+			t.Errorf("%s is spelled at %s; spell it in %s", name, places[0], configDir)
+		}
+	}
+}
+
+// scriptsOwn is every variable a script reads that the server does not,
+// with whose it is. os.Getenv may read these and nothing else.
+var scriptsOwn = map[string]string{
+	"SMOKE_HOLD":                 "the smoke gate's: how long it holds the server's stdin open",
+	"PIPEDRIVE_TEST_PIPELINE_ID": "the eval harness's: the scratch pipeline its tasks close deals in",
+}
+
+// readsFloor is how many reads of a variable the scan finds outside this
+// package today, on purpose: the floor moves with them, so a scan that
+// finds no call cannot pass.
+const readsFloor = 8
+
+// Every read of a variable outside this package goes through
+// config.Lookup, so the spaces rule holds for it, and names a variable
+// EnvVars lists. os.Getenv and os.LookupEnv read only a script's own
+// variable, declared in scriptsOwn, so an unprefixed variable the server
+// read with either would not escape the registry. A variable named
+// through a constant is followed to it.
+func TestEveryReadGoesThroughLookup(t *testing.T) {
+	known := map[string]bool{}
+	for _, name := range config.EnvVars() {
+		known[name] = true
+	}
+	fset, files := sources(t)
+	consts := constants(files)
+	reads := 0
+	seen := map[string]bool{}
+	for _, f := range files {
+		if f.dir == configDir {
+			continue
+		}
+		for _, r := range envReads(fset, f, consts) {
+			reads++
+			seen[r.name] = true
+			switch {
+			case r.name == "":
+				t.Errorf("%s: %s reads a variable this scan cannot name; name it with a constant", r.at, r.call)
+			case r.call == "config.Lookup" && !known[r.name]:
+				t.Errorf("%s: config.Lookup reads %s, which EnvVars does not list", r.at, r.name)
+			case r.call != "config.Lookup" && known[r.name]:
+				t.Errorf("%s: %s reads %s, which the server reads; read it through config.Lookup", r.at, r.call, r.name)
+			case r.call != "config.Lookup" && scriptsOwn[r.name] == "":
+				t.Errorf("%s: %s reads %s, which is neither the server's nor in scriptsOwn", r.at, r.call, r.name)
+			}
+		}
+	}
+	if reads < readsFloor {
+		t.Errorf("the scan found %d reads outside %s, want at least %d; it read too little", reads, configDir, readsFloor)
+	}
+	for _, name := range slices.Sorted(maps.Keys(scriptsOwn)) {
+		if !seen[name] {
+			t.Errorf("scriptsOwn names %s, which nothing reads", name)
+		}
+	}
+}
+
+// constSpec is a package-level constant's value and the directory of
+// the package it is in.
+type constSpec struct {
+	value ast.Expr
+	dir   string
+}
+
+// constants is every package-level constant with one value in files,
+// keyed by its package directory and name: internal/config.DomainEnv.
+func constants(files []sourceFile) map[string]constSpec {
+	out := map[string]constSpec{}
+	for _, f := range files {
+		for _, decl := range f.file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				vs := spec.(*ast.ValueSpec)
+				if len(vs.Values) != len(vs.Names) {
+					continue
+				}
+				for i, name := range vs.Names {
+					out[f.dir+"."+name.Name] = constSpec{value: vs.Values[i], dir: f.dir}
+				}
+			}
+		}
+	}
+	return out
+}
+
+// resolve is the string e names, in the package at dir: a literal, a
+// constant of that package or of config, or a + chain of them.
+func resolve(e ast.Expr, dir string, consts map[string]constSpec) (string, bool) {
+	switch e := e.(type) {
+	case *ast.BasicLit:
+		s, err := strconv.Unquote(e.Value)
+		return s, e.Kind == token.STRING && err == nil
+	case *ast.ParenExpr:
+		return resolve(e.X, dir, consts)
+	case *ast.BinaryExpr:
+		if e.Op != token.ADD {
+			return "", false
+		}
+		x, ok := resolve(e.X, dir, consts)
+		if !ok {
+			return "", false
+		}
+		y, ok := resolve(e.Y, dir, consts)
+		return x + y, ok
+	case *ast.Ident:
+		if c, ok := consts[dir+"."+e.Name]; ok {
+			return resolve(c.value, c.dir, consts)
+		}
+	case *ast.SelectorExpr:
+		if pkg, ok := e.X.(*ast.Ident); ok && pkg.Name == "config" {
+			if c, ok := consts[configDir+"."+e.Sel.Name]; ok {
+				return resolve(c.value, c.dir, consts)
+			}
+		}
+	}
+	return "", false
+}
+
+// envRead is one call that reads a variable: which call, the variable,
+// "" when the argument cannot be resolved, and where.
+type envRead struct{ call, name, at string }
+
+// envReads is every os.Getenv, os.LookupEnv and config.Lookup call in f.
+func envReads(fset *token.FileSet, f sourceFile, consts map[string]constSpec) []envRead {
+	var out []envRead
+	ast.Inspect(f.file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		pkg, ok := sel.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		arg := -1
+		switch name := pkg.Name + "." + sel.Sel.Name; name {
+		case "os.Getenv", "os.LookupEnv":
+			arg = 0
+		case "config.Lookup":
+			arg = 1
+		}
+		if arg < 0 || len(call.Args) <= arg {
+			return true
+		}
+		name, _ := resolve(call.Args[arg], f.dir, consts)
+		out = append(out, envRead{call: pkg.Name + "." + sel.Sel.Name, name: name, at: fset.Position(call.Pos()).String()})
+		return true
+	})
+	return out
+}
+
+// The name scan reads a + chain in order: a run another operand
+// continues ends in a prefix, not a name, and a run after one is still
+// read.
+func TestTheScanReadsAChainInOrder(t *testing.T) {
+	for _, tc := range []struct {
+		expr string
+		want []string
+	}{
+		{`EnvPrefix + "ENABLE_" + kind`, nil},
+		{`"set " + x + EnvPrefix + "NEW"`, []string{"PIPEDRIVE_NEW"}},
+		{`"PIPEDRIVE_OLD is gone; " + x`, []string{"PIPEDRIVE_OLD"}},
+		{`config.EnvPrefix + ("A_" + kind) + "_B"`, []string{"_B"}},
+		{`"LOG_LEVEL"`, []string{"LOG_LEVEL"}},
+	} {
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, "x.go", "package x\nvar _ = "+tc.expr+"\n", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, s := range spellings(fset, f) {
+			got = append(got, s.word)
+		}
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("%s spells %q, want %q", tc.expr, got, tc.want)
+		}
+	}
+}
+
+// A read names its variable however the call spells it: a literal, a
+// constant of its own package, one of config's, or one defined by
+// another.
+func TestTheScanNamesEachRead(t *testing.T) {
+	const src = `package x
+const own = config.EnvPrefix + "OWN"
+const alias = config.DomainEnv
+func f() {
+	os.Getenv("LOG_LEVEL")
+	os.LookupEnv(own)
+	config.Lookup(os.Getenv, alias)
+	config.Lookup(os.Getenv, name)
+}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "x.go", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := parser.ParseFile(fset, "config.go",
+		"package config\nconst EnvPrefix = \"PIPEDRIVE_\"\nconst DomainEnv = EnvPrefix + \"COMPANY_DOMAIN\"\n", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := []sourceFile{{dir: "x", file: f}, {dir: configDir, file: cfg}}
+	reads := envReads(fset, files[0], constants(files))
+	got := make([]string, 0, len(reads))
+	for _, r := range reads {
+		got = append(got, r.call+" "+r.name)
+	}
+	want := []string{"os.Getenv LOG_LEVEL", "os.LookupEnv PIPEDRIVE_OWN",
+		"config.Lookup PIPEDRIVE_COMPANY_DOMAIN", "config.Lookup "}
+	if !slices.Equal(got, want) {
+		t.Errorf("reads = %q, want %q", got, want)
 	}
 }
 

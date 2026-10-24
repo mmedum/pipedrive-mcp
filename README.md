@@ -74,16 +74,18 @@ Or take a signed archive from the
 your `PATH`. Nothing about a release has to be taken on trust:
 
 ```bash
-# --ignore-missing, because checksums.txt covers every archive and every
-# SBOM, and you will have downloaded one of them.
-sha256sum -c checksums.txt --ignore-missing
-
 # One signature over the checksum file, keyless, tied to the release
-# workflow's own identity.
+# workflow's own identity on a tag. Check it first: until it passes, the
+# checksums are only what the release says now.
 cosign verify-blob checksums.txt \
   --bundle checksums.txt.bundle \
-  --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.*' \
+  --certificate-identity-regexp '^https://github\.com/mmedum/pipedrive-mcp/\.github/workflows/release\.yml@refs/tags/' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+
+# --ignore-missing, because checksums.txt covers every archive and every
+# SBOM, and you will have downloaded one of them. On macOS, use
+# shasum -a 256 -c in place of sha256sum -c.
+sha256sum -c checksums.txt --ignore-missing
 
 # And the archive itself carries build provenance.
 gh attestation verify pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz --owner mmedum

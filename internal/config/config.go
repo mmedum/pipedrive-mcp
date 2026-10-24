@@ -81,9 +81,18 @@ const DomainEnv = EnvPrefix + "COMPANY_DOMAIN"
 // a keyring.
 const EnvAPIToken = EnvPrefix + "API_TOKEN"
 
+// The variables Load reads. Each name is spelled here once, and every
+// other mention of one, a message included, uses its constant.
+const (
+	EnvLogLevel    = "LOG_LEVEL"
+	EnvLogFormat   = "LOG_FORMAT"
+	EnvDryRun      = EnvPrefix + "DRY_RUN"
+	EnvHTTPTimeout = EnvPrefix + "HTTP_TIMEOUT"
+)
+
 // envOnly is every variable read outside Load: the domain by
 // internal/app, before Load runs, and the token by internal/credentials.
-var envOnly = []string{DomainEnv, EnvAPIToken}
+var envOnly = []Var{{Name: DomainEnv}, {Name: EnvAPIToken, Secret: true}}
 
 // Var is one variable the server reads.
 type Var struct {
@@ -91,13 +100,16 @@ type Var struct {
 	Name string
 	// Switch marks a setting that is on or off.
 	Switch bool
+	// Secret marks a credential, which a form that asks for it must
+	// store as a sensitive value.
+	Secret bool
 }
 
-// Lookup is the variable name as env gives it, without the spaces around
-// it. Spaces alone are "", unset as an empty variable is, so a form field
-// cleared to a space means the default rather than a value the server
-// refuses. Load reads every setting through it, and so does each reader
-// of a variable outside Load.
+// Lookup is the value env gives the variable name, without the spaces
+// around it. Spaces alone are "", unset as an empty variable is, so a
+// form field cleared to a space means the default rather than a value
+// the server refuses. Load reads every setting through it, and so does
+// each reader of a variable outside Load.
 func Lookup(env func(string) string, name string) string {
 	return strings.TrimSpace(env(name))
 }
@@ -116,10 +128,10 @@ func readSettings(env func(string) string) settings {
 		s.vars = append(s.vars, v)
 		return Lookup(env, v.Name)
 	}
-	s.logLevel = read(Var{Name: "LOG_LEVEL"})
-	s.logFormat = read(Var{Name: "LOG_FORMAT"})
-	s.dryRun = read(Var{Name: EnvPrefix + "DRY_RUN", Switch: true})
-	s.httpTimeout = read(Var{Name: EnvPrefix + "HTTP_TIMEOUT"})
+	s.logLevel = read(Var{Name: EnvLogLevel})
+	s.logFormat = read(Var{Name: EnvLogFormat})
+	s.dryRun = read(Var{Name: EnvDryRun, Switch: true})
+	s.httpTimeout = read(Var{Name: EnvHTTPTimeout})
 	return s
 }
 
@@ -129,9 +141,7 @@ func readSettings(env func(string) string) settings {
 // these.
 func Vars() []Var {
 	vars := readSettings(func(string) string { return "" }).vars
-	for _, name := range envOnly {
-		vars = append(vars, Var{Name: name})
-	}
+	vars = append(vars, envOnly...)
 	slices.SortFunc(vars, func(a, b Var) int { return strings.Compare(a.Name, b.Name) })
 	return vars
 }
@@ -159,11 +169,13 @@ var (
 	logFormats    = map[LogFormat]bool{LogText: true, LogJSON: true}
 )
 
-// ValidateDomain normalizes (trim, lowercase) and validates a Pipedrive
-// workspace subdomain. Shared between Load and the login/logout
-// subcommands so all entry points apply the same regex.
+// ValidateDomain lowers A to Z in a Pipedrive workspace subdomain and
+// validates it. Shared between Load and the login/logout subcommands so
+// all entry points apply the same regex. The spaces around a domain are
+// its reader's to drop: Lookup's for the variable, and the caller's for
+// a flag, the prompt and the userconfig pointer.
 func ValidateDomain(s string) (string, error) {
-	d := asciiLower(strings.TrimSpace(s))
+	d := asciiLower(s)
 	if d == "" {
 		return "", errors.New("domain is required")
 	}
@@ -217,7 +229,7 @@ func Load(rawDomain string, env func(string) string) (Config, error) {
 	if v := strings.ToLower(s.logLevel); v != "" {
 		level := LogLevel(v)
 		if !logLevels[level] {
-			return Config{}, fmt.Errorf("config: LOG_LEVEL %q is not one of debug|info|warn|error", v)
+			return Config{}, fmt.Errorf("config: %s %q is not one of debug|info|warn|error", EnvLogLevel, v)
 		}
 		c.LogLevel = level
 	}
@@ -225,7 +237,7 @@ func Load(rawDomain string, env func(string) string) (Config, error) {
 	if v := strings.ToLower(s.logFormat); v != "" {
 		format := LogFormat(v)
 		if !logFormats[format] {
-			return Config{}, fmt.Errorf("config: LOG_FORMAT %q is not one of text|json", v)
+			return Config{}, fmt.Errorf("config: %s %q is not one of text|json", EnvLogFormat, v)
 		}
 		c.LogFormat = format
 	}
@@ -233,7 +245,7 @@ func Load(rawDomain string, env func(string) string) (Config, error) {
 	if v := s.dryRun; v != "" {
 		b, err := strconv.ParseBool(v)
 		if err != nil {
-			return Config{}, fmt.Errorf("config: PIPEDRIVE_DRY_RUN %q: use true or false", v)
+			return Config{}, fmt.Errorf("config: %s %q: use true or false", EnvDryRun, v)
 		}
 		c.DryRun = b
 	}
@@ -241,10 +253,10 @@ func Load(rawDomain string, env func(string) string) (Config, error) {
 	if v := s.httpTimeout; v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
-			return Config{}, fmt.Errorf("config: PIPEDRIVE_HTTP_TIMEOUT %q: %w", v, err)
+			return Config{}, fmt.Errorf("config: %s %q: %w", EnvHTTPTimeout, v, err)
 		}
 		if d <= 0 {
-			return Config{}, fmt.Errorf("config: PIPEDRIVE_HTTP_TIMEOUT must be positive, got %s", d)
+			return Config{}, fmt.Errorf("config: %s must be positive, got %s", EnvHTTPTimeout, d)
 		}
 		c.HTTPTimeout = d
 	}

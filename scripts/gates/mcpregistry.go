@@ -6,7 +6,9 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -100,16 +102,29 @@ func githubRepo(module string) (owner, name string, err error) {
 	return parts[1], parts[2], nil
 }
 
-// modulePath reads the module this repository is, from go.mod.
-func modulePath() (string, error) {
-	data, err := os.ReadFile("go.mod")
+// modulePath reads the module the repository at root is, from its
+// go.mod: the module directive, which is "module" then spaces or a tab
+// then the path, bare or quoted, perhaps with a // comment after it.
+// CRLF line ends are read as LF.
+func modulePath(root string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(root, "go.mod")) //nolint:gosec // a repository path from a constant
 	if err != nil {
 		return "", err
 	}
 	for _, line := range strings.Split(string(data), "\n") {
-		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
-			return strings.TrimSpace(rest), nil
+		line, _, _ = strings.Cut(line, "//")
+		fields := strings.Fields(line)
+		if len(fields) != 2 || fields[0] != "module" {
+			continue
 		}
+		if !strings.HasPrefix(fields[1], `"`) {
+			return fields[1], nil
+		}
+		module, err := strconv.Unquote(fields[1])
+		if err != nil {
+			return "", fmt.Errorf("go.mod's module directive quotes its path badly: %w", err)
+		}
+		return module, nil
 	}
 	return "", fmt.Errorf("go.mod names no module")
 }
@@ -149,9 +164,12 @@ func bundleRow(checksums string) (name, sum string, err error) {
 	return name, sum, nil
 }
 
-// serverJSON writes the registry entry for one release.
-func serverJSON(version, checksums string, stdout io.Writer) error {
-	module, err := modulePath()
+// serverJSON writes the registry entry for one release of the
+// repository at root. The manifest it takes the description from is the
+// one the bundle gate vets, read the way the gate and the packer read
+// it, so a manifest the gate refuses publishes no entry.
+func serverJSON(root, version, checksums string, stdout io.Writer) error {
+	module, err := modulePath(root)
 	if err != nil {
 		return err
 	}
@@ -169,9 +187,13 @@ func serverJSON(version, checksums string, stdout io.Writer) error {
 		return fmt.Errorf("empty version")
 	}
 
-	m, err := readManifest(manifestPath)
+	_, m, problems, err := committedManifest(root)
 	if err != nil {
 		return err
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("the bundle gate refuses %s, so no entry is written for it:\n  %s",
+			manifestPath, strings.Join(problems, "\n  "))
 	}
 	if m.Description == "" {
 		return fmt.Errorf("%s has no description for the registry entry to carry", manifestPath)
@@ -207,7 +229,7 @@ func serverJSON(version, checksums string, stdout io.Writer) error {
 			Transport:  registryTransport{Type: "stdio"},
 		}},
 	}
-	out, err := marshalRegistryEntry(entry)
+	out, err := marshalRegistryEntry(root, entry)
 	if err != nil {
 		return err
 	}
@@ -223,7 +245,7 @@ func serverJSON(version, checksums string, stdout io.Writer) error {
 // here rather than as a separate gate because the entry is built at
 // release time and published moments later — and a registry entry cannot
 // be withdrawn.
-func marshalRegistryEntry(entry registryEntry) ([]byte, error) {
+func marshalRegistryEntry(root string, entry registryEntry) ([]byte, error) {
 	out, err := json.MarshalIndent(entry, "", "  ")
 	if err != nil {
 		return nil, err
@@ -232,7 +254,8 @@ func marshalRegistryEntry(entry registryEntry) ([]byte, error) {
 	if err := json.Unmarshal(out, &document); err != nil {
 		return nil, err
 	}
-	if err := validateAgainstVendored(document, registrySchemaPath, registrySchemaSHA256, registrySchema); err != nil {
+	schema := filepath.Join(root, registrySchemaPath)
+	if err := validateAgainstVendored(document, schema, registrySchemaSHA256, registrySchema); err != nil {
 		return nil, fmt.Errorf("the registry entry would not satisfy the schema it cites: %w", err)
 	}
 	return out, nil
@@ -243,5 +266,9 @@ func registryPublishCmd(out io.Writer, args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("usage: gates registry-publish VERSION CHECKSUMS")
 	}
-	return serverJSON(args[0], args[1], out)
+	root, err := moduleRoot()
+	if err != nil {
+		return err
+	}
+	return serverJSON(root, args[0], args[1], out)
 }

@@ -117,12 +117,15 @@ The release workflow runs automatically. Watch it at
 - [ ] Verify the signature locally. Use the archive filename goreleaser
       actually produces — no `v` prefix, `.tar.gz` extension:
 
-      sha256sum -c checksums.txt --ignore-missing
-
       cosign verify-blob checksums.txt \
         --bundle checksums.txt.bundle \
-        --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.+' \
+        --certificate-identity-regexp '^https://github\.com/mmedum/pipedrive-mcp/\.github/workflows/release\.yml@refs/tags/' \
         --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+
+      sha256sum -c checksums.txt --ignore-missing   # on macOS: shasum -a 256 -c
+
+      The signature first: until it passes, the checksums are only what
+      the release assets say now.
 - [ ] Verify the build attestation with `gh attestation verify`:
 
       gh attestation verify pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz \
@@ -186,7 +189,18 @@ gh workflow run publish-mcp.yml --ref main -f tag=vX.Y.Z
 ```
 
 It reads the PUBLISHED release's `checksums.txt`, so the hash in the entry
-is the number cosign signed rather than one from a local build.
+is the number cosign signed rather than one from a local build. A release
+cut before the checksum file was renamed carries `SHA256SUMS` and
+`SHA256SUMS.bundle` instead; the workflow takes those when
+`checksums.txt` is absent and verifies them the same way.
+
+Two limits of that check, kept on purpose for now. The signature is held
+to `release.yml` on any tag, not to the tag being published, so a
+`checksums.txt` signed for another tag of this repository would pass.
+And the entry takes the one `.mcpb` row in the file without checking its
+name against the tag. Both are hardening outside the change set that
+introduced them; tightening either is a change to this workflow, which
+needs the maintainer's go-ahead.
 
 **Exit 0 on empty output is not evidence.** `gh attestation verify` and
 `cosign verify-blob` both say little when they succeed, and a command

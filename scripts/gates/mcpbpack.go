@@ -30,13 +30,20 @@ import (
 // impossible 1980-00-00.
 var zipTime = time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 
-// packMCPB writes the bundle for one version.
-func packMCPB(dist, version, out string) error {
-	stamped, err := stampedManifest(version)
+// packMCPB writes the bundle for one version, from the repository at
+// root and the binaries under dist, to out.
+//
+// The archive is written beside out under a name no bundle glob
+// matches, and renamed to out only once it is whole and closed. A pack
+// that fails part way leaves nothing behind, so neither a later run nor
+// goreleaser's ./dist/*.mcpb can take a truncated archive for the
+// bundle, and an out that was already there is left as it was.
+func packMCPB(root, dist, version, out string) error {
+	stamped, err := stampedManifest(root, version)
 	if err != nil {
 		return err
 	}
-	sources, err := stagedSources(dist)
+	sources, err := stagedSources(root, dist)
 	if err != nil {
 		return err
 	}
@@ -45,33 +52,58 @@ func packMCPB(dist, version, out string) error {
 	if err != nil {
 		return err
 	}
-	file, err := os.Create(out) //nolint:gosec // the output path is the caller's
+	file, err := os.CreateTemp(filepath.Dir(out), filepath.Base(out)+".*.partial")
 	if err != nil {
 		return err
 	}
-	if err = writeBundle(file, stamped, sources, generated); err != nil {
-		_ = file.Close()
+	err = finishBundle(file, file.Name(), out, func(w io.Writer) error {
+		return writeBundle(w, stamped, sources, generated)
+	})
+	if err != nil {
 		return err
 	}
 	fmt.Printf("  %s: %d files, version stamped\n", out, len(sources)+len(generated)+1)
 	return nil
 }
 
-// stampedManifest is the committed manifest with the real version
-// written in, as the bundle carries it.
+// finishBundle writes the bundle into file through write, closes it, and
+// renames name, where file is, to out. It is the one place the file is
+// closed, and Close's error is the pack's: the last of the archive can
+// reach the disk only there, and a bundle cut short must not pass. On
+// any failure name is removed and out is not touched.
+func finishBundle(file io.WriteCloser, name, out string, write func(io.Writer) error) error {
+	err := write(file)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Rename(name, out)
+	}
+	if err != nil {
+		_ = os.Remove(name)
+	}
+	return err
+}
+
+// stampedManifest is the committed manifest under root with the real
+// version written in, as the bundle carries it.
 //
-// It starts where the gate starts, read once, so the release packs no
-// manifest the gate would refuse; the placeholder version is among
-// those checks, because a committed manifest claiming a version means
-// somebody stamped it in the tree, and the next build would ship
-// whatever they left behind. The version goes in through a decode and
-// an encode, because a sed over JSON is how a quote ends up inside a
-// string, and the encoded document is what is held to the schema again.
-func stampedManifest(version string) ([]byte, error) {
+// It starts where the gate starts, from the document committedManifest
+// decoded, so the release packs no manifest the gate would refuse; the
+// placeholder version is among those checks, because a committed
+// manifest claiming a version means somebody stamped it in the tree, and
+// the next build would ship whatever they left behind. The version goes
+// in through the decoded document and an encode, because a sed over JSON
+// is how a quote ends up inside a string. The stamped document is held
+// to the schema again: what the bundle carries has a version that came
+// from a tag rather than from the file somebody reviewed. It is the
+// document the bytes encode, since an encode of a decoded document
+// decodes back to it.
+func stampedManifest(root, version string) ([]byte, error) {
 	if version == "" || version == placeholderVersion {
 		return nil, fmt.Errorf("pack needs the real version; %q is the committed placeholder", version)
 	}
-	raw, _, problems, err := committedManifest(".")
+	document, _, problems, err := committedManifest(root)
 	if err != nil {
 		return nil, err
 	}
@@ -79,40 +111,22 @@ func stampedManifest(version string) ([]byte, error) {
 		return nil, fmt.Errorf("the manifest does not describe the bundle this would pack:\n  %s",
 			strings.Join(problems, "\n  "))
 	}
-	var document map[string]any
-	err = json.Unmarshal(raw, &document)
-	if err != nil {
-		return nil, err
-	}
 	document["version"] = version
-	stamped, err := json.MarshalIndent(document, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-
-	// The document that ships, decoded back from the bytes that ship: the
-	// committed manifest is checked by the gate on every commit, and what
-	// the bundle carries is this, with a version that came from a tag
-	// rather than from the file somebody reviewed.
-	var shipped map[string]any
-	err = json.Unmarshal(stamped, &shipped)
-	if err != nil {
-		return nil, err
-	}
-	if err = checkAgainstSchema(".", shipped); err != nil {
+	if err := checkAgainstSchema(root, document); err != nil {
 		return nil, fmt.Errorf("the stamped manifest would not satisfy the schema it cites: %w", err)
 	}
-	return stamped, nil
+	return json.MarshalIndent(document, "", "  ")
 }
 
-// stagedSources resolves every staged name to the file it comes from.
-func stagedSources(dist string) (map[string]string, error) {
+// stagedSources resolves every staged name to the file it comes from:
+// a binary under dist, or a file of the repository at root.
+func stagedSources(root, dist string) (map[string]string, error) {
 	sources := map[string]string{}
 	for _, f := range bundleFiles {
 		if f.generated {
 			continue // written from the table, not copied from disk
 		}
-		path, err := sourceFor(dist, f)
+		path, err := sourceFor(root, dist, f)
 		if err != nil {
 			return nil, err
 		}
@@ -133,10 +147,10 @@ func generatedFiles() map[string][]byte {
 	return out
 }
 
-// writeBundle writes the deflate zip to file and closes it: the manifest
-// at the root, the binaries and the launcher under server/, and the
-// license and the README beside the manifest.
-func writeBundle(file io.WriteCloser, stamped []byte, sources map[string]string, generated map[string][]byte) error {
+// writeBundle writes the deflate zip to file: the manifest at the root,
+// the binaries and the launcher under server/, and the license and the
+// README beside the manifest. Closing file is finishBundle's.
+func writeBundle(file io.Writer, stamped []byte, sources map[string]string, generated map[string][]byte) error {
 	modes := map[string]os.FileMode{}
 	for _, f := range bundleFiles {
 		modes[f.path] = f.mode()
@@ -174,12 +188,7 @@ func writeBundle(file io.WriteCloser, stamped []byte, sources map[string]string,
 			return err
 		}
 	}
-	if err := zw.Close(); err != nil {
-		return err
-	}
-	// Close's error is the pack's: the last of the archive can reach the
-	// disk only there, and a bundle cut short must not pass.
-	return file.Close()
+	return zw.Close()
 }
 
 func addEntry(zw *zip.Writer, name string, body []byte, mode os.FileMode) error {
@@ -212,23 +221,22 @@ func entryWriter(zw *zip.Writer, name string, mode os.FileMode) (io.Writer, erro
 	return zw.CreateHeader(header)
 }
 
-// sourceFor finds the file a staged entry comes from.
+// sourceFor finds the file a staged entry comes from: a file of the
+// repository at root, or a binary under dist.
 //
 // A glob must match exactly one file and fails loudly on two: the layout
 // under dist/ carries a build id and an amd64 variant, and a bundle
 // packed from the wrong binary is not something a checksum catches —
 // the checksum is of whatever was built.
-func sourceFor(dist string, f staged) (string, error) {
+func sourceFor(root, dist string, f staged) (string, error) {
 	if f.source != "" {
-		if _, err := os.Stat(f.source); err != nil {
+		path := filepath.Join(root, f.source)
+		if _, err := os.Stat(path); err != nil {
 			return "", fmt.Errorf("%s: %w", f.path, err)
 		}
-		return f.source, nil
+		return path, nil
 	}
-	pattern := f.glob
-	if dist != "dist" {
-		pattern = filepath.Join(dist, trimDistPrefix(f.glob))
-	}
+	pattern := filepath.Join(dist, trimDistPrefix(f.glob))
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return "", err

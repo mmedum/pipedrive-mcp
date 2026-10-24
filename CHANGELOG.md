@@ -26,7 +26,7 @@ in full.
 
 - The Claude Desktop bundle carries `LICENSE` and `README.md` at its root, as the release archives do.
 - The bundle's manifest names Pipedrive's privacy policy, <https://www.pipedrive.com/en/privacy>, which the manifest specification asks of a server that sends user data to a service.
-- The bundle gate holds the manifest to the server's own settings: it asks for every variable the server reads, less a few left out with a reason; its defaults start the server as no environment does; no command line argument or platform override's `env` can configure the server past those checks; every command starts with `${__dirname}/` and runs the program staged for its platform; and the gate and the packer read the manifest once, refusing a key that appears twice.
+- The bundle gate holds the manifest to the server's own settings: it asks for every variable the server reads, less a few left out with a reason; its defaults start the server as no environment does; no command line argument or platform override's `env` can configure the server past those checks; every command starts with `${__dirname}/` and runs the program staged for its platform; the API token's field is marked sensitive; no field has a default the check cannot see, on a required field, on the token or the domain, or holding a `${` the host would expand; and the gate, the packer and the registry entry read the manifest once, refusing a key that appears twice, in any case.
 
 ### Changed
 
@@ -35,9 +35,14 @@ in full.
 
 ### Fixed
 
-- The verification command at the foot of every release page works: it checks `checksums.txt` against its cosign bundle. It named a `.cert` and a `.sig` beside each archive, which no release has carried since 0.3.1.
+- The verification command at the foot of every release page works: it checks the cosign bundle on `checksums.txt` first, then the download against `checksums.txt`, with the macOS command beside the Linux one. It named a `.cert` and a `.sig` beside each archive, which no release has carried since 0.3.1.
+- The verification commands in the README, `SECURITY.md` and the release runbook accept only a signature from the release workflow on a tag, as the release page's does. They accepted one from any workflow in the repository.
 - `PIPEDRIVE_DRY_RUN` set to spaces alone is unset, as an empty one is, and the spaces around its value are dropped; both were refused at start. The other variables already read this way, and now all of them read through one rule.
 - A company domain is lowered A to Z only, so a character Unicode lowers into a to z, such as the Kelvin sign, is refused rather than read as `k`, which would name another workspace.
+
+### Security
+
+- Built with Go 1.27.3, which fixes [GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809) in `crypto/x509`, which `govulncheck` found reachable from this server: intermediate certificates known to be compromised are no longer trusted.
 
 ## [1.1.3] - 2026-10-10
 

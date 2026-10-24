@@ -16,8 +16,9 @@
 # acceptable; least privilege is what stops that being the only thing in
 # the way.
 #
-# Both paths read the PUBLISHED release's checksums.txt rather than a local
-# build, and verify its cosign signature before reading it — so the hash
+# Both paths read the PUBLISHED release's checksums.txt (SHA256SUMS on a
+# release cut before the rename) rather than a local build, and verify
+# its cosign signature before reading it — so the hash
 # a client verifies really is the number that was signed, rather than
 # whatever the release assets happen to say now. The two paths cannot
 # diverge because there is only one of them.
@@ -66,8 +67,24 @@ jobs:
         with:
           cosign-release: v3.1.3
 
+      # A release cut before the checksum file was renamed carries
+      # SHA256SUMS and SHA256SUMS.bundle instead, so dispatching this for
+      # one of those still finds its signed checksums. Only these two
+      # names are taken, and the next steps read the one found.
       - name: Take the checksums from the published release
-        run: gh release download "${TAG}" --pattern 'checksums.txt*' --dir dist
+        run: |
+          set -euo pipefail
+          assets=$(gh release view "${TAG}" --json assets --jq '.assets[].name')
+          if grep -qx 'checksums.txt' <<<"${assets}"; then
+            sums=checksums.txt
+          elif grep -qx 'SHA256SUMS' <<<"${assets}"; then
+            sums=SHA256SUMS
+          else
+            echo "::error::${TAG} carries neither checksums.txt nor SHA256SUMS"
+            exit 1
+          fi
+          gh release download "${TAG}" --pattern "${sums}" --pattern "${sums}.bundle" --dir dist
+          echo "SUMS=dist/${sums}" >> "${GITHUB_ENV}"
         env:
           TAG: ${{ inputs.tag }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -84,14 +101,14 @@ jobs:
       - name: Verify those checksums are the ones that were signed
         run: |
           set -euo pipefail
-          cosign verify-blob dist/checksums.txt \
-            --bundle dist/checksums.txt.bundle \
+          cosign verify-blob "${SUMS}" \
+            --bundle "${SUMS}.bundle" \
             --certificate-identity-regexp '^https://github\.com/mmedum/pipedrive-mcp/\.github/workflows/release\.yml@refs/tags/' \
             --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 
       - name: Write the entry, and show it before anybody sees it
         run: |
-          go run ./scripts/gates registry-publish "${TAG}" dist/checksums.txt > server.json
+          go run ./scripts/gates registry-publish "${TAG}" "${SUMS}" > server.json
           cat server.json
         env:
           TAG: ${{ inputs.tag }}

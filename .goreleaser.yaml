@@ -159,17 +159,21 @@ release:
   # sibling servers: a reader wants to know what changed before being
   # told how to check the signature. This was a `header:` while the
   # notes were being discarded, when it was the only thing on the page.
+  #
+  # The signature is checked before the checksums are read: until cosign
+  # passes, checksums.txt is only what the release assets say now.
   footer: |
     ---
 
-    Verify a download against the signed checksums:
+    Verify the signature on the checksums, then a download against them:
 
     ```sh
-    sha256sum -c checksums.txt --ignore-missing
     cosign verify-blob checksums.txt \
       --bundle checksums.txt.bundle \
       --certificate-identity 'https://github.com/mmedum/pipedrive-mcp/.github/workflows/release.yml@refs/tags/{{ .Tag }}' \
       --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+    sha256sum -c checksums.txt --ignore-missing          # Linux
+    shasum -a 256 -c checksums.txt --ignore-missing      # macOS
     ```
 
     Verify the SLSA build-provenance attestation:

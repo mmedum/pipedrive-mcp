@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/mmedum/pipedrive-mcp/internal/config"
 )
 
 // The three frames a client must send before it may ask for anything.
@@ -53,8 +55,8 @@ func smokeGate(w io.Writer, args []string) error {
 	// The smoke checks stdio framing, not credentials, so the probe is
 	// skipped and the token only has to exist.
 	env := append(os.Environ(),
-		"PIPEDRIVE_API_TOKEN="+orDefault(os.Getenv("PIPEDRIVE_API_TOKEN"), "smoke-token"),
-		"PIPEDRIVE_COMPANY_DOMAIN="+orDefault(os.Getenv("PIPEDRIVE_COMPANY_DOMAIN"), "smoke"))
+		config.EnvAPIToken+"="+orDefault(config.Lookup(os.Getenv, config.EnvAPIToken), "smoke-token"),
+		config.DomainEnv+"="+orDefault(config.Lookup(os.Getenv, config.DomainEnv), "smoke"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()

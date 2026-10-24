@@ -67,13 +67,16 @@ and it holds the hash of every archive and every SBOM. Verify with
 prefix from archive filenames):
 
 ```sh
-sha256sum -c checksums.txt --ignore-missing
-
 cosign verify-blob checksums.txt \
   --bundle checksums.txt.bundle \
-  --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.*' \
+  --certificate-identity-regexp '^https://github\.com/mmedum/pipedrive-mcp/\.github/workflows/release\.yml@refs/tags/' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+
+sha256sum -c checksums.txt --ignore-missing       # on macOS: shasum -a 256 -c
 ```
+
+The signature is checked first: until it passes, `checksums.txt` is only
+what the release assets say now.
 
 A CycloneDX SBOM is attached per-archive (e.g.
 `pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.cdx.json`); each SBOM's hash is

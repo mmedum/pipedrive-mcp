@@ -374,7 +374,9 @@ func TestManifestProblemsRunsEveryCheck(t *testing.T) {
 
 // A key is repeated only within one object, and each repeated key is
 // named once, by its path, a list's elements and a repeated object's
-// own keys included.
+// own keys included. Two keys that differ only in case are one key
+// repeated, since the gate's decode matches either, and a key holding a
+// dot or a bracket is quoted, so its path is not another key's.
 func TestRepeatedKeysNameEachPathOnce(t *testing.T) {
 	for _, tc := range []struct {
 		doc  string
@@ -383,11 +385,39 @@ func TestRepeatedKeysNameEachPathOnce(t *testing.T) {
 		{`{"a": [{"b": 1, "b": 2, "b": 3}], "c": {"d": 1}, "d": 1}`, []string{"a[0].b"}},
 		{`{"x": {"y": 1}, "x": {"y": 1, "y": 2}}`, []string{"x", "x.y"}},
 		{`{"server": {"type": "binary"}, "user_config": {"type": {"type": "boolean"}}}`, nil},
-		{`{"a": 1,`, nil},
+		{`{"command": "a", "Command": "b", "COMMAND": "c"}`, []string{"Command"}},
+		// The Kelvin sign folds to k under Unicode, as the decode folds it.
+		{`{"env": {"kind": 1, "\u212aind": 2}}`, []string{"env.\u212aind"}},
+		{`{"env": {"a.b": 1, "a": {"b": 1}, "a.b": 2}}`, []string{`env["a.b"]`}},
+		{`{"env": {"a[0]": 1, "a[0]": 2}, "a": [{"x": 1}]}`, []string{`env["a[0]"]`}},
 	} {
-		if got := repeatedKeys([]byte(tc.doc)); !slices.Equal(got, tc.want) {
-			t.Errorf("repeatedKeys(%s) = %q, want %q", tc.doc, got, tc.want)
+		got, err := repeatedKeys([]byte(tc.doc))
+		if err != nil || !slices.Equal(got, tc.want) {
+			t.Errorf("repeatedKeys(%s) = %q, %v; want %q", tc.doc, got, err, tc.want)
 		}
+	}
+	// A walk that cannot finish is an error, not a document with no
+	// repeats.
+	if got, err := repeatedKeys([]byte(`{"a": 1,`)); err == nil {
+		t.Errorf("an unfinished document gave %q and no error", got)
+	}
+}
+
+// Keys that differ only in case are refused by the gate itself: the
+// decode reads the second "Server" into the struct's server, and the host
+// keeps both.
+func TestTheManifestRefusesAKeyInAnotherCase(t *testing.T) {
+	root := copiedRoot(t)
+	body := string(repoFile(t, manifestPath))
+	const at = `"PIPEDRIVE_DRY_RUN": "${user_config.dry_run}"`
+	if !strings.Contains(body, at) {
+		t.Fatalf("the manifest does not say %s", at)
+	}
+	put(t, root, manifestPath, strings.Replace(body, at, at+`, "pipedrive_dry_run": "true"`, 1))
+	_, _, problems, err := committedManifest(root)
+	const want = "the manifest has server.mcp_config.env.pipedrive_dry_run more than once, case aside"
+	if err != nil || len(problems) != 1 || !strings.HasPrefix(problems[0], want) {
+		t.Errorf("problems %q, %v; want the one starting %q", problems, err, want)
 	}
 }
 
@@ -658,6 +688,21 @@ func TestTheBundleSettingsRefuseEachBreak(t *testing.T) {
 		{"the retired destructive switch", func(d map[string]any) {
 			dig(d, "server", "mcp_config", "env")["PIPEDRIVE_ENABLE_DESTRUCTIVE"] = "true"
 		}, "mcp_config.env sets PIPEDRIVE_ENABLE_DESTRUCTIVE, which the server does not read"},
+		// config.Load reads neither the token nor the domain, so starting
+		// it from the defaults cannot see a default on either.
+		{"a default on the API token, which Load does not read", func(d map[string]any) {
+			dig(d, "user_config", "api_token")["required"] = false
+			dig(d, "user_config", "api_token")["default"] = "a-token"
+		}, "user_config.api_token has a default, and config.Load does not read PIPEDRIVE_API_TOKEN"},
+		{"a default on the required company domain", func(d map[string]any) {
+			dig(d, "user_config", "company_domain")["default"] = "acme"
+		}, "user_config.company_domain is required and has a default"},
+		{"a default the host would expand", func(d map[string]any) {
+			dig(d, "user_config", "dry_run")["default"] = "${__dirname}"
+		}, "user_config.dry_run defaults to a value holding ${"},
+		{"a token field shown in the clear", func(d map[string]any) {
+			delete(dig(d, "user_config", "api_token"), "sensitive")
+		}, "user_config.api_token is not sensitive; PIPEDRIVE_API_TOKEN is a credential"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if problems := settingProblems(edited(t, tc.edit), bundleLeftOut); !mentions(problems, tc.want) {
@@ -752,6 +797,18 @@ func TestBundleVarsAreDerivedFromTheSettings(t *testing.T) {
 	}
 }
 
+// The sensitive check reads the secrets the registry marks, so a bundle
+// asking for none of them is refused rather than passed with nothing
+// checked.
+func TestSettingProblemsRefuseABundleWithNoSecret(t *testing.T) {
+	leftOut := maps.Clone(bundleLeftOut)
+	leftOut[config.EnvAPIToken] = "a reason"
+	const want = "the bundle asks for no variable config.Vars marks secret"
+	if got := settingProblems(good(t), leftOut); !mentions(got, want) {
+		t.Errorf("settingProblems = %q, want one containing %q", got, want)
+	}
+}
+
 // A stale exclusion fails the gate itself, not only the derivation, and
 // a variable added later is asked for until the bundle asks or a reason
 // is written.
@@ -802,6 +859,41 @@ func TestTheConfigDiffNamesTheFieldsThatDiffer(t *testing.T) {
 	if got := fieldDiff(config.Config{CompanyDomain: "a", DryRun: true}, config.Config{CompanyDomain: "a"}); !slices.Equal(got,
 		[]string{"DryRun"}) {
 		t.Errorf("fieldDiff on the config = %q, want [DryRun]", got)
+	}
+	// An unexported field that does not compare is reported whenever it
+	// differs, beside a named field that differs too.
+	if got := fieldDiff(cfg{1, 1, nil, nil}, cfg{2, 1, []string{"x"}, nil}); !slices.Equal(got,
+		[]string{"Shown", "an unexported field"}) {
+		t.Errorf("a named and an unnamed field differing give %q, want [Shown an unexported field]", got)
+	}
+}
+
+// A pointer is followed rather than compared by address, so two
+// configurations reaching equal values are equal, and two reaching
+// different ones are not.
+func TestTheConfigDiffFollowsPointers(t *testing.T) {
+	type cfg struct {
+		at    *int
+		inner struct{ at *int }
+		run   func()
+	}
+	one, alsoOne, two := 1, 1, 2
+	same := func(p *int) cfg {
+		c := cfg{at: p}
+		c.inner.at = p
+		return c
+	}
+	if got := fieldDiff(same(&one), same(&alsoOne)); len(got) != 0 {
+		t.Errorf("pointers to equal values give %q, want nothing", got)
+	}
+	if got := fieldDiff(same(&one), same(&two)); !slices.Equal(got, []string{"an unexported field"}) {
+		t.Errorf("pointers to different values give %q, want [an unexported field]", got)
+	}
+	if got := fieldDiff(same(nil), same(&one)); !slices.Equal(got, []string{"an unexported field"}) {
+		t.Errorf("a nil pointer and a set one give %q, want [an unexported field]", got)
+	}
+	if got := fieldDiff(cfg{run: func() {}}, cfg{}); !slices.Equal(got, []string{"an unexported field"}) {
+		t.Errorf("a func and none give %q, want [an unexported field]", got)
 	}
 }
 

@@ -45,7 +45,7 @@ const (
 )
 
 // ErrNotFound is returned when no token is configured anywhere.
-var ErrNotFound = errors.New("credentials: no token found in keyring or PIPEDRIVE_API_TOKEN")
+var ErrNotFound = errors.New("credentials: no token found in keyring or " + EnvVar)
 
 // Backend is the minimal keyring contract this package depends on.
 // Tests substitute an in-memory implementation; production wires it to
