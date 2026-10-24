@@ -22,6 +22,8 @@ in full.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-24
+
 ### Added
 
 - The Claude Desktop bundle carries `LICENSE` and `README.md` at its root, as the release archives do.
@@ -32,6 +34,7 @@ in full.
 
 - The Claude Desktop bundle is `pipedrive-mcp_<version>.mcpb`, where it was `pipedrive-mcp-<version>.mcpb`. A script that downloads it by name needs the new name.
 - The release's checksum file is `checksums.txt`, signed as `checksums.txt.bundle`, where they were `SHA256SUMS` and `SHA256SUMS.bundle`. A script that downloads or verifies them by name needs the new names.
+- `golang.org/x/term` v0.47.0 and `golang.org/x/sys` v0.49.0.
 
 ### Fixed
 
@@ -2075,7 +2078,8 @@ destructive flag is on.
   External callers can still branch on the error class via `errors.Is`
   and read `Status`/`Message`/`Endpoint`.
 
-[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.3...HEAD
+[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.0...v1.1.1
