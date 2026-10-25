@@ -22,6 +22,17 @@ in full.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-25
+
+### Added
+
+- Releases carry a `windows_arm64` archive, so there are six: darwin, linux and windows, each on amd64 and arm64. The Claude Desktop bundle keeps the Windows amd64 binary, which Windows on arm64 runs under emulation.
+- The bundle gate holds `.goreleaser.yaml` to those six archives under the family's names, and every archive name in the docs, the workflows and the release footer to the names it renders. It refuses the old dashed form, and a build config it does not read: a second build or an ignore list.
+
+### Changed
+
+- The release archives are `pipedrive-mcp_<version>_<os>_<arch>.tar.gz`, and `.zip` on Windows, where they were `pipedrive-mcp-<version>-<os>-<arch>`, matching the other servers in the family. A script that downloads one by name needs the new name.
+
 ## [1.2.0] - 2026-10-24
 
 ### Added
@@ -2078,7 +2089,8 @@ destructive flag is on.
   External callers can still branch on the error class via `errors.Is`
   and read `Status`/`Message`/`Endpoint`.
 
-[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/mmedum/pipedrive-mcp/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.1...v1.1.2

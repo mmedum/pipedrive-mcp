@@ -105,9 +105,14 @@ The release workflow runs automatically. Watch it at
 ## After the workflow finishes
 
 - [ ] Open the GitHub Release page. Verify:
-      - Archives present for `darwin/{amd64,arm64}`,
-        `linux/{amd64,arm64}`, `windows/amd64` (`.tar.gz` for
-        unix-likes, `.zip` for windows).
+      - The six archives, under the family's names
+        (`gates mcpb` holds this list to `.goreleaser.yaml`):
+        `pipedrive-mcp_X.Y.Z_darwin_amd64.tar.gz`,
+        `pipedrive-mcp_X.Y.Z_darwin_arm64.tar.gz`,
+        `pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz`,
+        `pipedrive-mcp_X.Y.Z_linux_arm64.tar.gz`,
+        `pipedrive-mcp_X.Y.Z_windows_amd64.zip` and
+        `pipedrive-mcp_X.Y.Z_windows_arm64.zip`.
       - `checksums.txt` plus `checksums.txt.bundle`, the one signature over
         the release. Every archive and every SBOM is covered by its
         hash in that file, so there are no per-artifact `.sig`/`.cert`.
@@ -128,13 +133,15 @@ The release workflow runs automatically. Watch it at
       the release assets say now.
 - [ ] Verify the build attestation with `gh attestation verify`:
 
-      gh attestation verify pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz \
+      gh attestation verify pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz \
         --owner mmedum
 - [ ] The Claude Desktop bundle, `pipedrive-mcp_X.Y.Z.mcpb`, is on the
       release page and has a row in `checksums.txt`. The bundle is not an
       archive goreleaser built — a hook drops it into `dist/` and
       `checksum.extra_files` names it — so it is the one artifact that
-      can go missing without anything else looking wrong.
+      can go missing without anything else looking wrong. It carries the
+      Windows amd64 binary alone: a manifest names one command per
+      platform, and Windows on arm64 runs that binary under emulation.
 - [ ] The registry entry published. The `registry` job runs after
       `archives` and is skipped for prereleases on purpose, because an
       entry cannot be withdrawn. Check the job, not the release page:

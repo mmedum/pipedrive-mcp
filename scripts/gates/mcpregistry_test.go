@@ -62,7 +62,7 @@ func sums(t *testing.T, body string) string {
 
 const oneBundle = "" +
 	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  pipedrive-mcp_1.2.0.mcpb\n" +
-	"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  pipedrive-mcp-1.2.0-linux-amd64.tar.gz\n"
+	"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  pipedrive-mcp_1.2.0_linux_amd64.tar.gz\n"
 
 // TestTheBundleRowMustBeExactlyOne: the hash is what a client verifies
 // before installing, so picking the wrong row — or guessing when there
@@ -90,7 +90,7 @@ func TestTheBundleRowMustBeExactlyOne(t *testing.T) {
 	})
 
 	t.Run("refuses a checksum file with no bundle", func(t *testing.T) {
-		body := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  pipedrive-mcp-1.2.0-linux-amd64.tar.gz\n"
+		body := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  pipedrive-mcp_1.2.0_linux_amd64.tar.gz\n"
 		_, _, err := bundleRow(sums(t, body))
 		if err == nil {
 			t.Fatal("a checksum file with no bundle was accepted")

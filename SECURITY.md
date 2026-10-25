@@ -38,9 +38,9 @@ the previous MAJOR.MINOR. Older versions are unsupported.
 
 | Version         | Supported |
 | --------------- | --------- |
-| 1.2.x (current) | yes       |
-| 1.1.x           | yes       |
-| < 1.1           | no        |
+| 1.3.x (current) | yes       |
+| 1.2.x           | yes       |
+| < 1.2           | no        |
 
 The table above describes what is shipped today, not what is planned.
 It was written forward once — declaring `1.x` current and everything
@@ -79,5 +79,5 @@ The signature is checked first: until it passes, `checksums.txt` is only
 what the release assets say now.
 
 A CycloneDX SBOM is attached per-archive (e.g.
-`pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.cdx.json`); each SBOM's hash is
+`pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz.cdx.json`); each SBOM's hash is
 in the signed `checksums.txt`.
