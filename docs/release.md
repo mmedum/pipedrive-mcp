@@ -26,6 +26,10 @@ A release lands a verified state of `main`. Don't tag from a branch.
       maintainer is working from).
 - [ ] `make check` passes locally on the commit you're about to tag.
 - [ ] `make smoke` passes locally.
+- [ ] `make leaks-history` passes: nothing from a real account in any
+      commit message, file version, path or tag the repository has
+      published. It reads the whole object store, so it is not in
+      `make check`.
 - [ ] Sandbox integration tests green (Phase 1+): `make integration-writes`.
       Not `make integration` — that skips every write probe, so the box
       gets ticked by a run that wrote nothing.
