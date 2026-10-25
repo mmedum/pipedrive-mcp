@@ -22,6 +22,15 @@ in full.
 
 ## [Unreleased]
 
+### Added
+
+- Releases carry a `windows_arm64` archive, so there are six: darwin, linux and windows, each on amd64 and arm64. The Claude Desktop bundle keeps the Windows amd64 binary, which Windows on arm64 runs under emulation.
+- The bundle gate holds `.goreleaser.yaml` to those six archives under the family's names, and every archive name in the docs, the workflows and the release footer to the names it renders.
+
+### Changed
+
+- The release archives are `pipedrive-mcp_<version>_<os>_<arch>.tar.gz`, and `.zip` on Windows, where they were `pipedrive-mcp-<version>-<os>-<arch>`, matching the other servers in the family. A script that downloads one by name needs the new name.
+
 ## [1.2.0] - 2026-10-24
 
 ### Added

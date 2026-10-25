@@ -727,6 +727,17 @@ through `config.Lookup`. A test holds every name the code spells to the
 registry, each spelled once, in `internal/config`, and holds every
 `os.Getenv` outside it to a script's own variable.
 
+The gate also reads `.goreleaser.yaml`. Its build matrix is the family's
+six archives, darwin, linux and windows on amd64 and arm64 each, held
+both ways, and every pair runs a binary the bundle stages. The bundle
+stages the Windows amd64 binary alone, which Windows on arm64 runs under
+emulation; the `windows_arm64` archive is for an install from the
+release page. The archives take the family's names,
+`pipedrive-mcp_<version>_<os>_<arch>`, rendered from the config's own
+template. Every archive name in the docs, the workflows and the release
+footer is one it renders, `docs/release.md` names all six, and the
+attestation's globs in `release.yml` match all six.
+
 **Explicitly not in 0.5.0.** Products, leads, files, projects and goals
 are new resources and belong to their own milestone. Field clearing is
 blocked on Pipedrive v2, not on us. The v1 sunset migration is its own

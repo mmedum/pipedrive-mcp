@@ -44,7 +44,7 @@ func init() {
 		},
 		"mcpb": {
 			run: mcpbCmd, args: "",
-			doc: "the bundle manifest describes the bundle the packer stages",
+			doc: "the bundle manifest describes the bundle the packer stages, and the release its six archives",
 		},
 		"mcpb-pack": {
 			run: mcpbPackCmd, args: "DIST VERSION OUT",

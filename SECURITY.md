@@ -79,5 +79,5 @@ The signature is checked first: until it passes, `checksums.txt` is only
 what the release assets say now.
 
 A CycloneDX SBOM is attached per-archive (e.g.
-`pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.cdx.json`); each SBOM's hash is
+`pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz.cdx.json`); each SBOM's hash is
 in the signed `checksums.txt`.

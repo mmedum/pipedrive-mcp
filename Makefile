@@ -101,7 +101,7 @@ changelog-links: ## Every CHANGELOG version heading has its link definition
 	@$(GO) run ./scripts/gates changelog-links
 
 .PHONY: mcpb
-mcpb: ## The bundle manifest describes the bundle the packer stages
+mcpb: ## The bundle manifest describes the bundle the packer stages, and the release its six archives
 	@$(GO) run ./scripts/gates mcpb
 
 # The other half of the bundle: the gate above needs only the staged

@@ -88,7 +88,7 @@ cosign verify-blob checksums.txt \
 sha256sum -c checksums.txt --ignore-missing
 
 # And the archive itself carries build provenance.
-gh attestation verify pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz --owner mmedum
+gh attestation verify pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz --owner mmedum
 ```
 
 ## Set up Pipedrive
@@ -389,7 +389,8 @@ data in the working tree, a pinned-version gate holding every action to a
 commit SHA and every tool it installs to an exact version, a staleness
 gate over the dependency pins, a manifest gate holding the installable
 bundle to its schema, to the files the packer stages and to the server's
-own settings, a link gate over the changelog's version headings,
+own settings and the release to the family's six archives and their names,
+a link gate over the changelog's version headings,
 and a stdio smoke test. CI adds a schema diff against the base branch
 that fails an unacknowledged change to the tool surface, and a changelog
 gate that fails source changes with no entry under `[Unreleased]`.

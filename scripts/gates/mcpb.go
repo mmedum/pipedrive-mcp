@@ -162,18 +162,26 @@ type manifest struct {
 }
 
 // mcpbGate runs every check against the committed manifest under root,
-// on the names the packer stages.
+// on the names the packer stages, and holds the release's archives to
+// the family's and to the bundle.
 func mcpbGate(root string) error {
 	_, m, problems, err := committedManifest(root)
 	if err != nil {
 		return err
 	}
+	release, archives, err := releaseProblems(root)
+	if err != nil {
+		return err
+	}
+	problems = append(problems, release...)
 	if len(problems) > 0 {
 		return fmt.Errorf("%s", strings.Join(problems, "\n"))
 	}
 	fmt.Printf("  %s: %d staged files, %d platforms, %d user_config keys: every name resolves, and the document satisfies %s\n",
 		manifestPath, len(bundleFiles), len(m.Compatibility.Platforms), len(m.UserConfig),
 		vendoredSchemaPath(m.ManifestVersion))
+	fmt.Printf("  %s: %d archives under the family's names, each one the bundle reaches, the docs name and release.yml attests\n",
+		goreleaserPath, archives)
 	return nil
 }
 

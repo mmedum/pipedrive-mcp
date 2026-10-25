@@ -33,12 +33,11 @@ builds:
       - linux
       - darwin
       - windows
+    # Six archives: darwin, linux and windows, each on amd64 and arm64,
+    # as across the family. `gates mcpb` holds this list to them.
     goarch:
       - amd64
       - arm64
-    ignore:
-      - goos: windows
-        goarch: arm64
 
 # The macOS universal binary exists for the Claude Desktop bundle alone.
 # A manifest names a command per PLATFORM and has no key for the
@@ -67,8 +66,10 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
+    # The family's names, <name>_<version>_<os>_<arch>. `gates mcpb`
+    # holds the docs and the attestation's globs to what this renders.
     name_template: >-
-      {{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
       - LICENSE
       - README.md
@@ -179,5 +180,5 @@ release:
     Verify the SLSA build-provenance attestation:
 
     ```sh
-    gh attestation verify pipedrive-mcp-{{ .Version }}-linux-amd64.tar.gz --owner mmedum
+    gh attestation verify pipedrive-mcp_{{ .Version }}_linux_amd64.tar.gz --owner mmedum
     ```
