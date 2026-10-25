@@ -48,18 +48,6 @@ func releasePairs() []string {
 	return out
 }
 
-// emulated is each pair releaseMatrix runs another pair's binary on,
-// with that pair.
-func emulated() map[string]string {
-	out := map[string]string{}
-	for _, p := range releaseMatrix {
-		if p.runs != "" {
-			out[p.pair] = p.runs
-		}
-	}
-	return out
-}
-
 // releaseProblems holds .goreleaser.yaml under root to the family's
 // archives and the bundle, and every file that names an archive to the
 // names it renders. archives is how many archives the release carries.
@@ -68,12 +56,11 @@ func releaseProblems(root string) (problems []string, archives int, err error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	text := withoutCommentLines(string(raw))
-	built, err := goreleaserMatrix(text)
+	blocks, err := goreleaserBlocks(withoutCommentLines(string(raw)))
 	if err != nil {
 		return nil, 0, err
 	}
-	blocks, err := goreleaserBlocks(text)
+	built, err := goreleaserMatrix(blocks["builds"])
 	if err != nil {
 		return nil, 0, err
 	}
@@ -101,6 +88,7 @@ func releaseProblems(root string) (problems []string, archives int, err error) {
 		found := archiveMentions(f.data, project)
 		mentions += len(found)
 		problems = append(problems, staleNameProblems(f.name, found, names)...)
+		problems = append(problems, oldFormProblems(f.name, f.data, project, found)...)
 	}
 	// The floor. docs/release.md must name every archive, so a scan
 	// finding fewer mentions than that is not reading the names at all,
@@ -138,37 +126,40 @@ func withoutCommentLines(text string) string {
 }
 
 var (
-	goosKey    = regexp.MustCompile(`(?m)^\s*goos:\s*$`)
-	goarchKey  = regexp.MustCompile(`(?m)^\s*goarch:\s*$`)
-	listItem   = regexp.MustCompile(`^-\s*([a-z0-9]+)$`)
-	ignorePair = regexp.MustCompile(`(?m)^\s*-\s*goos:\s*([a-z0-9]+)\s*\n\s*goarch:\s*([a-z0-9]+)`)
+	goosKey   = regexp.MustCompile(`(?m)^\s*goos:\s*$`)
+	goarchKey = regexp.MustCompile(`(?m)^\s*goarch:\s*$`)
+	ignoreKey = regexp.MustCompile(`(?m)^\s*ignore:`)
+	listItem  = regexp.MustCompile(`^-\s*([a-z0-9]+)$`)
 )
 
 // goreleaserMatrix is every goos-goarch pair the release builds, read
-// from text, .goreleaser.yaml without its comment lines: the cross
-// product of the two lists, less the ignore entries, sorted.
+// from builds, the builds block of .goreleaser.yaml without its comment
+// lines: the cross product of its two lists, sorted.
 //
 // Regular expressions rather than a YAML parser: a parser is a
 // dependency this program does not otherwise need, and the file it reads
-// is one this repository writes. The floor is what keeps a changed
-// layout from reading as an empty matrix.
-func goreleaserMatrix(text string) ([]string, error) {
-	oses := listAfter(text, goosKey)
-	arches := listAfter(text, goarchKey)
+// is one this repository writes. So it refuses what it does not read
+// rather than read it wrong: a second build, and an ignore list, which
+// the family's matrix, every pair of its lists, never needs. The floor
+// is what keeps a changed layout from reading as an empty matrix.
+func goreleaserMatrix(builds string) ([]string, error) {
+	if n := len(goosKey.FindAllStringIndex(builds, -1)); n > 1 {
+		return nil, fmt.Errorf("%s has %d builds; this check reads one", goreleaserPath, n)
+	}
+	if ignoreKey.MatchString(builds) {
+		return nil, fmt.Errorf("%s's build has an ignore list; the family builds every pair of its goos "+
+			"and goarch lists, and this check reads no ignore", goreleaserPath)
+	}
+	oses := listAfter(builds, goosKey)
+	arches := listAfter(builds, goarchKey)
 	if len(oses) < 2 || len(arches) < 2 {
 		return nil, fmt.Errorf("%s parsed as %d platforms and %d architectures; the build block's shape "+
 			"has changed and this check is reading nothing", goreleaserPath, len(oses), len(arches))
 	}
-	ignored := map[string]bool{}
-	for _, m := range ignorePair.FindAllStringSubmatch(text, -1) {
-		ignored[m[1]+"-"+m[2]] = true
-	}
 	var out []string
 	for _, o := range oses {
 		for _, a := range arches {
-			if pair := o + "-" + a; !ignored[pair] {
-				out = append(out, pair)
-			}
+			out = append(out, o+"-"+a)
 		}
 	}
 	slices.Sort(out)
@@ -436,13 +427,14 @@ type namedFile struct{ name, data string }
 var versionTemplate = regexp.MustCompile(`\{\{\s*\.Version\s*\}\}`)
 
 // archiveNamingFiles is every file that names an archive for someone to
-// use: the Markdown at the root and under docs/, the workflows, and
+// use: the Markdown at the root, under docs/ and under .github/, the
+// workflows, and
 // .goreleaser.yaml itself, raw, with its version template written as
 // docVersion. CHANGELOG.md and audit/ are left out: they record the
 // names releases shipped with.
 func archiveNamingFiles(root string, goreleaser []byte) ([]namedFile, error) {
 	var docs []string
-	for _, pattern := range []string{"*.md", "docs/*.md"} {
+	for _, pattern := range []string{"*.md", "docs/*.md", ".github/*.md"} {
 		found, err := filepath.Glob(filepath.Join(root, pattern))
 		if err != nil {
 			return nil, err
@@ -483,6 +475,28 @@ func archiveNamingFiles(root string, goreleaser []byte) ([]namedFile, error) {
 func archiveMentions(text, project string) []string {
 	mention := regexp.MustCompile(regexp.QuoteMeta(project) + `[-_][A-Za-z0-9._*-]*?\.(?:tar\.gz|zip)\b`)
 	return mention.FindAllString(text, -1)
+}
+
+// oldForm is the shape the archives had before 1.3.0: a dash and the
+// version after the project's name, the version written as one, as
+// X.Y.Z or as <version>, with or without an extension.
+func oldForm(project string) *regexp.Regexp {
+	return regexp.MustCompile(regexp.QuoteMeta(project) + `-(?:X\.Y\.Z|<version>|v?\d+\.\d+\.\d+)[A-Za-z0-9._<>-]*`)
+}
+
+// oldFormProblems is each name in text, file's contents, written in
+// oldForm that archiveMentions has not already found, such as a name in
+// prose with no extension.
+func oldFormProblems(file, text, project string, found []string) []string {
+	var problems []string
+	for _, m := range oldForm(project).FindAllString(text, -1) {
+		if slices.ContainsFunc(found, func(a string) bool { return strings.HasPrefix(m, a) }) {
+			continue
+		}
+		problems = append(problems, fmt.Sprintf("%s names %s, the archives' old form; the family's names are "+
+			"%s_<version>_<os>_<arch>", file, m, project))
+	}
+	return problems
 }
 
 // staleNameProblems is each of found, the archive names file mentions,

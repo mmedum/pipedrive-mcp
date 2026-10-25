@@ -735,8 +735,18 @@ emulation; the `windows_arm64` archive is for an install from the
 release page. The archives take the family's names,
 `pipedrive-mcp_<version>_<os>_<arch>`, rendered from the config's own
 template. Every archive name in the docs, the workflows and the release
-footer is one it renders, `docs/release.md` names all six, and the
-attestation's globs in `release.yml` match all six.
+footer is one it renders, the old dashed form is refused even without
+an extension, `docs/release.md` names all six, and the attestation's
+globs in `release.yml` match all six. The gate reads the config with
+regular expressions, so it refuses what it does not read: a second
+build, and an ignore list, which the family's matrix never needs.
+
+Two review findings on 1.3.0 are written down rather than fixed. No
+check cross-compiles before a tag, here or in any sibling, so a change
+that does not build on windows/arm64 fails only in the release job.
+And a `name_template` written as a `|` block would render with the
+newline goreleaser keeps, which the gate joins with a space; the
+template is a `>-` line, and nobody writes a newline into a file name.
 
 **Explicitly not in 0.5.0.** Products, leads, files, projects and goals
 are new resources and belong to their own milestone. Field clearing is

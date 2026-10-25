@@ -25,7 +25,7 @@ in full.
 ### Added
 
 - Releases carry a `windows_arm64` archive, so there are six: darwin, linux and windows, each on amd64 and arm64. The Claude Desktop bundle keeps the Windows amd64 binary, which Windows on arm64 runs under emulation.
-- The bundle gate holds `.goreleaser.yaml` to those six archives under the family's names, and every archive name in the docs, the workflows and the release footer to the names it renders.
+- The bundle gate holds `.goreleaser.yaml` to those six archives under the family's names, and every archive name in the docs, the workflows and the release footer to the names it renders. It refuses the old dashed form, and a build config it does not read: a second build or an ignore list.
 
 ### Changed
 

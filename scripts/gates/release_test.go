@@ -33,13 +33,14 @@ func TestTheReleaseMatrixIsTheFamilysSix(t *testing.T) {
 	if got := releasePairs(); !slices.Equal(got, want) {
 		t.Errorf("releasePairs = %v, want %v", got, want)
 	}
-	if got := emulated(); !maps.Equal(got, map[string]string{"windows-arm64": "windows-amd64"}) {
-		t.Errorf("emulated = %v, want windows-arm64 running windows-amd64", got)
-	}
 }
 
 func TestGoreleaserBuildsTheFamilysSix(t *testing.T) {
-	got, err := goreleaserMatrix(repoGoreleaser(t))
+	blocks, err := goreleaserBlocks(repoGoreleaser(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := goreleaserMatrix(blocks["builds"])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,17 +50,32 @@ func TestGoreleaserBuildsTheFamilysSix(t *testing.T) {
 	}
 }
 
-// The ignore block 1.2.0 shipped with, which is how windows/arm64 was
-// left out.
-func TestGoreleaserMatrixDropsAnIgnoredPair(t *testing.T) {
-	text := "builds:\n  - id: x\n    goos:\n      - linux\n      - windows # the zip one\n    goarch:\n      - amd64\n      - arm64\n" +
-		"    ignore:\n      - goos: windows\n        goarch: arm64\n"
+func TestGoreleaserMatrixReadsTheCrossProduct(t *testing.T) {
+	text := "  - id: x\n    goos:\n      - linux\n      - windows # the zip one\n    goarch:\n      - amd64\n      - arm64\n"
 	got, err := goreleaserMatrix(text)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"linux-amd64", "linux-arm64", "windows-amd64"}; !slices.Equal(got, want) {
+	if want := []string{"linux-amd64", "linux-arm64", "windows-amd64", "windows-arm64"}; !slices.Equal(got, want) {
 		t.Errorf("the matrix parsed as %v, want %v", got, want)
+	}
+}
+
+// What the matrix does not read it refuses, rather than read it wrong:
+// the ignore block 1.2.0 shipped with, which is how windows/arm64 was
+// left out, in either key order, and a second build.
+func TestGoreleaserMatrixRefusesWhatItDoesNotRead(t *testing.T) {
+	const lists = "    goos:\n      - linux\n      - windows\n    goarch:\n      - amd64\n      - arm64\n"
+	const ignored = ".goreleaser.yaml's build has an ignore list; the family builds every pair of its goos and " +
+		"goarch lists, and this check reads no ignore"
+	for text, want := range map[string]string{
+		"  - id: x\n" + lists + "    ignore:\n      - goos: windows\n        goarch: arm64\n": ignored,
+		"  - id: x\n" + lists + "    ignore:\n      - goarch: arm64\n        goos: windows\n": ignored,
+		"  - id: x\n" + lists + "  - id: y\n" + lists:                                         ".goreleaser.yaml has 2 builds; this check reads one",
+	} {
+		if got, err := goreleaserMatrix(text); err == nil || err.Error() != want {
+			t.Errorf("%q parsed as %v, %v; want the error %q", text, got, err, want)
+		}
 	}
 }
 
@@ -349,7 +365,7 @@ func releaseRoot(t *testing.T) string {
 	root := copiedRoot(t)
 	repo := repoRoot(t)
 	var rels []string
-	for _, pattern := range []string{"*.md", "docs/*.md", ".github/workflows/*.yml"} {
+	for _, pattern := range []string{"*.md", "docs/*.md", ".github/*.md", ".github/workflows/*.yml"} {
 		found, err := filepath.Glob(filepath.Join(repo, pattern))
 		if err != nil {
 			t.Fatal(err)
@@ -403,17 +419,34 @@ func TestReleaseProblemsRunsEveryCheck(t *testing.T) {
 			wantArchives: 6,
 		},
 		{
-			name: "windows/arm64 ignored again", file: goreleaserPath,
-			old: "      - arm64\n", replacement: "      - arm64\n    ignore:\n      - goos: windows\n        goarch: arm64\n",
+			name: "windows/arm64 left out", file: goreleaserPath,
+			old: "      - windows\n", replacement: "",
+			only: "so the release carries no",
 			want: []string{
+				".goreleaser.yaml does not build windows-amd64, so the release carries no windows_amd64 archive; " +
+					"the family's releases carry darwin-amd64, darwin-arm64, linux-amd64, linux-arm64, windows-amd64, windows-arm64",
 				".goreleaser.yaml does not build windows-arm64, so the release carries no windows_arm64 archive; " +
 					"the family's releases carry darwin-amd64, darwin-arm64, linux-amd64, linux-arm64, windows-amd64, windows-arm64",
-				"docs/release.md names pipedrive-mcp_X.Y.Z_windows_arm64.zip, which is no archive the release carries; " +
-					"they are pipedrive-mcp_X.Y.Z_darwin_amd64.tar.gz, pipedrive-mcp_X.Y.Z_darwin_arm64.tar.gz, " +
-					"pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz, pipedrive-mcp_X.Y.Z_linux_arm64.tar.gz, " +
-					"pipedrive-mcp_X.Y.Z_windows_amd64.zip",
 			},
-			wantArchives: 5,
+			wantArchives: 4,
+		},
+		{
+			name: "the old form in prose", file: "docs/architecture.md",
+			old: "`pipedrive-mcp_<version>_<os>_<arch>`", replacement: "`pipedrive-mcp-<version>-<os>-<arch>`",
+			want: []string{
+				"docs/architecture.md names pipedrive-mcp-<version>-<os>-<arch>, the archives' old form; " +
+					"the family's names are pipedrive-mcp_<version>_<os>_<arch>",
+			},
+			wantArchives: 6,
+		},
+		{
+			name: "a stale name in the pull request template", file: ".github/pull_request_template.md",
+			old: "Thanks for contributing.", replacement: "Thanks for contributing. pipedrive-mcp-X.Y.Z-linux-amd64 ",
+			want: []string{
+				".github/pull_request_template.md names pipedrive-mcp-X.Y.Z-linux-amd64, the archives' old form; " +
+					"the family's names are pipedrive-mcp_<version>_<os>_<arch>",
+			},
+			wantArchives: 6,
 		},
 		{
 			name: "a stale name in the README", file: "README.md",
