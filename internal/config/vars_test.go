@@ -242,20 +242,18 @@ func nameRune(r rune) bool {
 // capitals, digits and _, bounded by anything else. A string is a
 // literal, or a run of a + chain made of literals and EnvPrefix, read as
 // one string, in order; any other operand ends the run and is read on
-// its own. A run that another operand continues ends in a prefix rather
-// than a name, so its last word is dropped when nothing bounds it:
-// EnvPrefix + "ENABLE_" + kind spells nothing, and "set " + x +
-// EnvPrefix + "NEW" spells PIPEDRIVE_NEW. A name built from any other
+// its own. Each run is read whole, and a word ending in _ is a prefix
+// rather than a name, so it is not spelled: EnvPrefix + "ENABLE_" + kind
+// spells nothing, EnvPrefix + "WHOLE" + suffix spells PIPEDRIVE_WHOLE,
+// and "set " + x + EnvPrefix + "NEW" spells PIPEDRIVE_NEW. A name built from any other
 // constant, or through a format verb, is not seen.
 func spellings(fset *token.FileSet, f *ast.File) []spelling {
 	var out []spelling
-	spell := func(s string, at token.Pos, continued bool) {
-		words := strings.FieldsFunc(s, func(r rune) bool { return !nameRune(r) })
-		if continued && len(words) > 0 && nameRune(rune(s[len(s)-1])) {
-			words = words[:len(words)-1]
-		}
-		for _, word := range words {
-			out = append(out, spelling{word: word, at: fset.Position(at).String()})
+	spell := func(s string, at token.Pos) {
+		for _, word := range strings.FieldsFunc(s, func(r rune) bool { return !nameRune(r) }) {
+			if !strings.HasSuffix(word, "_") {
+				out = append(out, spelling{word: word, at: fset.Position(at).String()})
+			}
 		}
 	}
 	var visit func(n ast.Node) bool
@@ -274,15 +272,15 @@ func spellings(fset *token.FileSet, f *ast.File) []spelling {
 					run += s
 					continue
 				}
-				spell(run, at, true)
+				spell(run, at)
 				run, started = "", false
 				ast.Inspect(op, visit)
 			}
-			spell(run, at, false)
+			spell(run, at)
 			return false
 		case *ast.BasicLit:
 			if s, err := strconv.Unquote(n.Value); n.Kind == token.STRING && err == nil {
-				spell(s, n.Pos(), false)
+				spell(s, n.Pos())
 			}
 		}
 		return true
@@ -515,9 +513,8 @@ func envReads(fset *token.FileSet, f sourceFile, consts map[string]constSpec) []
 	return out
 }
 
-// The name scan reads a + chain in order: a run another operand
-// continues ends in a prefix, not a name, and a run after one is still
-// read.
+// The name scan reads a + chain in order, each run whole: a word ending
+// in _ is a prefix, not a name, and a run after one is still read.
 func TestTheScanReadsAChainInOrder(t *testing.T) {
 	for _, tc := range []struct {
 		expr string
@@ -525,6 +522,7 @@ func TestTheScanReadsAChainInOrder(t *testing.T) {
 	}{
 		{`EnvPrefix + "ENABLE_" + kind`, nil},
 		{`"set " + x + EnvPrefix + "NEW"`, []string{"PIPEDRIVE_NEW"}},
+		{`EnvPrefix + "WHOLE" + suffix`, []string{"PIPEDRIVE_WHOLE"}},
 		{`"PIPEDRIVE_OLD is gone; " + x`, []string{"PIPEDRIVE_OLD"}},
 		{`config.EnvPrefix + ("A_" + kind) + "_B"`, []string{"_B"}},
 		{`"LOG_LEVEL"`, []string{"LOG_LEVEL"}},

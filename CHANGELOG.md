@@ -22,6 +22,10 @@ in full.
 
 ## [Unreleased]
 
+### Added
+
+- `make leaks-history` runs the leak gate over everything the repository has published: every commit message, every version of every file, every path and every tag's message. It allows `noreply@anthropic.com` and `support@github.com` by the whole address, and accepts the old file versions the maintainer chose to leave, each pinned to its blob hash and never written down.
+
 ## [1.3.0] - 2026-10-25
 
 ### Added
