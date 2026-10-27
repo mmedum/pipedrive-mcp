@@ -26,6 +26,10 @@ A release lands a verified state of `main`. Don't tag from a branch.
       maintainer is working from).
 - [ ] `make check` passes locally on the commit you're about to tag.
 - [ ] `make smoke` passes locally.
+- [ ] `make leaks-history` passes: nothing from a real account in any
+      commit message, file version, path or tag the repository has
+      published. It reads the whole object store, so it is not in
+      `make check`.
 - [ ] Sandbox integration tests green (Phase 1+): `make integration-writes`.
       Not `make integration` — that skips every write probe, so the box
       gets ticked by a run that wrote nothing.
@@ -105,10 +109,15 @@ The release workflow runs automatically. Watch it at
 ## After the workflow finishes
 
 - [ ] Open the GitHub Release page. Verify:
-      - Archives present for `darwin/{amd64,arm64}`,
-        `linux/{amd64,arm64}`, `windows/amd64` (`.tar.gz` for
-        unix-likes, `.zip` for windows).
-      - `SHA256SUMS` plus `SHA256SUMS.bundle`, the one signature over
+      - The six archives, under the family's names
+        (`gates mcpb` holds this list to `.goreleaser.yaml`):
+        `pipedrive-mcp_X.Y.Z_darwin_amd64.tar.gz`,
+        `pipedrive-mcp_X.Y.Z_darwin_arm64.tar.gz`,
+        `pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz`,
+        `pipedrive-mcp_X.Y.Z_linux_arm64.tar.gz`,
+        `pipedrive-mcp_X.Y.Z_windows_amd64.zip` and
+        `pipedrive-mcp_X.Y.Z_windows_arm64.zip`.
+      - `checksums.txt` plus `checksums.txt.bundle`, the one signature over
         the release. Every archive and every SBOM is covered by its
         hash in that file, so there are no per-artifact `.sig`/`.cert`.
       - `<archive>.cdx.json` (CycloneDX SBOM) per archive.
@@ -117,21 +126,26 @@ The release workflow runs automatically. Watch it at
 - [ ] Verify the signature locally. Use the archive filename goreleaser
       actually produces — no `v` prefix, `.tar.gz` extension:
 
-      sha256sum -c SHA256SUMS --ignore-missing
-
-      cosign verify-blob SHA256SUMS \
-        --bundle SHA256SUMS.bundle \
-        --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.+' \
+      cosign verify-blob checksums.txt \
+        --bundle checksums.txt.bundle \
+        --certificate-identity-regexp '^https://github\.com/mmedum/pipedrive-mcp/\.github/workflows/release\.yml@refs/tags/' \
         --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+
+      sha256sum -c checksums.txt --ignore-missing   # on macOS: shasum -a 256 -c
+
+      The signature first: until it passes, the checksums are only what
+      the release assets say now.
 - [ ] Verify the build attestation with `gh attestation verify`:
 
-      gh attestation verify pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz \
+      gh attestation verify pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz \
         --owner mmedum
 - [ ] The Claude Desktop bundle, `pipedrive-mcp_X.Y.Z.mcpb`, is on the
-      release page and has a row in `SHA256SUMS`. The bundle is not an
+      release page and has a row in `checksums.txt`. The bundle is not an
       archive goreleaser built — a hook drops it into `dist/` and
       `checksum.extra_files` names it — so it is the one artifact that
-      can go missing without anything else looking wrong.
+      can go missing without anything else looking wrong. It carries the
+      Windows amd64 binary alone: a manifest names one command per
+      platform, and Windows on arm64 runs that binary under emulation.
 - [ ] The registry entry published. The `registry` job runs after
       `archives` and is skipped for prereleases on purpose, because an
       entry cannot be withdrawn. Check the job, not the release page:
@@ -185,8 +199,19 @@ ago could not be published at all.
 gh workflow run publish-mcp.yml --ref main -f tag=vX.Y.Z
 ```
 
-It reads the PUBLISHED release's `SHA256SUMS`, so the hash in the entry
-is the number cosign signed rather than one from a local build.
+It reads the PUBLISHED release's `checksums.txt`, so the hash in the entry
+is the number cosign signed rather than one from a local build. A release
+cut before the checksum file was renamed carries `SHA256SUMS` and
+`SHA256SUMS.bundle` instead; the workflow takes those when
+`checksums.txt` is absent and verifies them the same way.
+
+Two limits of that check, kept on purpose for now. The signature is held
+to `release.yml` on any tag, not to the tag being published, so a
+`checksums.txt` signed for another tag of this repository would pass.
+And the entry takes the one `.mcpb` row in the file without checking its
+name against the tag. Both are hardening outside the change set that
+introduced them; tightening either is a change to this workflow, which
+needs the maintainer's go-ahead.
 
 **Exit 0 on empty output is not evidence.** `gh attestation verify` and
 `cosign verify-blob` both say little when they succeed, and a command

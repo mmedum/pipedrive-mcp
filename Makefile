@@ -92,6 +92,11 @@ check: verify-tool-versions fmt vet lint test vuln licenses staleness leaks pins
 leaks: ## Nothing from a real Pipedrive account is in the tree
 	go run ./scripts/gates leaks
 
+# Not in check: it reads every object the repository has published.
+.PHONY: leaks-history
+leaks-history: ## Nothing from a real Pipedrive account is anywhere in the history (manual)
+	go run ./scripts/gates leaks history
+
 .PHONY: pins
 pins: ## Every action is a commit and every tool version is exact
 	go run ./scripts/gates pins
@@ -101,7 +106,7 @@ changelog-links: ## Every CHANGELOG version heading has its link definition
 	@$(GO) run ./scripts/gates changelog-links
 
 .PHONY: mcpb
-mcpb: ## The bundle manifest describes the bundle the packer stages
+mcpb: ## The bundle manifest describes the bundle the packer stages, and the release its six archives
 	@$(GO) run ./scripts/gates mcpb
 
 # The other half of the bundle: the gate above needs only the staged

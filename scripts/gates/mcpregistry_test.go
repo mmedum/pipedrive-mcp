@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,13 +49,11 @@ func TestGithubRepoStripsTheMajorVersion(t *testing.T) {
 	}
 }
 
-// sums writes a checksum file. This repository's is SHA256SUMS rather
-// than checksums.txt, which is the one place this generator differs
-// from its siblings — the name is the caller's, so the tests pass a
-// path rather than assuming one.
+// sums writes a checksum file, named as the release names it. The name
+// is the caller's, so the tests pass a path rather than assuming one.
 func sums(t *testing.T, body string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "SHA256SUMS")
+	path := filepath.Join(t.TempDir(), "checksums.txt")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +62,7 @@ func sums(t *testing.T, body string) string {
 
 const oneBundle = "" +
 	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  pipedrive-mcp_1.2.0.mcpb\n" +
-	"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  pipedrive-mcp-1.2.0-linux-amd64.tar.gz\n"
+	"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  pipedrive-mcp_1.2.0_linux_amd64.tar.gz\n"
 
 // TestTheBundleRowMustBeExactlyOne: the hash is what a client verifies
 // before installing, so picking the wrong row — or guessing when there
@@ -91,7 +90,7 @@ func TestTheBundleRowMustBeExactlyOne(t *testing.T) {
 	})
 
 	t.Run("refuses a checksum file with no bundle", func(t *testing.T) {
-		body := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  pipedrive-mcp-1.2.0-linux-amd64.tar.gz\n"
+		body := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  pipedrive-mcp_1.2.0_linux_amd64.tar.gz\n"
 		_, _, err := bundleRow(sums(t, body))
 		if err == nil {
 			t.Fatal("a checksum file with no bundle was accepted")
@@ -99,8 +98,10 @@ func TestTheBundleRowMustBeExactlyOne(t *testing.T) {
 		// The message has to say where to look: the bundle is not an
 		// archive goreleaser built, so the usual reason it is absent is
 		// that nothing named it in checksum.extra_files.
-		if !strings.Contains(err.Error(), "SHA256SUMS") {
-			t.Errorf("the error does not name this repository's checksum file: %v", err)
+		for _, want := range []string{"checksums.txt", "checksum.extra_files"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the error does not name %s: %v", want, err)
+			}
 		}
 	})
 
@@ -114,10 +115,8 @@ func TestTheBundleRowMustBeExactlyOne(t *testing.T) {
 // TestTheRegistryEntryIsBuiltFromTheRepository: every field is derived,
 // so the entry cannot disagree with what shipped.
 func TestTheRegistryEntryIsBuiltFromTheRepository(t *testing.T) {
-	t.Chdir(repoRoot(t))
-
 	var out bytes.Buffer
-	if err := serverJSON("1.2.0", sums(t, oneBundle), &out); err != nil {
+	if err := serverJSON(repoRoot(t), "1.2.0", sums(t, oneBundle), &out); err != nil {
 		t.Fatalf("serverJSON: %v", err)
 	}
 
@@ -198,17 +197,74 @@ func TestTheRegistryEntryIsBuiltFromTheRepository(t *testing.T) {
 // TestTheVersionMayCarryItsVOrNot: the workflow passes a tag and a
 // person passes what they remember.
 func TestTheVersionMayCarryItsVOrNot(t *testing.T) {
-	t.Chdir(repoRoot(t))
-
 	var withV, without bytes.Buffer
-	if err := serverJSON("v1.2.0", sums(t, oneBundle), &withV); err != nil {
+	if err := serverJSON(repoRoot(t), "v1.2.0", sums(t, oneBundle), &withV); err != nil {
 		t.Fatalf("v-prefixed: %v", err)
 	}
-	if err := serverJSON("1.2.0", sums(t, oneBundle), &without); err != nil {
+	if err := serverJSON(repoRoot(t), "1.2.0", sums(t, oneBundle), &without); err != nil {
 		t.Fatalf("bare: %v", err)
 	}
 	if withV.String() != without.String() {
 		t.Error("v1.2.0 and 1.2.0 produced different entries")
+	}
+}
+
+// A release cut before the checksum file was renamed carries SHA256SUMS
+// and a bundle named pipedrive-mcp-<version>.mcpb; publish-mcp.yml
+// passes that file when checksums.txt is absent, and the entry points at
+// the bundle the release actually carries.
+func TestAReleaseBeforeTheRenameStillGivesAnEntry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "SHA256SUMS")
+	body := "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd  pipedrive-mcp-1.1.3.mcpb\n" +
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  pipedrive-mcp-1.1.3-linux-amd64.tar.gz\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := serverJSON(repoRoot(t), "v1.1.3", path, &out); err != nil {
+		t.Fatalf("serverJSON: %v", err)
+	}
+	const want = `"identifier": "https://github.com/mmedum/pipedrive-mcp/releases/download/v1.1.3/pipedrive-mcp-1.1.3.mcpb"`
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("the entry does not carry %s:\n%s", want, out.String())
+	}
+}
+
+// The entry reads the manifest the bundle gate vets, through the gate's
+// own reader, so a manifest the gate refuses, a repeated key included,
+// publishes nothing.
+func TestTheRegistryEntryRefusesAManifestTheGateRefuses(t *testing.T) {
+	root := copiedRoot(t)
+	put(t, root, "go.mod", string(repoFile(t, "go.mod")))
+	body := string(repoFile(t, manifestPath))
+	const at = `"description": "`
+	if !strings.Contains(body, at) {
+		t.Fatalf("the manifest does not say %s", at)
+	}
+	put(t, root, manifestPath, strings.Replace(body, at, `"description": "A second description.", `+at, 1))
+	err := serverJSON(root, "1.2.0", sums(t, oneBundle), io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "the manifest has description more than once") {
+		t.Errorf("a manifest with two descriptions gave %v", err)
+	}
+}
+
+// The module path comes from go.mod's module directive however it is
+// written: a tab or spaces after the keyword, a quoted path, a comment
+// after it, and CRLF line ends.
+func TestModulePathReadsTheModuleDirective(t *testing.T) {
+	for _, tc := range []struct{ gomod, want string }{
+		{"module github.com/a/b\n\ngo 1.27.3\n", "github.com/a/b"},
+		{"module\tgithub.com/a/b\n", "github.com/a/b"},
+		{"// a module\nmodule   github.com/a/b   // the server\r\ngo 1.27.3\r\n", "github.com/a/b"},
+		{"module \"github.com/a/b\"\n", "github.com/a/b"},
+		{"go 1.27.3\nmodulepath github.com/x/y\n", ""},
+	} {
+		root := t.TempDir()
+		put(t, root, "go.mod", tc.gomod)
+		got, err := modulePath(root)
+		if got != tc.want || (err == nil) != (tc.want != "") {
+			t.Errorf("modulePath(%q) = %q, %v; want %q", tc.gomod, got, err, tc.want)
+		}
 	}
 }
 

@@ -695,6 +695,59 @@ agrees with the declaration — and the recorded hash is what stops this
 repository acquiring the same gap from the other side. The stamped
 manifest is checked too, after the version is substituted rather than
 before.
+
+The gate has since taken on the family's bundle rules (the standard's
+§10b), each with a test watched failing. The gate, the packer and the
+registry entry start from one function that reads the manifest once
+from one root, and a key that appears twice in one object, or again in
+another case, is refused, because Go's decode merges it and matches any
+case while the validator and the host keep the last or keep both. The
+packer reads `LICENSE` and `README.md` from that root, and writes the
+bundle to a partial file it renames into place, so a failed pack leaves
+nothing `./dist/*.mcpb` would take. Every command starts with
+`${__dirname}/` and names a staged program, never `LICENSE` or
+`README.md`; `entry_point` is the file the default command runs; and the
+name, `server.type`, the Claude Desktop floor, a privacy policy and the
+platforms the staged table carries are held. The settings the bundle
+asks for come from `config.Vars`, the registry of every variable the
+server reads, less `bundleLeftOut` with a reason each, and a reason for a
+variable the server does not read is refused. A variable the registry
+marks secret, the API token, is asked for as a sensitive field.
+`mcp_config.args` is `[]` and no platform override carries `env` or
+`args`, since a host replaces the base with them. The defaults are
+started through `config.Load` and must configure the server as no
+environment does, naming the fields that differ and following a pointer
+to its value. A default that check cannot see is refused: one on a
+required field, one on a variable Load does not read, as the token and
+the domain are not, and one holding a `${` the host would expand. Every
+set of the switches is started and the refused ones held to
+`bundleRefused`; the one switch, the dry-run floor, refuses nothing, so
+the list is empty. Load and each reader outside it take every variable
+through `config.Lookup`. A test holds every name the code spells to the
+registry, each spelled once, in `internal/config`, and holds every
+`os.Getenv` outside it to a script's own variable.
+
+The gate also reads `.goreleaser.yaml`. Its build matrix is the family's
+six archives, darwin, linux and windows on amd64 and arm64 each, held
+both ways, and every pair runs a binary the bundle stages. The bundle
+stages the Windows amd64 binary alone, which Windows on arm64 runs under
+emulation; the `windows_arm64` archive is for an install from the
+release page. The archives take the family's names,
+`pipedrive-mcp_<version>_<os>_<arch>`, rendered from the config's own
+template. Every archive name in the docs, the workflows and the release
+footer is one it renders, the old dashed form is refused even without
+an extension, `docs/release.md` names all six, and the attestation's
+globs in `release.yml` match all six. The gate reads the config with
+regular expressions, so it refuses what it does not read: a second
+build, and an ignore list, which the family's matrix never needs.
+
+Two review findings on 1.3.0 are written down rather than fixed. No
+check cross-compiles before a tag, here or in any sibling, so a change
+that does not build on windows/arm64 fails only in the release job.
+And a `name_template` written as a `|` block would render with the
+newline goreleaser keeps, which the gate joins with a space; the
+template is a `>-` line, and nobody writes a newline into a file name.
+
 **Explicitly not in 0.5.0.** Products, leads, files, projects and goals
 are new resources and belong to their own milestone. Field clearing is
 blocked on Pipedrive v2, not on us. The v1 sunset migration is its own

@@ -17,6 +17,9 @@
     "url": "https://github.com/mmedum/pipedrive-mcp"
   },
   "license": "Apache-2.0",
+  "privacy_policies": [
+    "https://www.pipedrive.com/en/privacy"
+  ],
   "keywords": [
     "pipedrive",
     "crm",

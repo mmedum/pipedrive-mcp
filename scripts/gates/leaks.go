@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -20,17 +22,12 @@ import (
 // reads to find out what is checked, and a gate running invisibly inside
 // `go test ./...` is one nobody can audit without grepping for it.
 
-// leaks is the confidentiality gate: nothing that identifies a person, a
-// document or a deployment may be in this repository.
-//
-// It lived in internal/leakcheck as a test. The rules are unchanged; it
-// is a command now because the Makefile's target list is what a person
-// reads to find out what is checked, and a gate running invisibly inside
-// `go test ./...` is one nobody can audit without grepping for it.
-
 var skipFiles = map[string]bool{"go.sum": true}
 
-func leaks(w io.Writer, _ []string) error {
+func leaks(w io.Writer, args []string) error {
+	if len(args) == 1 && args[0] == "history" {
+		return leakHistory(w)
+	}
 	root, err := moduleRoot()
 	if err != nil {
 		return err
@@ -107,7 +104,7 @@ var (
 
 	// Pipedrive's own hosts belong to the vendor, not to a customer.
 	vendorHost = map[string]bool{
-		"developers": true, "app": true, "api": true, "www": true, "companyname": true,
+		"developers": true, "app": true, "api": true, "www": true, "companyname": true, "devcommunity": true,
 	}
 
 	// A Pipedrive API token is 40 hex characters. A bare 40-hex run is
@@ -127,14 +124,26 @@ var (
 	inventedWord = regexp.MustCompile(`(?i)synthetic|fixture|nosuch|unknown|example|scratch|placeholder|smoke|dummy|sample|acme|xxx|yourcompany|mycompany`)
 )
 
+// addressRule names what the address check reports; knownBlobs pins by
+// it.
+const addressRule = "address at a real domain"
+
+// publicAddresses are addresses at a real domain that name nobody. Each
+// is allowed as the whole address, never by its domain, so anything else
+// at the same domain is still a finding.
+var publicAddresses = map[string]string{
+	"noreply@anthropic.com": "the Co-Authored-By trailer on commits Claude helped write: Anthropic's no-reply address",
+	"support@github.com":    "the Signed-off-by trailer Dependabot puts on its version bumps: GitHub's support address",
+}
+
 // findLeaks returns what is wrong with one file's text.
 func findLeaks(text string) []string {
 	var found []string
 	for _, m := range email.FindAllStringSubmatch(text, -1) {
-		if reservedHost.MatchString(m[1]) || invented(m[0]) {
+		if reservedHost.MatchString(m[1]) || invented(m[0]) || publicAddresses[m[0]] != "" {
 			continue
 		}
-		found = append(found, "address at a real domain: "+m[0])
+		found = append(found, addressRule+": "+m[0])
 	}
 	for _, m := range companyDomain.FindAllStringSubmatch(text, -1) {
 		if invented(m[0]) || invented(m[1]) || vendorHost[strings.ToLower(m[1])] {
@@ -245,3 +254,217 @@ func artifact(data []byte) string {
 	}
 	return ""
 }
+
+// leakHistory is the gate run over everything the repository has
+// published rather than what it holds now: an identifier committed and
+// edited out later is still on GitHub. It reads the whole object store,
+// so it is run by hand, `make leaks-history`, not in `make check`.
+func leakHistory(w io.Writer) error {
+	root, err := moduleRoot()
+	if err != nil {
+		return err
+	}
+	problems, commits, blobs, err := historyProblems(root)
+	if err != nil {
+		return err
+	}
+	// 327 commit messages and 1,166 text blobs on 2026-10-25.
+	if commits < 100 || blobs < 1000 {
+		return fmt.Errorf("only %d commit messages and %d text blobs; the history scan is not reading the "+
+			"repository", commits, blobs)
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("%s", strings.Join(problems, "\n"))
+	}
+	_, err = fmt.Fprintf(w, "leaks history ok: %d commit messages and %d text blobs scanned\n", commits, blobs)
+	return err
+}
+
+// knownBlob is a file version in the history that holds a finding the
+// maintainer decided to leave rather than rewrite a public history with
+// released tags on it.
+type knownBlob struct {
+	rule   string // the rule that reports it, as findLeaks names it
+	count  int    // how many of that rule's findings the blob carries
+	reason string
+}
+
+// knownBlobs are accepted by blob, never by value. A blob's hash covers
+// its content, so a pin cannot grow: the same value in any other blob, in
+// a commit message or in the tree is still a finding. The values are not
+// written here, since writing one down would publish it again. Decided
+// 2026-10-25, as for the other servers' histories.
+var knownBlobs = map[string]knownBlob{
+	"1e2a523367a979eef1d9ccf3e0597cbf833e3913": {addressRule, 1, "CODE_OF_CONDUCT.md, an earlier version: the maintainer's contact address"},
+	"7dff083fd7e9136f27b5a4b6a04d45bd9da19c81": {addressRule, 1, "CONTRIBUTING.md, an earlier version: the maintainer's contact address"},
+	"8597bb633a309842ee010fea161f2eb94f0184a7": {addressRule, 1, "CONTRIBUTING.md, an earlier version: the maintainer's contact address"},
+	"df376fa25022c02df54002dffddc9050f3dadc9b": {addressRule, 1, "SECURITY.md, an earlier version: the maintainer's contact address"},
+	"e8c0062622e1dbe101f9ec688e892faab7e03f98": {addressRule, 1, "SECURITY.md, an earlier version: the maintainer's contact address"},
+	"f597a8d3850387945dda1331eb121724563adc03": {addressRule, 1, "SECURITY.md, an earlier version: the maintainer's contact address"},
+	"0b34a26a65613b2e1be5d6ad21cb159976e5d136": {addressRule, 2, "an early search test's fixture address, at a real company's domain"},
+}
+
+// excused is found less the findings knownBlobs accepts for the blob
+// hash.
+func excused(hash string, found []string) []string {
+	k, ok := knownBlobs[hash]
+	if !ok {
+		return found
+	}
+	n := 0
+	kept := found[:0]
+	for _, f := range found {
+		if n < k.count && strings.HasPrefix(f, k.rule+": ") {
+			n++
+			continue
+		}
+		kept = append(kept, f)
+	}
+	return kept
+}
+
+// historyProblems is every finding in the history of the repository at
+// root, with how many commit messages and text blobs it read: each commit
+// message on its own, every path and every blob reachable from any ref,
+// and each annotated tag's message. A tag's header is git's, the object
+// tagged and the tagger's identity, as a commit's author line is, and
+// neither is scanned. A binary blob is skipped: no rule reads one, and
+// the tree scan refuses a new one.
+func historyProblems(root string) (problems []string, commits, blobs int, err error) {
+	problems, commits, err = messageProblems(root)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	hashes, paths, pathOf, err := historyObjects(root)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	for _, found := range findLeaks(allowed(strings.Join(paths, "\n"))) {
+		problems = append(problems, "a path in the history: "+found)
+	}
+	found, blobs, err := objectProblems(root, hashes, pathOf)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	return append(problems, found...), commits, blobs, nil
+}
+
+// messageProblems is every finding in root's commit messages, each read
+// on its own, with how many it read.
+func messageProblems(root string) (problems []string, commits int, err error) {
+	messages, err := exec.Command("git", "-C", root, "log", "--all", "-z", "--format=%H%n%B").Output()
+	if err != nil {
+		return nil, 0, fmt.Errorf("git log: %w", err)
+	}
+	for entry := range strings.SplitSeq(strings.TrimSuffix(string(messages), "\x00"), "\x00") {
+		hash, message, _ := strings.Cut(entry, "\n")
+		commits++
+		for _, found := range findLeaks(allowed(message)) {
+			problems = append(problems, "commit "+short(hash)+" message: "+found)
+		}
+	}
+	return problems, commits, nil
+}
+
+// historyObjects is every object reachable from any ref in root, in the
+// order git lists them, every path among them, and each object's path or
+// tag name.
+func historyObjects(root string) (hashes, paths []string, pathOf map[string]string, err error) {
+	listing, err := exec.Command("git", "-C", root, "rev-list", "--objects", "--all").Output()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("git rev-list: %w", err)
+	}
+	pathOf = map[string]string{}
+	for line := range strings.Lines(string(listing)) {
+		hash, path, _ := strings.Cut(strings.TrimSpace(line), " ")
+		hashes = append(hashes, hash)
+		if path != "" {
+			pathOf[hash] = path
+			paths = append(paths, path)
+		}
+	}
+	return hashes, paths, pathOf, nil
+}
+
+// objectProblems is every finding in the blobs and tags among hashes, read
+// through one git cat-file --batch, with how many text blobs it read.
+func objectProblems(root string, hashes []string, pathOf map[string]string) (problems []string, blobs int, err error) {
+	cmd := exec.Command("git", "-C", root, "cat-file", "--batch")
+	cmd.Stdin = strings.NewReader(strings.Join(hashes, "\n") + "\n")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, 0, fmt.Errorf("git cat-file: %w", err)
+	}
+	r := bufio.NewReader(stdout)
+	for range hashes {
+		obj, data, err := nextObject(r)
+		if err != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return nil, 0, err
+		}
+		name, text, ok := scannable(obj, data, pathOf[obj.hash])
+		if !ok {
+			continue
+		}
+		if obj.typ == "blob" {
+			blobs++
+		}
+		for _, found := range excused(obj.hash, findLeaks(allowed(text))) {
+			problems = append(problems, name+": "+found)
+		}
+	}
+	if err := cmd.Wait(); err != nil {
+		return nil, 0, fmt.Errorf("git cat-file: %w", err)
+	}
+	return problems, blobs, nil
+}
+
+// scannable is what of one object the history scan reads, and the name it
+// reports it under: a text blob whole, and a tag's message without its
+// header. A binary blob, a commit, read by messageProblems, and a tree,
+// whose names are paths, are not read.
+func scannable(obj object, data []byte, path string) (name, text string, ok bool) {
+	switch obj.typ {
+	case "blob":
+		if bytes.IndexByte(data, 0) >= 0 {
+			return "", "", false
+		}
+		return path + " (blob " + short(obj.hash) + ")", string(data), true
+	case "tag":
+		_, message, _ := strings.Cut(string(data), "\n\n")
+		return "tag " + path, message, true
+	}
+	return "", "", false
+}
+
+// object is one header line of git cat-file --batch.
+type object struct{ hash, typ string }
+
+// nextObject reads one object from git cat-file --batch: its header and
+// its content, and the newline after the content.
+func nextObject(r *bufio.Reader) (object, []byte, error) {
+	header, err := r.ReadString('\n')
+	if err != nil {
+		return object{}, nil, fmt.Errorf("git cat-file: %w", err)
+	}
+	fields := strings.Fields(header)
+	if len(fields) != 3 {
+		return object{}, nil, fmt.Errorf("git cat-file answered %q", strings.TrimSpace(header))
+	}
+	size, err := strconv.Atoi(fields[2])
+	if err != nil {
+		return object{}, nil, fmt.Errorf("git cat-file answered %q", strings.TrimSpace(header))
+	}
+	data := make([]byte, size+1)
+	if _, err := io.ReadFull(r, data); err != nil {
+		return object{}, nil, fmt.Errorf("git cat-file: %w", err)
+	}
+	return object{hash: fields[0], typ: fields[1]}, data[:size], nil
+}
+
+// short is a hash's first eight characters.
+func short(hash string) string { return hash[:min(8, len(hash))] }

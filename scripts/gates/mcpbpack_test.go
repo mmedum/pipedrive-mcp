@@ -2,7 +2,9 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -68,18 +70,19 @@ func packed(t *testing.T, path string) map[string]entry {
 	return out
 }
 
-func packHere(t *testing.T, version string) map[string]entry {
+// packHere packs version 1.2.3 of this repository from a fake dist and
+// reads it back.
+func packHere(t *testing.T) map[string]entry {
 	t.Helper()
-	t.Chdir(repoRoot(t))
 	out := filepath.Join(t.TempDir(), "out.mcpb")
-	if err := packMCPB(fakeDist(t), version, out); err != nil {
+	if err := packMCPB(repoRoot(t), fakeDist(t), "1.2.3", out); err != nil {
 		t.Fatalf("pack: %v", err)
 	}
 	return packed(t, out)
 }
 
-// repoRoot is where the gates run from. The test runs in its own package
-// directory, and the packer reads repository-relative paths.
+// repoRoot is the repository the gates read. The test runs in its own
+// package directory.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	if _, err := os.Stat("../../" + manifestPath); err == nil {
@@ -89,10 +92,21 @@ func repoRoot(t *testing.T) string {
 }
 
 func TestPackRefusesThePlaceholderAsAVersion(t *testing.T) {
-	t.Chdir(repoRoot(t))
-	err := packMCPB(fakeDist(t), placeholderVersion, filepath.Join(t.TempDir(), "out.mcpb"))
+	err := packMCPB(repoRoot(t), fakeDist(t), placeholderVersion, filepath.Join(t.TempDir(), "out.mcpb"))
 	if err == nil || !strings.Contains(err.Error(), "placeholder") {
 		t.Fatalf("packing with the placeholder version gave %v", err)
+	}
+}
+
+// The packer starts where the gate does, so the release packs no
+// manifest the gate would refuse.
+func TestPackRefusesAManifestTheGateRefuses(t *testing.T) {
+	dist := fakeDist(t)
+	root := copiedRoot(t)
+	put(t, root, manifestPath, string(editedRaw(t, func(d map[string]any) { d["version"] = "1.2.3" })))
+	err := packMCPB(root, dist, "1.2.3", filepath.Join(t.TempDir(), "out.mcpb"))
+	if err == nil || !strings.Contains(err.Error(), `the committed manifest says version "1.2.3"`) {
+		t.Fatalf("packing a manifest the gate refuses gave %v", err)
 	}
 }
 
@@ -100,7 +114,7 @@ func TestPackRefusesThePlaceholderAsAVersion(t *testing.T) {
 // a decode and an encode rather than a substitution over text, so this
 // reads the version back out of the packed manifest by parsing it.
 func TestThePackerStampsTheVersionThroughJSON(t *testing.T) {
-	files := packHere(t, "1.2.3")
+	files := packHere(t)
 
 	manifestEntry, ok := files["manifest.json"]
 	if !ok {
@@ -122,7 +136,7 @@ func TestThePackerStampsTheVersionThroughJSON(t *testing.T) {
 // TestEveryStagedFileIsInTheBundle holds the archive to the table rather
 // than to a list written twice.
 func TestEveryStagedFileIsInTheBundle(t *testing.T) {
-	files := packHere(t, "1.2.3")
+	files := packHere(t)
 	for _, f := range bundleFiles {
 		if _, ok := files[f.path]; !ok {
 			t.Errorf("%s is staged but not in the bundle", f.path)
@@ -134,12 +148,132 @@ func TestEveryStagedFileIsInTheBundle(t *testing.T) {
 	}
 }
 
+// What runs is packed 0755, because the desktop spawns it with the mode
+// the zip gives it, and what is there to be read is packed 0644 with
+// this repository's own bytes.
+func TestEachFileIsPackedWithItsMode(t *testing.T) {
+	files := packHere(t)
+	for path, want := range map[string]os.FileMode{
+		"server/pipedrive-mcp-darwin":      0o755,
+		"server/pipedrive-mcp.exe":         0o755,
+		"server/launch-linux.sh":           0o755,
+		"server/pipedrive-mcp-linux-amd64": 0o755,
+		"server/pipedrive-mcp-linux-arm64": 0o755,
+		"LICENSE":                          0o644,
+		"README.md":                        0o644,
+	} {
+		if got := files[path].mode.Perm(); got != want {
+			t.Errorf("%s is packed %v, want %v", path, got, want)
+		}
+	}
+	for _, path := range []string{"LICENSE", "README.md"} {
+		if files[path].body != string(repoFile(t, path)) {
+			t.Errorf("the packed %s is not this repository's", path)
+		}
+	}
+}
+
+// failingClose is a bundle file whose close fails, as a full disk's
+// last write does.
+type failingClose struct{ bytes.Buffer }
+
+var errClose = errors.New("the last write did not reach the disk")
+
+func (*failingClose) Close() error { return errClose }
+
+// A bundle whose close fails is not packed: the end of the archive
+// reaches the disk only there. The partial file is removed and nothing
+// is renamed into place.
+func TestAFailedCloseFailsThePack(t *testing.T) {
+	root := repoRoot(t)
+	stamped, err := stampedManifest(root, "1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources, err := stagedSources(root, fakeDist(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	partial, out := filepath.Join(dir, "out.mcpb.partial"), filepath.Join(dir, "out.mcpb")
+	put(t, dir, "out.mcpb.partial", "")
+	err = finishBundle(&failingClose{}, partial, out, func(w io.Writer) error {
+		return writeBundle(w, stamped, sources, generatedFiles())
+	})
+	if !errors.Is(err, errClose) {
+		t.Errorf("a bundle whose close failed gave %v, want %v", err, errClose)
+	}
+	if left, _ := os.ReadDir(dir); len(left) != 0 {
+		t.Errorf("a failed close left %v behind", left)
+	}
+}
+
+// A pack that fails part way leaves no bundle: not a truncated one at
+// out, which a later goreleaser run's ./dist/*.mcpb would take, and not
+// its partial file, and an out from an earlier pack is left as it was.
+// The arm64 binary is a directory here, so its copy fails after the
+// archive has been started.
+func TestAFailedPackLeavesNoBundle(t *testing.T) {
+	dist := fakeDist(t)
+	arm := filepath.Join(dist, "pipedrive-mcp_linux_arm64_v8.0", "pipedrive-mcp")
+	if err := os.Remove(arm); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(arm, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for _, earlier := range []string{"", "an earlier bundle"} {
+		dir := t.TempDir()
+		out := filepath.Join(dir, "pipedrive-mcp_1.2.3.mcpb")
+		if earlier != "" {
+			put(t, dir, filepath.Base(out), earlier)
+		}
+		if err := packMCPB(repoRoot(t), dist, "1.2.3", out); err == nil {
+			t.Fatal("a pack whose copy failed succeeded")
+		}
+		left, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		names := make([]string, 0, len(left))
+		for _, e := range left {
+			names = append(names, e.Name())
+		}
+		switch body, _ := os.ReadFile(out); {
+		case earlier == "" && len(names) != 0:
+			t.Errorf("a failed pack left %v", names)
+		case earlier != "" && (len(names) != 1 || string(body) != earlier):
+			t.Errorf("a failed pack over an earlier bundle left %v, holding %q", names, body)
+		}
+	}
+}
+
+// The packer reads the repository it is given, not the working
+// directory: the license and the README it packs are the ones under
+// root.
+func TestThePackerReadsItsRoot(t *testing.T) {
+	root := copiedRoot(t)
+	const readme = "# A README only the copied root has\n"
+	put(t, root, "README.md", readme)
+	out := filepath.Join(t.TempDir(), "out.mcpb")
+	if err := packMCPB(root, fakeDist(t), "1.2.3", out); err != nil {
+		t.Fatalf("pack: %v", err)
+	}
+	files := packed(t, out)
+	if got := files["README.md"].body; got != readme {
+		t.Errorf("the packed README.md is %.40q, want the root's", got)
+	}
+	if got, want := files["LICENSE"].body, string(repoFile(t, "LICENSE")); got != want {
+		t.Error("the packed LICENSE is not the root's")
+	}
+}
+
 // TestTheGeneratedLauncherIsPackedExecutable is the pair to deleting the
 // committed script. It is now written by the packer, so nothing on disk
 // carries its mode — and a launcher that arrives without the execute bit
 // is a bundle that fails for every Linux user at first run.
 func TestTheGeneratedLauncherIsPackedExecutable(t *testing.T) {
-	files := packHere(t, "1.2.3")
+	files := packHere(t)
 
 	launcher, ok := files[launcherName]
 	if !ok {
@@ -168,9 +302,8 @@ func TestTheGeneratedLauncherIsPackedExecutable(t *testing.T) {
 func TestEveryEntryCarriesTheFixedTimestamp(t *testing.T) {
 	want := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 
-	t.Chdir(repoRoot(t))
 	out := filepath.Join(t.TempDir(), "out.mcpb")
-	if err := packMCPB(fakeDist(t), "1.2.3", out); err != nil {
+	if err := packMCPB(repoRoot(t), fakeDist(t), "1.2.3", out); err != nil {
 		t.Fatalf("pack: %v", err)
 	}
 	r, err := zip.OpenReader(out)
@@ -190,7 +323,7 @@ func TestEveryEntryCarriesTheFixedTimestamp(t *testing.T) {
 	}
 }
 
-// TestTwoPacksOfTheSameInputsAgree: the bundle is named in SHA256SUMS
+// TestTwoPacksOfTheSameInputsAgree: the bundle is named in checksums.txt
 // and the signature is over that file, so a packer that wrote a
 // different archive each time would break the one thing the signature
 // is for.
@@ -198,14 +331,13 @@ func TestEveryEntryCarriesTheFixedTimestamp(t *testing.T) {
 // This catches ordering — a map walked twice — rather than the clock;
 // the timestamp is the test above.
 func TestTwoPacksOfTheSameInputsAgree(t *testing.T) {
-	t.Chdir(repoRoot(t))
 	dist := fakeDist(t)
 	dir := t.TempDir()
 
 	first := filepath.Join(dir, "first.mcpb")
 	second := filepath.Join(dir, "second.mcpb")
 	for _, out := range []string{first, second} {
-		if err := packMCPB(dist, "1.2.3", out); err != nil {
+		if err := packMCPB(repoRoot(t), dist, "1.2.3", out); err != nil {
 			t.Fatalf("pack: %v", err)
 		}
 	}
@@ -226,8 +358,7 @@ func TestTwoPacksOfTheSameInputsAgree(t *testing.T) {
 // the pack. A bundle short one platform's binary installs fine and fails
 // only for the people on that platform.
 func TestPackRefusesADistMissingABinary(t *testing.T) {
-	t.Chdir(repoRoot(t))
-	err := packMCPB(t.TempDir(), "1.2.3", filepath.Join(t.TempDir(), "out.mcpb"))
+	err := packMCPB(repoRoot(t), t.TempDir(), "1.2.3", filepath.Join(t.TempDir(), "out.mcpb"))
 	if err == nil {
 		t.Fatal("packing from an empty dist was allowed")
 	}

@@ -1,6 +1,6 @@
 # goreleaser config for pipedrive-mcp.
 #
-# This file owns: cross-compiled archives, SHA256SUMS, cosign-signed
+# This file owns: cross-compiled archives, checksums.txt, cosign-signed
 # blobs, CycloneDX SBOM, GitHub Release publishing.
 #
 # It does NOT own:
@@ -33,12 +33,11 @@ builds:
       - linux
       - darwin
       - windows
+    # Six archives: darwin, linux and windows, each on amd64 and arm64,
+    # as across the family. `gates mcpb` holds this list to them.
     goarch:
       - amd64
       - arm64
-    ignore:
-      - goos: windows
-        goarch: arm64
 
 # The macOS universal binary exists for the Claude Desktop bundle alone.
 # A manifest names a command per PLATFORM and has no key for the
@@ -58,7 +57,7 @@ universal_binaries:
       # one. `checksum.extra_files` covers it and `release.extra_files`
       # uploads it — both, or the bundle ships unsigned, or is hashed and
       # never published, looking no different either way.
-      post: go run ./scripts/gates mcpb-pack dist {{ .Version }} dist/pipedrive-mcp-{{ .Version }}.mcpb
+      post: go run ./scripts/gates mcpb-pack dist {{ .Version }} dist/pipedrive-mcp_{{ .Version }}.mcpb
 
 archives:
   - id: default
@@ -67,20 +66,22 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
+    # The family's names, <name>_<version>_<os>_<arch>. `gates mcpb`
+    # holds the docs and the attestation's globs to what this renders.
     name_template: >-
-      {{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
       - LICENSE
       - README.md
       - CHANGELOG.md
 
 checksum:
-  name_template: SHA256SUMS
+  name_template: checksums.txt
   algorithm: sha256
   # The bundle is not an archive goreleaser built, so packing it in the
   # post hook is only half of what puts it here — the checksum step
   # covers its own artifacts, and a file a hook dropped into dist/ is not
-  # one. Naming it is the other half, and being in SHA256SUMS is what
+  # one. Naming it is the other half, and being in checksums.txt is what
   # gets it signed, because the signature is over that file.
   extra_files:
     - glob: ./dist/*.mcpb
@@ -88,7 +89,7 @@ checksum:
 signs:
   # One signature, over the checksum file, in cosign's bundle format —
   # the same shape the four sibling MCP servers use. Every archive and
-  # every SBOM is covered by its hash in SHA256SUMS, so signing each
+  # every SBOM is covered by its hash in checksums.txt, so signing each
   # artifact separately bought a longer asset list rather than more
   # assurance.
   #
@@ -151,30 +152,33 @@ release:
   prerelease: auto
   mode: replace
   # Checksummed is not uploaded. Without this the bundle is named in
-  # SHA256SUMS and absent from the release, which is a hash of something
-  # nobody can download.
+  # checksums.txt and absent from the release, which is a hash of
+  # something nobody can download.
   extra_files:
     - glob: ./dist/*.mcpb
   # The notes come first and the verification block after, matching the
   # sibling servers: a reader wants to know what changed before being
   # told how to check the signature. This was a `header:` while the
   # notes were being discarded, when it was the only thing on the page.
+  #
+  # The signature is checked before the checksums are read: until cosign
+  # passes, checksums.txt is only what the release assets say now.
   footer: |
     ---
 
-    Verify a binary signature:
+    Verify the signature on the checksums, then a download against them:
 
     ```sh
-    cosign verify-blob \
-      --certificate pipedrive-mcp-{{ .Version }}-linux-amd64.tar.gz.cert \
-      --signature   pipedrive-mcp-{{ .Version }}-linux-amd64.tar.gz.sig \
-      --certificate-identity-regexp 'https://github.com/mmedum/pipedrive-mcp/.+' \
-      --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-      pipedrive-mcp-{{ .Version }}-linux-amd64.tar.gz
+    cosign verify-blob checksums.txt \
+      --bundle checksums.txt.bundle \
+      --certificate-identity 'https://github.com/mmedum/pipedrive-mcp/.github/workflows/release.yml@refs/tags/{{ .Tag }}' \
+      --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+    sha256sum -c checksums.txt --ignore-missing          # Linux
+    shasum -a 256 -c checksums.txt --ignore-missing      # macOS
     ```
 
     Verify the SLSA build-provenance attestation:
 
     ```sh
-    gh attestation verify pipedrive-mcp-{{ .Version }}-linux-amd64.tar.gz --owner mmedum
+    gh attestation verify pipedrive-mcp_{{ .Version }}_linux_amd64.tar.gz --owner mmedum
     ```

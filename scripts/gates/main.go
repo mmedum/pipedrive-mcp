@@ -44,7 +44,7 @@ func init() {
 		},
 		"mcpb": {
 			run: mcpbCmd, args: "",
-			doc: "the bundle manifest describes the bundle the packer stages",
+			doc: "the bundle manifest describes the bundle the packer stages, and the release its six archives",
 		},
 		"mcpb-pack": {
 			run: mcpbPackCmd, args: "DIST VERSION OUT",
@@ -55,8 +55,8 @@ func init() {
 			doc: "the MCP registry entry, with the bundle's hash from the published checksums",
 		},
 		"leaks": {
-			run: leaks, args: "",
-			doc: "nothing from a real Pipedrive account is in the tree",
+			run: leaks, args: "[history]",
+			doc: "nothing from a real Pipedrive account is in the tree, or with history anywhere in the history",
 		},
 		"pins": {
 			run: pins, args: "",

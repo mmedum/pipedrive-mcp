@@ -121,6 +121,10 @@ announces itself, so an LLM client never sees a half-initialized server.
 
 ## Variables
 
+A variable set to spaces alone is unset, as an empty one is, and the
+spaces around a value are dropped. A form field cleared to a space then
+means the default rather than a value the server refuses.
+
 ### `PIPEDRIVE_API_TOKEN`
 
 - **Required**: no — prefer `pipedrive-mcp login` (OS keyring) for
@@ -144,8 +148,10 @@ announces itself, so an LLM client never sees a half-initialized server.
 - **Type**: string.
 - **Examples**: `acme` for `acme.pipedrive.com`. Just the subdomain — no
   scheme, no path, no trailing slash.
-- **Validation**: matches `^[a-z0-9-]+$` (Pipedrive workspace names).
-  Other values exit non-zero with a clear message.
+- **Validation**: matches `^[a-z0-9-]+$` (Pipedrive workspace names)
+  after A to Z are lowered. Other values exit non-zero with a clear
+  message, a character Unicode lowers into a to z, such as the Kelvin
+  sign, included.
 - **Precedence**: env wins over the userconfig default (use env to
   point one shell at a different workspace without running `login`).
 
