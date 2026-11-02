@@ -73,7 +73,7 @@ type listPersonsOutput struct {
 // manage_person. opts.DryRun is the server-wide dry-run floor.
 func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string, opts RegisterOptions) {
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_person",
 		Description: "Fetch a single Pipedrive person by person_id. Returns id, name, first_name, last_name, all emails (with primary flag and label), all phones, owner_id, linked org_id, add/update timestamps, and any custom fields under their workspace names, dropdown values as labels rather than option ids. Unknown person_id returns a [not_found] error. To find a person by name, call `search` first to resolve the id.",
 		Annotations: readOnlyAnnotations(),
@@ -88,7 +88,7 @@ func RegisterPersons(s *mcp.Server, c personsClient, companyDomain string, opts 
 		return nil, getPersonOutput{Person: resolvedPerson(ctx, c, companyDomain, p)}, nil
 	})
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_persons",
 		Description: "List Pipedrive persons filtered by owner, linked organization, or update window. Returns id, name, first_name, last_name, emails, phones, owner_id, linked org_id, add/update timestamps, and any custom fields under their workspace names, dropdown values as labels rather than option ids. Default sort is update_time desc — most-recently-touched first, ideal for 'who at company X have we been talking to lately'. Default limit is 25, max 100. For more results, pass the next_cursor from the previous response. To find a person by name (rather than ID), call `search` with type=person — search is the natural-language gateway, list_persons is the precision filter when the IDs are already known.",
 		Annotations: readOnlyAnnotations(),
@@ -178,7 +178,7 @@ type managePersonOutput struct {
 
 func registerManagePerson(s *mcp.Server, c personsClient, companyDomain string, opts RegisterOptions) {
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "manage_person",
 		Description: "Create a contact, edit one, or delete one. One call, whichever action: create takes name OR first_name/last_name, update and delete take person_id. Pipedrive treats name and first_name/last_name as ALTERNATIVES and rejects a write carrying both, so pass the parts when you have them and it derives the full name, or pass the full name and it splits it — never both. Writing is guarded, and update reads the person before it writes, so a write is two API calls. It refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. IMPORTANT: emails and phones REPLACE the stored collection rather than adding to it, because that is what Pipedrive does with them — to add an address, read the person first and send the existing entries back alongside the new one, or you will silently drop the rest. Because Pipedrive derives one from the other, changing either reports `name` as changed too — a dry run predicts only the field you set, since it cannot know what Pipedrive will derive, and the write reports what actually moved. Custom fields ARE writable here: pass custom_fields keyed by the names get_person reports, and give a dropdown its label rather than an option id. Deleting is soft and time-boxed: Pipedrive marks the person deleted and removes it permanently after 30 days, so it takes dry_run and expect_version and no permitting flag beyond them — within that window Pipedrive's own UI can restore it, but NOTHING HERE PUTS IT BACK, so treat it as one-way and rehearse with dry_run first. Deleting a person deletes only the person: their deals, the notes on them and the activities on their deals are not deleted with them, which is verified against a live workspace. Use search to turn a company name into the org_id this links to.",
 		Annotations: mutatingAnnotations(),

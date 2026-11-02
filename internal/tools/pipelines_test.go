@@ -1,9 +1,7 @@
 package tools_test
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -171,11 +169,10 @@ func TestListStages_OmittedFilterMeansAll(t *testing.T) {
 	}
 }
 
-// Every Register records its tools in the dump registry, which is what
-// --dump-schemas and the schema-diff gate read. Each row swaps in an
-// empty registry, so a Register that skips it cannot hide behind tools
-// another test registered.
-func TestRegister_RecordsItsToolsForTheSchemaDump(t *testing.T) {
+// Every Register lists its tools, each with both schemas, to a client:
+// what a client lists is what --dump-schemas writes and the schema gate
+// compares, so a tool listed without its schemas hides every change.
+func TestRegister_ListsItsToolsWithTheirSchemas(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		register func(*mcp.Server)
@@ -200,41 +197,28 @@ func TestRegister_RecordsItsToolsForTheSchemaDump(t *testing.T) {
 		{"cache", func(s *mcp.Server) { tools.RegisterCache(s, &fakeCacheClient{}) }, []string{"refresh_field_cache"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			saved := tools.Default
-			tools.Default = tools.New()
-			t.Cleanup(func() { tools.Default = saved })
-
 			h := testutil.Connect(t, tc.register)
 			defer h.Close()
 
-			var buf bytes.Buffer
-			if err := tools.DumpJSON(&buf, "test"); err != nil {
-				t.Fatalf("DumpJSON: %v", err)
+			listed, err := h.Client.ListTools(context.Background(), nil)
+			if err != nil {
+				t.Fatalf("ListTools: %v", err)
 			}
-			var doc struct {
-				Tools []struct {
-					Name         string                 `json:"name"`
-					InputSchema  *struct{ Type string } `json:"inputSchema"`
-					OutputSchema *struct{ Type string } `json:"outputSchema"`
-				} `json:"tools"`
-			}
-			if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
-				t.Fatalf("decode dump: %v", err)
-			}
-			got := make([]string, 0, len(doc.Tools))
-			for _, tool := range doc.Tools {
+			got := make([]string, 0, len(listed.Tools))
+			for _, tool := range listed.Tools {
 				got = append(got, tool.Name)
-				// The dump is what the schema-diff gate compares, so a
-				// tool recorded without its schemas hides every change.
-				if tool.InputSchema == nil || tool.InputSchema.Type != "object" {
-					t.Errorf("%s dumped input schema %+v; want an object schema", tool.Name, tool.InputSchema)
+				in, _ := tool.InputSchema.(map[string]any)
+				if in["type"] != "object" {
+					t.Errorf("%s lists input schema %v; want an object schema", tool.Name, tool.InputSchema)
 				}
-				if tool.OutputSchema == nil || tool.OutputSchema.Type != "object" {
-					t.Errorf("%s dumped output schema %+v; want an object schema", tool.Name, tool.OutputSchema)
+				out, _ := tool.OutputSchema.(map[string]any)
+				if out["type"] != "object" {
+					t.Errorf("%s lists output schema %v; want an object schema", tool.Name, tool.OutputSchema)
 				}
 			}
+			slices.Sort(got)
 			if !slices.Equal(got, tc.want) {
-				t.Errorf("registering %s dumped tools %v; want %v", tc.name, got, tc.want)
+				t.Errorf("registering %s lists tools %v; want %v", tc.name, got, tc.want)
 			}
 		})
 	}

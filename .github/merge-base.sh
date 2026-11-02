@@ -7,11 +7,8 @@
 # a stack of pull requests this is the normal case rather than the edge
 # one: merging the PR underneath leaves the one above measuring a diff
 # that includes its own dependency, which the changelog gate reads as
-# "no new lines" and the schema gate reads as a breaking change.
-#
-# Reopening a PR does not refresh it either — only a push to the head
-# branch does, and a push is the one thing that cannot be done here
-# without displacing the footer the schema gate greps for.
+# "no new lines". Reopening a PR does not refresh it either; only a push
+# to the head branch does.
 #
 # The merge-base of the CURRENT base branch and the head is what every
 # gate actually means by "what this PR adds".

@@ -103,7 +103,7 @@ type getDealOutput struct {
 // manage_deal. opts.DryRun is the server-wide dry-run floor.
 func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string, opts RegisterOptions) {
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_deal",
 		Description: "Fetch a single Pipedrive deal by deal_id. Returns id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, lost_reason, and any custom fields under their workspace names, dropdown values as labels rather than option ids. Unknown deal_id returns a [not_found] error.",
 		Annotations: readOnlyAnnotations(),
@@ -118,7 +118,7 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string, opts Regi
 		return nil, getDealOutput{Deal: resolvedDeal(ctx, c, companyDomain, deal)}, nil
 	})
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_deals",
 		Description: "List deals filtered by status, pipeline, stage, owner, person, organization, or update window. Returns matching deals with id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, and any custom fields under their workspace names, dropdown values as labels rather than option ids. Default sort is update_time desc — most-recently-touched first, ideal for 'which deals have we been working on lately'. Default limit is 25, max 100. Omit `status` to include every non-deleted deal. For more results, pass the next_cursor from the previous response. Archived deals are NOT in this collection — Pipedrive moved them to their own since 2025-07-15 and no filter here reaches them, so a list that looks short may be one; pass archived to read them instead. To find a deal by name (rather than ID), call `search` with type=deal first — search is the natural-language gateway, list_deals is the precision filter when the IDs are already known.",
 		Annotations: readOnlyAnnotations(),
@@ -252,7 +252,7 @@ type manageDealOutput struct {
 
 func registerManageDeal(s *mcp.Server, c dealsClient, companyDomain string, opts RegisterOptions) {
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "manage_deal",
 		Description: "Create a deal, edit one, move it between stages, close it won or lost, or delete it. One call, whichever action: create takes title, every other action takes deal_id. Writing is guarded, and every action except create reads the deal before it writes, so a write is two API calls. An update refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the deal moved under you. The six transitions — move_stage, mark_won, mark_lost, reopen, archive and unarchive — take no overwrite, because you named the transition and the field it changes is the field you named. ARCHIVING IS NOT CLOSING: an archived deal leaves the pipeline entirely, stops appearing in list_deals unless you pass archived, and accepts no edit at all until it is unarchived — mark_lost is what 'we lost it' means. IMPORTANT: lost_reason on mark_lost is free text Pipedrive keeps and reports on, so if the user did not give you a reason, leave it blank — do NOT invent one. Closing a deal is reversible here: reopen puts it back to open, from won or from lost. It does NOT clear lost_reason — Pipedrive accepts a lost_reason only on a deal that is lost, so the text of the last loss stays on the record until the deal is lost again with a new one. Pipedrive also keeps its own won_time and lost_time, which you cannot set from this tool. Custom fields ARE writable here, on create and update: pass custom_fields keyed by the names get_deal reports, and give a dropdown its label rather than an option id. One thing this cannot do: NO FIELD CAN BE CLEARED once it holds a value — Pipedrive v2 rejects a null and treats an empty string as a value, so a field can be changed but not emptied. Deleting is soft and time-boxed: Pipedrive marks the deal deleted and removes it permanently after 30 days, so it takes dry_run and expect_version and no permitting flag beyond them — within the window Pipedrive's own UI can restore it, but NOTHING HERE PUTS IT BACK, so treat it as one-way and rehearse with dry_run first. Deleting a deal deletes only the deal: its notes and activities are not deleted with it, which is verified against a live workspace. Use search to turn a company or person name into the person_id or org_id a new deal needs, and list_stages to find a stage_id.",
 		Annotations: mutatingAnnotations(),

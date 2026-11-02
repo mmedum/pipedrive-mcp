@@ -39,7 +39,7 @@ go build ./...     # confirms everything compiles
 If `go mod tidy` fails on a missing
 `github.com/modelcontextprotocol/go-sdk`, check the pin in `go.mod`
 against https://pkg.go.dev/github.com/modelcontextprotocol/go-sdk and
-bump if needed. `internal/tools/registry.go`'s exported `SDKVersion`
+bump if needed. `internal/server/dump.go`'s `sdkVersion`
 constant mirrors that pin and must move with it —
 `TestSDKVersionMatchesGoMod` fails if it does not, which it has twice
 when the only thing asking was a comment.
@@ -193,16 +193,20 @@ smoke` does the same sequence and is run as a gate on every PR.
 
 ## Inspecting the tool schemas
 
-The schema-diff CI gate uses `--dump-schemas`. Run it locally:
+The schema-ack CI gate uses `--dump-schemas`. Run it locally:
 
 ```sh
 go run ./cmd/pipedrive-mcp --dump-schemas | jq .
 ```
 
 The output is a header (`binary_version`, `sdk_version`,
-`tool_count`) and the tool array sorted alphabetically. The
-schema-diff CI gate compares this output against the prior tag's
-output to enforce semver discipline on the LLM-facing surface.
+`tool_count`), the server's instructions, and the tools and resource
+templates, each sorted, as an in-memory client is served them. On a pull
+request, `make schema-ack` (or `go run ./scripts/gates schema-ack BASE
+HEAD`) builds the merge-base and the head, compares the two dumps
+without the header, and fails unless a commit footer names each changed
+item (`CONTRIBUTING.md`, "Tool surface changes"). A break counts only
+against the last tag the base branch reaches.
 
 ## Connecting to Claude Desktop end-to-end
 

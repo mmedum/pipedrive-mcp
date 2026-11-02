@@ -25,7 +25,7 @@ Every PR must pass:
 1. The CI gates from `.github/workflows/ci.yml` (build, vet, lint, test,
    coverage, govulncheck, license check, staleness, pinned versions,
    bundle manifest, changelog links, the check-list and tool-description
-   gates, schema diff, stdio smoke, CHANGELOG entry, gitleaks, CodeQL).
+   gates, schema-ack, stdio smoke, CHANGELOG entry, gitleaks, CodeQL).
 2. The manual gates from `.github/pull_request_template.md` (`/simplify`
    and `/security-review` skill output, docs updated, design rationale captured,
    CHANGELOG updated).
@@ -39,11 +39,25 @@ lacking justification.
   (`feature/...`, `fix/...`, `docs/...`).
 - One PR per logical change; rebase rather than merge `main` into the branch.
 - Commits use short, imperative subject lines. The body explains *why*.
-- **Breaking changes**: any commit that changes the public tool surface in a
-  backwards-incompatible way (tool removed/renamed, required input
-  removed/renamed, output type changed) must include a
-  `BREAKING CHANGE: <description>` footer. CI's schema-diff gate enforces
-  this.
+- **Tool surface changes**: a pull request that changes what
+  `--dump-schemas` prints names each changed item in a footer of a
+  commit it adds, as an empty commit rather than an amend:
+
+  ```bash
+  git commit --allow-empty -m "Acknowledge the tool surface change" \
+    -m "SCHEMA-CHANGE: manage_deal, instructions: what changed"
+  ```
+
+  A footer names a tool by its name, a resource template by its URI
+  template, and the instructions as `instructions`, each a whole word.
+  Only the names before the first `: ` count; the description after it
+  names nothing. A name with a comma or a space in it goes in
+  backticks. A break of the last release (a tool or an input removed or
+  renamed, an input newly required, an output field removed, a type
+  narrowed) needs `BREAKING CHANGE: <names>: what broke` instead.
+  Narrowing something no release shipped is a plain change. CI's
+  schema-ack gate builds the merge-base and the head, enforces this,
+  and prints the footer that fixes a refusal.
 - Write commits to be reproducible: don't auto-amend pre-commit fixes into a
   prior commit, create a new one.
 

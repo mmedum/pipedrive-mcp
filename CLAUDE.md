@@ -78,8 +78,8 @@ a contributor can actually read.
   is the only place a **serving** process builds `tools.RegisterOptions`,
   so the `PIPEDRIVE_DRY_RUN` floor cannot be dropped by a caller
   assembling the arguments by hand — which is exactly how it was dropped
-  once. (`--dump-schemas` builds a clientless server to walk the registry;
-  no handler runs there, so it has no floor to drop.) Nothing here logs,
+  once. (`--dump-schemas` builds a clientless server to list what a client
+  is served; no handler runs there, so it has no floor to drop.) Nothing here logs,
   exits or hits the network; the caller decides what a missing token
   means.
 - `internal/config/` — env-var loading and validation. Does NOT handle the API token — that lives in `internal/credentials/`.
@@ -100,9 +100,9 @@ a contributor can actually read.
   and verify the restore with a fresh read; see the contract at the top
   of `write_test.go`.
 - `internal/tools/` — MCP tool registrations, one file per resource
-  type, plus the machinery they share. Each `Register(...)` adds tools to
-  both `mcp.AddTool` and the parallel registry in `registry.go` (so
-  `--dump-schemas` can walk them). Also here: `guard.go` (the
+  type, plus the machinery they share. Each `Register(...)` adds tools through
+  `mcp.AddTool`, which infers their schemas. Also here: `annotations.go` (the
+  two hint postures), `guard.go` (the
   guarded-write mechanism — field tables, projections, the overwrite
   refusal), `resources.go` (the MCP *resource* templates mirroring the
   `get_` tools), `errors.go`, `pagination.go`, `sort.go`.
@@ -112,7 +112,7 @@ a contributor can actually read.
 - `scripts/` — CI helper scripts.
 
 When adding a new tool: add it to `internal/tools/<resource>.go` with a
-`Register` function, ensure the parallel registry pattern is followed, add
+`Register` function that adds it through `mcp.AddTool`, add
 unit tests for input validation and output shape, update the README's
 tool catalog table, add a CHANGELOG entry under `[Unreleased]`, and
 update relevant `docs/`.
@@ -222,7 +222,7 @@ auto/yolo modes:
   artifacts.
 - Rotating, regenerating, or invalidating any sandbox or production API
   token.
-- Changing the schema-diff CI gate (semver discipline depends on it).
+- Changing the schema-ack CI gate (semver discipline depends on it).
 - Force-pushing, deleting branches, or anything that rewrites published
   history.
 - Deleting files outside obvious scratch locations.

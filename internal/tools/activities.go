@@ -119,7 +119,7 @@ type listActivitiesOutput struct {
 // floor.
 func RegisterActivities(s *mcp.Server, c activitiesClient, companyDomain string, opts RegisterOptions) {
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_activity",
 		Description: "Fetch a single Pipedrive activity (call, email, meeting, task, ...) by activity_id. Returns id, subject, type, owner_id, linked deal_id / person_id / org_id, due_date, due_time, duration, done flag, location, participants, conference meeting details, and notes. Set include_attendees=true to also return calendar invitees with RSVP status. Unknown activity_id returns a [not_found] error. To find an activity by subject text, call `list_activities` filtered by deal_id or person_id; activities are not indexed by `search`.",
 		Annotations: readOnlyAnnotations(),
@@ -136,7 +136,7 @@ func RegisterActivities(s *mcp.Server, c activitiesClient, companyDomain string,
 		return nil, getActivityOutput{Activity: summarizeActivity(companyDomain, a)}, nil
 	})
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_activities",
 		Description: "List Pipedrive activities filtered by status (open | done | all), owner, deal, person, organization, lead, or update window. Returns id, subject, type, owner_id, linked deal/person/org ids, due_date, due_time, duration, done flag, location, participants, and conference details. Notes (`note`, `public_description`) are stripped by default — set `include_notes=true` or call `get_activity` for full text. Default sort is update_time desc — most-recently-touched first, ideal for 'what's happening with X lately'. Pass sort_by=due_date and status=open for an upcoming-calendar view. For more results, pass the next_cursor from the previous response. Activity-type (call/email/meeting/...) cannot be filtered server-side on Pipedrive v2; filter the returned rows by their `type` field client-side.",
 		Annotations: readOnlyAnnotations(),
@@ -275,7 +275,7 @@ type manageActivityOutput struct {
 
 func registerManageActivity(s *mcp.Server, c activitiesClient, companyDomain string, opts RegisterOptions) {
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "manage_activity",
 		Description: "Create an activity — a call, email, meeting or task — edit one, tick it off, or delete it. One call, whichever action: create takes subject, every other action takes activity_id. To log something that already happened, create it with done true and the note; to schedule something, give it a due_date. Writing is guarded, and every action except create reads the activity before it writes, so a write is two API calls. An update refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. complete and reopen just flip done and take no overwrite, because the field they change is the one you named — and reopen is why completing is not a one-way door. IMPORTANT: note is private and public_description is what attendees read in the calendar invite, so do not put one where the other belongs. The activity-type key varies per workspace: copy an exact one off an existing activity rather than guessing, since an unknown type is rejected upstream. A field that already holds a value can be changed but NOT cleared: Pipedrive v2 rejects a null and reads an empty string as a value. Deleting is soft and time-boxed: Pipedrive marks the activity deleted and removes it permanently after 30 days, so it takes dry_run and expect_version and no permitting flag beyond them — within that window Pipedrive's own UI can restore it, but NOTHING HERE PUTS IT BACK, so treat it as one-way and rehearse with dry_run first. Nothing hangs off an activity — notes anchor to deals, persons, organizations, leads and projects, never to an activity — so deleting one takes nothing with it that you have not already read. Use search to turn a company or person name into the ids this links to.",
 		Annotations: mutatingAnnotations(),

@@ -134,8 +134,17 @@ descriptions: build ## Tool descriptions against the mechanical house-style rule
 	$(BIN) --dump-schemas | go run ./scripts/gates descriptions -
 
 .PHONY: dump-schemas
-dump-schemas: build ## Print the registered tool schemas as JSON
+dump-schemas: build ## Print the tool surface a client is served, as JSON
 	$(BIN) --dump-schemas | jq .
+
+# Not in check: it measures a pull request from the merge-base of its
+# head and the base branch, which CI's schema-ack job passes.
+PR_BASE_REF ?= origin/main
+PR_HEAD     ?= HEAD
+
+.PHONY: schema-ack
+schema-ack: ## A commit footer names each item of the tool surface a pull request changes (pull requests)
+	go run ./scripts/gates schema-ack $(PR_BASE_REF) $(PR_HEAD)
 
 .PHONY: clean
 clean: ## Remove build artifacts
