@@ -80,10 +80,11 @@ pipedrive-mcp/
 │   ├── integration/           # live end-to-end suite (//go:build integration)
 │   ├── server/                # MCP SDK wiring + cache warm-up fan-out
 │   │   ├── server.go
+│   │   ├── dump.go            # --dump-schemas: the surface a client is served
 │   │   └── testutil/          # in-memory MCP transport for tool-handler tests
 │   └── tools/                 # tool registrations (one file per resource type)
-│       ├── registry.go        # parallel registry + DumpJSON for --dump-schemas
-│       ├── addtool.go         # generic AddTool[In, Out] schema-inferring wrapper
+│       ├── tools.go           # package doc
+│       ├── annotations.go     # the read-only and mutating hint postures
 │       ├── errors.go          # errorResult + validateEnum + validatePositiveID
 │       ├── pagination.go      # shared clampLimit + default/max page-size constants
 │       ├── pipelines.go       # list_pipelines + list_stages
@@ -508,32 +509,20 @@ Every `manage_` tool implements the full contract: per-call `dry_run`,
 when they move to `manage_*`" — they moved two releases ago, and there
 are no `create_*` tools left to describe.
 
-## Parallel tool registry
+## The schema dump
 
-The MCP Go SDK does not expose a public `Server.Tools()` /
-`ListTools()` to walk registered tools after `mcp.AddTool`. The
-`--dump-schemas` flag needs that capability for the schema-diff CI
-gate.
+`--dump-schemas` builds the clientless server `server.NewForSchemaDump`
+returns, connects an in-memory client to it, and writes what the client
+is served: the instructions from initialize, and the tools, resource
+templates, resources and prompts it lists, each sorted. The schema-ack
+gate compares two of these, so what it reads is the wire, never a list
+kept beside it. A parallel registry used to stand in for the listing,
+and it dumped the tools alone: the instructions and the resource
+templates were invisible to the gate.
 
-The workaround lives in `internal/tools/`:
-
-- `addtool.go` exposes a generic `AddTool[In, Out](s, t, h)`. It
-  infers the input/output JSON schemas using `google/jsonschema-go`
-  (the same library the SDK uses internally), populates `t.InputSchema`
-  / `t.OutputSchema` on the `*mcp.Tool` BEFORE calling `mcp.AddTool`,
-  then registers the tool in both the SDK and a process-wide
-  `Default` registry.
-- `registry.go` holds the registry: a `Registry` struct with a slice
-  of `*mcp.Tool` pointers plus `DumpJSON`, which emits a deterministic
-  JSON document (tools sorted alphabetically; SDK version pinned in
-  the header) for the schema-diff gate.
-
-Why the schema-inference dance: `mcp.AddTool` does `tt := *t`
-internally, then mutates the copy with inferred schemas. Without
-populating the schemas first, our parallel registry stores the
-original (bare) `*Tool` and `--dump-schemas` would emit empty
-schemas. By inferring + assigning before `mcp.AddTool`, both copies
-hold the same schema.
+Every tool is added with the SDK's `mcp.AddTool`, which infers its input
+and output schemas from the handler's types and panics at start, naming
+the tool, on a type it cannot read.
 
 ## Concurrency
 

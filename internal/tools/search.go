@@ -53,7 +53,7 @@ type searchOutput struct {
 // RegisterSearch wires the search tool into the MCP server.
 func RegisterSearch(s *mcp.Server, c searchClient) {
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name: "search",
 		Description: "Search Pipedrive for deals, persons, organizations, products, files, or leads matching a free-text term. " +
 			"Use this to resolve a name to a numeric id BEFORE calling get_deal, list_deals, or other id-keyed tools — " +

@@ -61,7 +61,7 @@ type listStagesOutput struct {
 // pass cfg.CompanyDomain from the server constructor.
 func RegisterPipelines(s *mcp.Server, c pipelinesClient, companyDomain string) {
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_pipelines",
 		Description: "List every Pipedrive pipeline the API token's user can see. Returns id, name, display order, active flag, and a URL to the Pipedrive UI for each. No filtering or pagination — Pipedrive workspaces typically have under 20 pipelines total.",
 		Annotations: readOnlyAnnotations(),
@@ -83,7 +83,7 @@ func RegisterPipelines(s *mcp.Server, c pipelinesClient, companyDomain string) {
 		return nil, out, nil
 	})
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_stages",
 		Description: "List Pipedrive stages, optionally filtered to a single pipeline. A stage represents a step in a pipeline (e.g. \"Lead In\", \"Negotiation\", \"Closed Won\"). Returns id, name, order_nr, active flag, owning pipeline_id, and Pipedrive's default deal_probability (0-100) for each stage.",
 		Annotations: readOnlyAnnotations(),

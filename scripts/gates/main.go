@@ -9,10 +9,12 @@
 //	go run ./scripts/gates changelog BASE HEAD
 //	go run ./scripts/gates deps
 //	go run ./scripts/gates release-notes VERSION [CHANGELOG]
+//	go run ./scripts/gates schema-ack BASE HEAD
 //	go run ./scripts/gates smoke binary TARGET
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -70,6 +72,10 @@ func init() {
 			run: releaseNotes, args: "VERSION [CHANGELOG]",
 			doc: "one version's CHANGELOG section, which is the release note",
 		},
+		"schema-ack": {
+			run: schemaAck, args: "BASE HEAD",
+			doc: "a commit footer names each item of the tool surface a pull request changes",
+		},
 		"smoke": {
 			run: smokeGate, args: "binary TARGET",
 			doc: "drive an MCP handshake over stdio and read the reply",
@@ -98,8 +104,23 @@ func main() {
 	}
 	if err := c.run(os.Stdout, os.Args[2:]); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, "gates: "+err.Error())
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
+}
+
+// couldNotRun is a gate that reached no verdict: a build or a git call
+// failed. Its message says so, and it exits 2, where a refusal exits 1.
+type couldNotRun struct{ err error }
+
+func (e couldNotRun) Error() string { return "could not run: " + e.err.Error() }
+func (e couldNotRun) Unwrap() error { return e.err }
+
+// exitCode is the status a gate's error exits with.
+func exitCode(err error) int {
+	if errors.As(err, new(couldNotRun)) {
+		return 2
+	}
+	return 1
 }
 
 func usage(w io.Writer) {

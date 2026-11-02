@@ -135,7 +135,7 @@ type manageNoteOutput struct {
 // opts.DryRun is the server-wide floor — see manageNoteHandler.
 func RegisterNotes(s *mcp.Server, c notesClient, opts RegisterOptions) {
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_note",
 		Description: "Everything stored on one note: its HTML content, who wrote it, WHICH RECORD IT HANGS OFF, when it was written and last touched, and whether it is still active. A note anchors to exactly one of a deal, person, organization, lead or project — the other four ids come back zero, and that is how you tell what the note is about. A soft-deleted note still returns here with active_flag false; list_notes is what hides it. Cheap: one call. Use list_notes when you do not already have the id.",
 		Annotations: readOnlyAnnotations(),
@@ -150,7 +150,7 @@ func RegisterNotes(s *mcp.Server, c notesClient, opts RegisterOptions) {
 		return nil, getNoteOutput{Note: summarizeNote(n)}, nil
 	})
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_notes",
 		Description: "List notes by what they hang off (deal_id, person_id, org_id, lead_id), who wrote them, when they were written, or when they were last touched. Default order is update_time descending, most-recently-edited first, which is the order that answers what has been written about X lately. Default limit is 25, maximum 100. IMPORTANT: a page holding fewer rows than the limit is NOT the end — keep paging while next_cursor comes back non-empty. Soft-deleted notes are filtered out here but still readable through get_note, so a note that vanished from this list has not necessarily gone. Notes live on Pipedrive v1, so the cursor wraps v1's offset rather than a v2 cursor; pass it back verbatim and it behaves the same. Use search first to turn a company or person name into the anchor id this filters on.",
 		Annotations: readOnlyAnnotations(),
@@ -195,7 +195,7 @@ func RegisterNotes(s *mcp.Server, c notesClient, opts RegisterOptions) {
 		return nil, out, nil
 	})
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "manage_note",
 		Description: "Create, edit or remove a note — the free-text record that hangs off a deal, person, organization, lead or project. One call, whichever action: create takes content plus at least one anchor id, update and delete take note_id. Writing is guarded, and update and delete both read the note before they act, so either is two API calls. An update refuses to replace ANY field that already holds a value — its text, or the record it hangs off — unless you pass overwrite, and the refusal names each field it is protecting; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the note moved under you. Deleting is soft — Pipedrive v1 clears active_flag, so get_note still returns the note and only list_notes stops showing it — but NOTHING HERE SETS THE FLAG BACK, so treat it as one-way and reach for dry_run first. IMPORTANT: content is HTML, because Pipedrive stores what its editor renders; markup you send is kept verbatim and plain text has its newlines turned into <br>. Notes live on Pipedrive v1, which has no v2 equivalent to move to. Use list_notes to find note_id, and search to turn a company or person name into the anchor id a new note needs.",
 		Annotations: mutatingAnnotations(),

@@ -142,10 +142,20 @@ jobs:
           echo "base: $base"
           go run ./scripts/gates changelog "$base" "${{ github.event.pull_request.head.sha }}"
 
-  schema-diff:
-    name: Tool schema diff
+  # What a pull request changes in the tool surface, measured from the
+  # merge-base of its head and the base branch as the full-history
+  # checkout sees it now, never github.event.pull_request.base.sha, which
+  # is fixed when the event fires. Both sides are built from commits, the
+  # merge-base and the head, never this checkout, which is the merge
+  # commit. Every commit the pull request adds is read for the footer, so
+  # merging main into the branch does not drop it.
+  schema-ack:
+    name: Schema change acknowledged
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    env:
+      PR_BASE_REF: origin/${{ github.base_ref }}
+      PR_HEAD: ${{ github.event.pull_request.head.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -155,57 +165,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           check-latest: false
           cache: true
-      - name: Build PR binary and dump schemas
-        run: |
-          go build -o /tmp/pr-bin ./cmd/pipedrive-mcp
-          /tmp/pr-bin --dump-schemas > /tmp/pr-schemas.json
-      - name: Build base binary and dump schemas
-        run: |
-          set -euo pipefail
-          # Compare against the PR's base branch, not the latest tag —
-          # see CHANGELOG entry for why.
-          base=$(./.github/merge-base.sh "${{ github.event.pull_request.base.ref }}" "${{ github.event.pull_request.head.sha }}")
-          echo "base: $base"
-          git worktree add /tmp/base-tree "$base"
-          cd /tmp/base-tree
-          # base = the target branch (typically main); a base-build
-          # failure means main is broken and the gate should fail
-          # loudly rather than silently passing schema diffs through.
-          go build -o /tmp/base-bin ./cmd/pipedrive-mcp
-          /tmp/base-bin --dump-schemas > /tmp/base-schemas.json
-      - name: Diff
-        run: |
-          # Recomputed: each step gets a fresh shell, so the base from
-          # the step above is not in scope here. Getting that wrong made
-          # the range empty and the gate fail on a described change.
-          base=$(./.github/merge-base.sh "${{ github.event.pull_request.base.ref }}" "${{ github.event.pull_request.head.sha }}")
-          echo "base: $base"
-          if [ -f /tmp/base-schemas.json ]; then
-            diff -u /tmp/base-schemas.json /tmp/pr-schemas.json || {
-              # Every commit the pull request adds, not just the head
-              # one. Reading only the head drops the acknowledgment the
-              # moment anything lands on top of the commit that carried
-              # it — merging main into the branch is enough, and that is
-              # a routine thing to do while a pull request is open. The
-              # gate then fails on a change somebody already described,
-              # and the only ways out are a force-push or an empty
-              # commit.
-              msg=$(git log --format=%B "$base..${{ github.event.pull_request.head.sha }}")
-              if echo "$msg" | grep -q "^BREAKING CHANGE:"; then
-                echo "Schema change with BREAKING CHANGE: footer — OK (treat as MAJOR)"
-                exit 0
-              fi
-              if echo "$msg" | grep -q "^SCHEMA-CHANGE:"; then
-                echo "Schema change with SCHEMA-CHANGE: footer — OK (additive / non-breaking, treat as MINOR)"
-                exit 0
-              fi
-              echo "::error::tool schema changed without an acknowledgment footer."
-              echo "::error::Add 'SCHEMA-CHANGE: <description>' for additive/non-breaking changes,"
-              echo "::error::or 'BREAKING CHANGE: <description>' for breaking ones, on any commit"
-              echo "::error::in this pull request."
-              exit 1
-            }
-          fi
+      - run: go run ./scripts/gates schema-ack "$PR_BASE_REF" "$PR_HEAD"
 
   stdio-smoke:
     name: Stdio smoke (binary)

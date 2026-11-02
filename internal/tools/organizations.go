@@ -80,7 +80,7 @@ type listOrganizationsOutput struct {
 // server-wide dry-run floor.
 func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain string, opts RegisterOptions) {
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_organization",
 		Description: "Fetch a single Pipedrive organization by org_id. Returns id, name, formatted address, owner_id, people_count (linked persons), add/update timestamps, and any custom fields under their workspace names, dropdown values as labels rather than option ids. Unknown org_id returns a [not_found] error. To find an organization by name, call `search` first to resolve the id.",
 		Annotations: readOnlyAnnotations(),
@@ -95,7 +95,7 @@ func RegisterOrganizations(s *mcp.Server, c organizationsClient, companyDomain s
 		return nil, getOrganizationOutput{Organization: resolvedOrganization(ctx, c, companyDomain, o)}, nil
 	})
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_organizations",
 		Description: "List Pipedrive organizations filtered by owner or update window. Returns id, name, formatted address (with parsed country/locality/postal_code when present), owner_id, people_count, add/update timestamps, and any custom fields under their workspace names, dropdown values as labels rather than option ids. Default sort is update_time desc — most-recently-touched first, ideal for 'which accounts have we been working on lately'. Default limit is 25, max 100. For more results, pass the next_cursor from the previous response. To find an organization by name (rather than ID), call `search` with type=organization — search is the natural-language gateway, list_organizations is the precision filter when the IDs are already known.",
 		Annotations: readOnlyAnnotations(),
@@ -173,7 +173,7 @@ type manageOrganizationOutput struct {
 
 func registerManageOrganization(s *mcp.Server, c organizationsClient, companyDomain string, opts RegisterOptions) {
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "manage_organization",
 		Description: "Create an organization — the account or company a deal and its people hang off — edit one, or delete one. One call, whichever action: create takes name, update takes org_id. Writing is guarded, and update reads the organization before it writes, so a write is two API calls. It refuses to replace ANY field that already holds a value unless you pass overwrite, and the refusal names each one; filling a field that is empty destroys nothing and needs no permission. expect_version refuses the write outright if the record moved under you. IMPORTANT: send address as ONE LINE the way a person would say it and let Pipedrive parse it — the structured country, locality and postal_code you see on a read are its output, not its input, and pre-splitting them loses the parse. Custom fields ARE writable here: pass custom_fields keyed by the names get_organization reports, and give a dropdown its label rather than an option id. Deleting is soft and time-boxed: Pipedrive marks the organization deleted and removes it permanently after 30 days, so it takes dry_run and expect_version and no permitting flag beyond them — within that window Pipedrive's own UI can restore it, but NOTHING HERE PUTS IT BACK, so treat it as one-way and rehearse with dry_run first. Deleting an organization deletes only the organization: its people and deals, the notes on it and the activities on its deals are not deleted with it, which is verified against a live workspace. Use search to find an org_id from a name.",
 		Annotations: mutatingAnnotations(),

@@ -22,6 +22,10 @@ in full.
 
 ## [Unreleased]
 
+### Changed
+
+- `pipedrive-mcp --dump-schemas` also prints the server's instructions, its five resource templates, and its resources and prompts, of which it has none, read over an in-memory session as a client is served them. The tools it prints are unchanged.
+
 ### Added
 
 - `make leaks-history` runs the leak gate over everything the repository has published: every commit message, every version of every file, every path and every tag's message. It allows `noreply@anthropic.com` and `support@github.com` by the whole address, and accepts the old file versions the maintainer chose to leave, each pinned to its blob hash and never written down.

@@ -64,7 +64,7 @@ func New(ctx context.Context, version string, client *pipedrive.Client, cfg conf
 }
 
 // NewForSchemaDump constructs a clientless server purely so
-// --dump-schemas can walk the registry. No handler ever runs, so there
+// --dump-schemas can list what a client is served. No handler ever runs, so there
 // is no workspace to name and no dry-run floor to honor — which is
 // why this is a separate constructor rather than New with zero
 // arguments a reader might copy.

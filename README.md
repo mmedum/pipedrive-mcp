@@ -391,8 +391,8 @@ gate over the dependency pins, a manifest gate holding the installable
 bundle to its schema, to the files the packer stages and to the server's
 own settings and the release to the family's six archives and their names,
 a link gate over the changelog's version headings,
-and a stdio smoke test. CI adds a schema diff against the base branch
-that fails an unacknowledged change to the tool surface, and a changelog
+and a stdio smoke test. CI adds a gate on each pull request that a commit
+footer names every item of the tool surface it changes, and a changelog
 gate that fails source changes with no entry under `[Unreleased]`.
 
 Conventions are in [CONTRIBUTING.md](CONTRIBUTING.md); building, testing

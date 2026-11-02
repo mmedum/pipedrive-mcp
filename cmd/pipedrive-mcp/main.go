@@ -32,7 +32,6 @@ import (
 	"github.com/mmedum/pipedrive-mcp/internal/credentials"
 	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
 	"github.com/mmedum/pipedrive-mcp/internal/server"
-	"github.com/mmedum/pipedrive-mcp/internal/tools"
 	"github.com/mmedum/pipedrive-mcp/internal/userconfig"
 	"github.com/mmedum/pipedrive-mcp/internal/version"
 )
@@ -97,10 +96,9 @@ func runServer(stdout io.Writer) {
 
 	if dumpSchemas {
 		// Every tool registers unconditionally now, so the dump always
-		// carries the full surface the schema-diff CI gate compares.
-		_ = server.NewForSchemaDump()
-		if err := tools.DumpJSON(stdout, version.Version); err != nil {
-			fail("dump schemas: %v", err)
+		// carries the full surface the schema gate compares.
+		if err := server.DumpSchemas(stdout, version.Version); err != nil {
+			fail("%v", err)
 		}
 		return
 	}

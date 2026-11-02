@@ -18,8 +18,8 @@ unchecked boxes lacking justification.
 - [ ] Coverage ≥ 80% on `internal/pipedrive/` and `internal/tools/` (where applicable)
 - [ ] `govulncheck ./...` clean
 - [ ] `go-licenses check` passes
-- [ ] `scripts/staleness-check.sh` passes
-- [ ] Tool-schema diff is empty, OR head commit carries `SCHEMA-CHANGE:` (additive / non-breaking) or `BREAKING CHANGE:` (breaking) footer
+- [ ] `make staleness` passes
+- [ ] The tool surface is unchanged, OR a commit footer names each item that changed: `SCHEMA-CHANGE:`, or `BREAKING CHANGE:` for a break of the last release
 - [ ] `make smoke` passes
 - [ ] gitleaks clean
 
@@ -44,14 +44,16 @@ unchecked boxes lacking justification.
 
 <!--
 If this PR changes the public tool surface, describe the change here
-AND add a footer to the head commit:
+AND add an empty commit whose footer names each item that changed:
 
-  - SCHEMA-CHANGE: <description>   for additive / non-breaking changes
-    (new optional input field, new tool, expanded enum)
-  - BREAKING CHANGE: <description>  for breaking changes
-    (tool removed/renamed, required input removed/renamed, output type
-    changed, narrowed enum, etc.)
+  - SCHEMA-CHANGE: <names>: what changed   for anything that breaks no
+    caller of the last release (a new tool, a new optional input, a
+    description, an annotation, the instructions)
+  - BREAKING CHANGE: <names>: what broke   for a break of the last
+    release (a tool or input removed or renamed, an input newly
+    required, an output field removed, a type narrowed)
 
-The schema-diff CI gate enforces one of these footers whenever
---dump-schemas differs from the previous tag.
+The schema-ack CI gate builds the merge-base and the head and enforces
+this whenever what --dump-schemas prints differs. A refusal prints the
+footer that fixes it.
 -->

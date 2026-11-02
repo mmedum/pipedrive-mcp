@@ -37,7 +37,7 @@ type refreshFieldCacheOutput struct {
 func RegisterCache(s *mcp.Server, c cacheClient) {
 	annotations := mcp.ToolAnnotations{IdempotentHint: true}
 
-	AddTool(s, &mcp.Tool{
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "refresh_field_cache",
 		Description: "Refresh Pipedrive's custom-field name caches for deals, persons, and organizations. Use after a custom field is added or renamed in the Pipedrive UI, or after a dropdown gains an option, so the LLM-facing tools (get_deal, get_person, get_organization, list_X) start surfacing the new name or label without restarting the server. Refreshes all three resources in parallel; returns per-resource field count after reload, plus an `errors` count if any resource failed. Activities do not have custom fields on Pipedrive v2 and are intentionally skipped.",
 		Annotations: &annotations,

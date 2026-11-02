@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -123,9 +125,15 @@ func cutHint(diff string) string {
 	return ""
 }
 
+// git runs git in the working directory. A failure carries what git
+// said, not only its exit status.
 func git(args ...string) (string, error) {
 	out, err := exec.Command("git", args...).Output()
 	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && len(bytes.TrimSpace(ee.Stderr)) > 0 {
+			return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, bytes.TrimSpace(ee.Stderr))
+		}
 		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
 	return string(out), nil

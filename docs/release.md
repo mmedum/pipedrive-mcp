@@ -36,8 +36,9 @@ A release lands a verified state of `main`. Don't tag from a branch.
 - [ ] `CHANGELOG.md` `[Unreleased]` section reflects exactly the
       shipped surface — no stragglers, no missing entries.
 - [ ] `make dump-schemas` output diffed against the previous tag.
-      Any breaking change has a `BREAKING CHANGE:` commit footer
-      somewhere in the range.
+      Any break of it has a `BREAKING CHANGE:` footer naming the item
+      somewhere in the range, which the schema-ack gate asked for on
+      the pull request that made it.
 - [ ] `/security-review` over the cumulative diff since the previous
       tag. Output committed under `audit/security-reviews/v<tag>.md`.
 - [ ] `/simplify` over the cumulative diff. Output under
