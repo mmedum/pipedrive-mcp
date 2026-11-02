@@ -50,8 +50,10 @@ lacking justification.
 
   A footer names a tool by its name, a resource template by its URI
   template, and the instructions as `instructions`, each a whole word.
-  Only the names before the first `: ` count; the description after it
-  names nothing. A name with a comma or a space in it goes in
+  Only the names before the first colon followed by white space count;
+  the description after it names nothing. Names are separated by
+  commas, and a list wraps only after one. A `Token #value` footer such as `Closes #12` acknowledges
+  nothing. A name with a comma or a space in it goes in
   backticks. A break of the last release (a tool or an input removed or
   renamed, an input newly required, an output field removed, a type
   narrowed) needs `BREAKING CHANGE: <names>: what broke` instead.
