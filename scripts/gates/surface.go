@@ -137,8 +137,10 @@ func itemID(item map[string]any) string {
 // is what a footer names, and how the report shows it. The item is a
 // tool's name, a resource template's URI template, a list item's id, or
 // a top-level key such as instructions. field is, on the break of a tool
-// still there, the field it breaks, such as "input id", so a break is
-// matched across two comparisons by item and field, never by its text.
+// still there, the field it breaks, such as "input id", and on a removed
+// item its list, so a removed prompt and a tool of one name differ. A
+// break is matched across two comparisons by item and field, never by
+// its text.
 type change struct {
 	item, text, field string
 }
@@ -170,7 +172,7 @@ func compareSurfaces(base, cur surface) surfaceChanges {
 		now, inCur := cur.items[k]
 		switch {
 		case !inCur:
-			removed = append(removed, change{item: k.id, text: k.String() + " removed"})
+			removed = append(removed, change{item: k.id, text: k.String() + " removed", field: k.list})
 		case !inBase:
 			c.added = append(c.added, change{item: k.id, text: k.String()})
 		default:
