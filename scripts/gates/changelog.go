@@ -57,8 +57,14 @@ func changelogGate(w io.Writer, args []string) error {
 	return nil
 }
 
+// touchesWatched reports whether the diff changes watched source. Test
+// data under a watched tree is left out: a refreshed fixture, such as the
+// spec snapshot each release takes, changes nothing a user sees.
 func touchesWatched(nameOnlyDiff string) bool {
 	for _, f := range strings.Split(nameOnlyDiff, "\n") {
+		if strings.Contains(f, "/testdata/") {
+			continue
+		}
 		for _, p := range watchedPaths {
 			if strings.HasPrefix(f, p) {
 				return true
