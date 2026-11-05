@@ -23,6 +23,8 @@ other tool is covered by the promise in full.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-05
+
 ### Changed
 
 - `pipedrive-mcp --dump-schemas` also prints the instructions, resource templates, resources and prompts, as a client is served them. The tools it prints are unchanged.
@@ -2105,7 +2107,8 @@ destructive flag is on.
   External callers can still branch on the error class via `errors.Is`
   and read `Status`/`Message`/`Endpoint`.
 
-[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/mmedum/pipedrive-mcp/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/mmedum/pipedrive-mcp/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/mmedum/pipedrive-mcp/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/mmedum/pipedrive-mcp/compare/v1.1.2...v1.1.3
