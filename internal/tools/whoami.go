@@ -12,12 +12,19 @@ type whoamiClient interface {
 	WhoAmI(ctx context.Context) (*pipedrive.User, error)
 }
 
-// userSummary is the LLM-facing shape of the authenticated account.
-// Parallel shadow of pipedrive.User per CLAUDE.md — jsonschema tags
-// scoped here, never on the internal/pipedrive type.
+// userSummary is the LLM-facing shape of the authenticated account: a
+// parallel shadow of pipedrive.User, never an embed, so the jsonschema
+// tags stay here and off the internal/pipedrive type (D-17).
 //
 // The token itself is never surfaced, and neither is anything that
 // would identify it.
+//
+// TimezoneName's description says an activity's due date and time are
+// in this zone, and nothing checks that against a workspace. Pipedrive's
+// v2 Activities reference gives due_time no zone, while its v1 reference
+// describes an activity's due_time in /recents and in a project's
+// activities as UTC.
+// https://developers.pipedrive.com/docs/api/v1/Activities#addActivity
 type userSummary struct {
 	UserID        int64  `json:"user_id" jsonschema:"the authenticated user's numeric id. This is the owner_id a record gets when you create one without naming an owner."`
 	Name          string `json:"name" jsonschema:"the user's display name"`
@@ -71,9 +78,9 @@ func summarizeUser(u *pipedrive.User) userSummary {
 
 // previewUser is the signed-in user, for a dry-run create to show the
 // owner Pipedrive gives a record created without one, or nil when need
-// is false or the read fails. WhoAmI is the v1 carve-out (CLAUDE.md rule
-// 1), since v2 has no users resource; the preview only reads it and
-// shows nothing if it stops answering, so no dry run depends on v1.
+// is false or the read fails. WhoAmI reads v1, since Pipedrive's v2 has
+// no users resource; the preview only reads it and shows nothing if it
+// stops answering, so no dry run depends on v1.
 func previewUser(ctx context.Context, c whoamiClient, need bool) *pipedrive.User {
 	if !need {
 		return nil
@@ -86,7 +93,8 @@ func previewUser(ctx context.Context, c whoamiClient, need bool) *pipedrive.User
 }
 
 // fillOwner puts the signed-in user on a dry-run preview created without
-// an owner, as the real create does (TestWrite_CreateDefaultsMatchTheDryRun).
+// an owner, as the real create does. Checked by the integration test
+// TestWrite_CreateDefaultsMatchTheDryRun.
 func fillOwner(ctx context.Context, c whoamiClient, owner *int64) {
 	if me := previewUser(ctx, c, *owner == 0); me != nil {
 		*owner = me.ID

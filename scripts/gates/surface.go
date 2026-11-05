@@ -14,9 +14,9 @@ import (
 
 // surface is one schema dump, read for the comparison: every item of
 // every list, keyed by itemKey, every other key but the build stamp, and
-// each tool's fields at any depth. The fields are the contract (README,
-// Versioning): tool names, their arguments and the shape of their output
-// are stable within a major version. lists names every list the dump
+// each tool's fields at any depth. The fields are the contract: tool
+// names, their arguments and the shape of their output are stable within
+// a major version. lists names every list the dump
 // carries, empty ones included, since a dump older than a list cannot
 // show it.
 type surface struct {

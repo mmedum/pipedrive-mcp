@@ -22,7 +22,7 @@ jobs:
     steps:
       # gh is on the runner, so no third-party action and nothing to pin.
       # The issue number and repository come in through env, never
-      # spliced into the script.
+      # spliced into the script, and no issue text reaches it at all.
       - run: gh issue edit "$NUMBER" --repo "$REPO" --add-assignee "$OWNER"
         env:
           GH_TOKEN: ${{ github.token }}

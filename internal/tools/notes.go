@@ -42,11 +42,11 @@ var allowedNoteActions = map[string]bool{
 	"delete": true,
 }
 
-// noteSummary is the LLM-facing shape of a note. Parallel shadow of
-// pipedrive.Note per CLAUDE.md — jsonschema tags scoped here, not on
-// internal/pipedrive types. v1 returns the pinned-to-* fields as JSON
-// booleans (verified live; earlier external docs claimed 0/1 ints —
-// see types.go on Note); they pass through unchanged here.
+// noteSummary is the LLM-facing shape of a note: a parallel shadow of
+// pipedrive.Note, never an embed, so the jsonschema tags stay here and
+// off the internal/pipedrive types (D-17). v1 returns the pinned-to-*
+// fields as JSON booleans (see pipedrive.Note), and they pass through
+// unchanged.
 type noteSummary struct {
 	ID                   int64  `json:"id" jsonschema:"the note's numeric id"`
 	Content              string `json:"content" jsonschema:"note text; HTML-formatted (Pipedrive's notes editor produces HTML)"`
@@ -128,9 +128,9 @@ type manageNoteOutput struct {
 // discrete (get_note, list_notes); every mutation goes through
 // manage_note.
 //
-// manage_note registers unconditionally. Per CLAUDE.md hard rule 3 the
-// destructive path is guarded at call time by dry_run and by the fact
-// that a v1 note delete is soft, not by whether the tool exists.
+// manage_note registers unconditionally: a destructive action is
+// guarded at call time, here by dry_run and by a v1 note delete being
+// soft, never by whether the tool exists (D-46).
 //
 // opts.DryRun is the server-wide floor — see manageNoteHandler.
 func RegisterNotes(s *mcp.Server, c notesClient, opts RegisterOptions) {
@@ -209,7 +209,7 @@ func RegisterNotes(s *mcp.Server, c notesClient, opts RegisterOptions) {
 // dryRun is the server-wide PIPEDRIVE_DRY_RUN floor: a per-call
 // dry_run: true can turn a rehearsal on, but the env flag cannot be
 // turned off from the wire. An operator who sets it gets a server that
-// writes nothing, which is what docs/security.md promises.
+// writes nothing.
 func manageNoteHandler(c notesClient, dryRun bool) mcp.ToolHandlerFor[manageNoteInput, manageNoteOutput] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in manageNoteInput) (*mcp.CallToolResult, manageNoteOutput, error) {
 		if err := validateAction(in.Action, allowedNoteActions); err != nil {

@@ -8,15 +8,13 @@ import (
 	"strings"
 )
 
-// descriptionsGate holds the tool descriptions against the house-style
-// rules in CLAUDE.md that can be checked mechanically.
+// descriptionsGate holds the tool descriptions to the house-style rules
+// that can be checked mechanically, each stated where it is checked.
 //
 // It reads the dumped schemas rather than the Go source, because the
-// dump is what a client is served. The first attempt at this lived in
-// internal/tools as a unit test walking the package registry — which is
-// empty unless something registered into it, so the test passed while
-// asserting on nothing. A gate over the built artifact cannot do that:
-// if the dump is empty, there is nothing to parse and this fails.
+// dump is what a client is served. A test walking internal/tools'
+// registry would pass on an empty registry while asserting nothing; an
+// empty dump fails here.
 func descriptionsGate(w io.Writer, args []string) error {
 	if len(args) != 1 {
 		return fmt.Errorf("usage: gates descriptions SCHEMA_DUMP|-")
@@ -66,14 +64,12 @@ func descriptionsGate(w io.Writer, args []string) error {
 		if strings.TrimSpace(t.Description) == "" {
 			problems = append(problems, t.Name+" has no description")
 		}
-		// Every overwrite input has to say that a refusal is not a
-		// retry signal. The first live eval run had the model read the
-		// guard's refusal, which names overwrite as the argument that
-		// would permit the write, and simply re-send with it set — the
-		// guard held and was routed around, which makes it decorative.
-		// The field description is where that is headed off, and this
-		// keeps the sentence on all five rather than the one that was
-		// remembered.
+		// Every overwrite input says that a refusal is NOT a retry
+		// signal. The refusal names overwrite as the argument that would
+		// permit the write, and a model re-sends with it set. The
+		// sentence raises the cost of routing around the guard and does
+		// not prevent it: the refuse-the-overwrite eval fails with it in
+		// place.
 		if p, ok := t.InputSchema.Properties["overwrite"]; ok {
 			if !strings.Contains(p.Description, "NOT a retry signal") {
 				problems = append(problems, t.Name+

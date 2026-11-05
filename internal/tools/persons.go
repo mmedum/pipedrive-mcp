@@ -141,8 +141,8 @@ var allowedPersonActions = map[string]bool{"create": true, "update": true, "dele
 // Emails and phones project through projectContactPoints, which
 // renders every field of every entry — see the rule on projectCollection
 // in guard.go. "Does this person already have an email" is NOT the
-// question the guard needs answered; that reasoning shipped once and was
-// wrong twice over.
+// question the guard needs answered: a write can drop, relabel or
+// re-flag an entry while the answer stays yes.
 var personBaseFields = []fieldSpec[pipedrive.Person]{
 	{"name", func(p *pipedrive.Person) string { return p.Name }},
 	{"first_name", func(p *pipedrive.Person) string { return p.FirstName }},
@@ -346,9 +346,8 @@ type personFieldResolver interface {
 }
 
 // resolvedPerson resolves custom-field hashes to workspace names and summarizes
-// in one step. Written out separately at six sites per resource, a
-// forgotten resolve silently shipped 40-char field hashes to the LLM
-// instead of the names it can actually cite.
+// in one step, so no site can summarize without resolving and hand the
+// LLM 40-character field hashes instead of the names it can cite.
 func resolvedPerson(ctx context.Context, c personFieldResolver, domain string, r *pipedrive.Person) personSummary {
 	return summarizePerson(domain, r, c.ResolvePersonCustomFields(ctx, r.CustomFields))
 }
@@ -377,17 +376,16 @@ func summarizePerson(domain string, p *pipedrive.Person, customFields map[string
 // only added where the caller cannot see what they are about to lose —
 // the read this performs puts the person on screen first.
 //
-// The records hanging off this one are not deleted with it, which a
-// live probe established (docs/security.md), so there is nothing
-// further to guard.
+// The records hanging off this one are not deleted with it, so there
+// is nothing further to guard. Checked by the integration test
+// TestWrite_DeletingAParentLeavesWhatHangsOffIt/person.
 //
-// There is no already-deleted short-circuit, unlike manage_deal's,
-// because there is nothing here to read one from: a deal carries
-// status "deleted", but pipedrive.Person has no deleted marker and
-// cannot grow one — the v2 response fixture spec_test.go checks against
-// does not declare is_deleted for this resource, so the tag would fail
-// the gate. A second delete reaches Pipedrive and is reported as
-// whatever Pipedrive answers.
+// There is no already-deleted short-circuit, unlike manage_deal's: a
+// deal carries status "deleted", but pipedrive.Person does not model
+// is_deleted, though Pipedrive's v2 reference and the response fixture
+// spec_test.go checks against both declare it. A second delete reaches
+// Pipedrive and is reported as whatever Pipedrive answers.
+// https://developers.pipedrive.com/docs/api/v1/Persons#getPerson
 func deletePersonAction(ctx context.Context, c personsClient, companyDomain string, in managePersonInput) (*mcp.CallToolResult, managePersonOutput) {
 	if err := validatePositiveID(in.PersonID, "personid"); err != nil {
 		return errorResult(err), managePersonOutput{}

@@ -235,10 +235,9 @@ var activityFields = []fieldSpec[pipedrive.Activity]{
 	{"done", func(a *pipedrive.Activity) string { return projectBool(a.Done) }},
 	{"busy", func(a *pipedrive.Activity) string { return projectBool(a.Busy) }},
 	// participants belongs here because an update REPLACES the
-	// collection. Left out of the table it was written but never
-	// diffed, so the overwrite guard could not refuse over it, a
-	// participants-only update looked like a no-op, and `changed` never
-	// admitted that attendees had been dropped.
+	// collection. Left out of the table it is written but never diffed:
+	// the overwrite guard cannot refuse over it, a participants-only
+	// update looks like a no-op, and `changed` hides dropped attendees.
 	{"participants", func(a *pipedrive.Activity) string { return projectParticipants(a.Participants) }},
 }
 
@@ -532,8 +531,8 @@ func statusToDoneFilter(status string) *bool {
 // Unlike a deal, a person or an organization, an activity is a leaf:
 // notes anchor to deals, persons, organizations, leads and projects,
 // never to an activity, and nothing else hangs off one. Its entire
-// blast radius is the row the caller just read, which is the case
-// CLAUDE.md names as not needing a permitting argument at all.
+// blast radius is the row the caller just read, so a soft delete needs
+// no permitting argument at all (D-47).
 func deleteActivityAction(ctx context.Context, c activitiesClient, companyDomain string, in manageActivityInput) (*mcp.CallToolResult, manageActivityOutput) {
 	if err := validatePositiveID(in.ActivityID, "activity_id"); err != nil {
 		return errorResult(err), manageActivityOutput{}

@@ -5,9 +5,11 @@ import (
 )
 
 // User is the authenticated account behind the API token, as
-// /api/v1/users/me reports it. Subset: enough to answer "who am I and
-// which workspace am I in", which is what the tool needs to stop an
-// LLM guessing at ownership.
+// /api/v1/users/me reports it: the user, with the company's id, name and
+// domain, timezone_name and locale. Locale is the date and number
+// format, not the language, as Pipedrive's reference notes. Checked by
+// the integration test TestWhoAmI_ReachesTheV1Carveout.
+// https://developers.pipedrive.com/docs/api/v1/Users#getCurrentUser
 type User struct {
 	ID            int64  `json:"id"`
 	Name          string `json:"name"`
@@ -26,26 +28,23 @@ type User struct {
 
 // WhoAmI reports the user the API token authenticates as.
 //
-// SECOND v1 CARVE-OUT, alongside notes. Pipedrive v2 exposes no users
-// resource at all: /api/v2/users does not exist, which is also why the
-// startup auth probe uses /api/v2/dealFields rather than a users call.
-// v1 /users/me is the only endpoint that answers this, so a whoami tool
-// either lives here or does not exist. Per CLAUDE.md hard rule 1 this
-// carve-out carries a CHANGELOG entry under ### Changed and an explicit
-// user go-ahead, recorded there.
+// SECOND v1 CARVE-OUT, alongside notes. Pipedrive's published v2
+// description has no /users and no /notes, and nothing here watches for
+// either to appear. v1 /users/me is the only endpoint that answers this,
+// so a whoami tool either lives here or does not exist.
+// https://developers.pipedrive.com/docs/api/v1/openapi-v2.yaml
 //
-// Note the shape difference from v2: v1 wraps single records in the
-// same {success, data} envelope, so itemEnvelope still applies.
+// v1 wraps a single record in the same {success, data} envelope as v2,
+// so itemEnvelope applies.
 //
-// MEMOIZED for the process lifetime, behind the same sync.Once shape the
-// field caches use. A token authenticates as exactly one user, and the
-// whoami tool's own description tells the model the answer does not
-// change during a session — which is an invitation to call it every turn.
-// Without this, each of those was a full round trip for a value that
-// cannot move. The trade: a token rotation or a rename mid-process goes
-// unseen, and unlike the field caches there is no refresh tool. That is
-// acceptable for a per-workspace stdio server whose token is fixed at
-// startup, and a restart is the escape hatch.
+// MEMOIZED for the process lifetime, behind meMu. A token authenticates
+// as exactly one user, and the whoami tool's own description tells the
+// model the answer does not change during a session, which invites a
+// call every turn; each would otherwise be a full round trip for a value
+// that cannot move. The trade: a token rotation or a rename mid-process
+// goes unseen, and unlike the field caches there is no refresh tool.
+// That is acceptable for a per-workspace stdio server whose token is
+// fixed at startup, and a restart is the escape hatch.
 //
 // The first answer's error is memoized too, so a failing probe does not
 // turn into a retry on every subsequent call. A call its own caller

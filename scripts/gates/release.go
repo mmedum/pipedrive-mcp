@@ -24,7 +24,7 @@ const goreleaserPath = ".goreleaser.yaml"
 // docVersion is the version the docs write an archive name with.
 const docVersion = "X.Y.Z"
 
-// releaseMatrix is the family's release: every goos-goarch pair
+// releaseMatrix is the release: every goos-goarch pair
 // .goreleaser.yaml builds, an archive each, and, for a pair the bundle
 // stages no binary of its own, the pair whose binary runs there. Windows
 // on arm64 runs the amd64 binary under emulation; its archive is for
@@ -48,7 +48,7 @@ func releasePairs() []string {
 	return out
 }
 
-// releaseProblems holds .goreleaser.yaml under root to the family's
+// releaseProblems holds .goreleaser.yaml under root to releaseMatrix's
 // archives and the bundle, and every file that names an archive to the
 // names it renders. archives is how many archives the release carries.
 func releaseProblems(root string) (problems []string, archives int, err error) {
@@ -77,7 +77,7 @@ func releaseProblems(root string) (problems []string, archives int, err error) {
 	problems = append(problems, mcpbMatrixProblems(bundleFiles)...)
 	_, universal := blocks["universal_binaries"]
 	problems = append(problems, stagedBuildProblems(bundleFiles, built, universal)...)
-	problems = append(problems, familyNameProblems(names, moduleName(module), docVersion)...)
+	problems = append(problems, archiveNameProblems(names, moduleName(module), docVersion)...)
 
 	named, err := archiveNamingFiles(root, raw)
 	if err != nil {
@@ -140,14 +140,14 @@ var (
 // dependency this program does not otherwise need, and the file it reads
 // is one this repository writes. So it refuses what it does not read
 // rather than read it wrong: a second build, and an ignore list, which
-// the family's matrix, every pair of its lists, never needs. The floor
+// releaseMatrix, every pair of its lists, never needs. The floor
 // is what keeps a changed layout from reading as an empty matrix.
 func goreleaserMatrix(builds string) ([]string, error) {
 	if n := len(goosKey.FindAllStringIndex(builds, -1)); n > 1 {
 		return nil, fmt.Errorf("%s has %d builds; this check reads one", goreleaserPath, n)
 	}
 	if ignoreKey.MatchString(builds) {
-		return nil, fmt.Errorf("%s's build has an ignore list; the family builds every pair of its goos "+
+		return nil, fmt.Errorf("%s's build has an ignore list; the release builds every pair of its goos "+
 			"and goarch lists, and this check reads no ignore", goreleaserPath)
 	}
 	oses := listAfter(builds, goosKey)
@@ -231,6 +231,9 @@ func releaseArchives(blocks map[string]string, built []string, version string) (
 ) {
 	project = strings.Trim(strings.TrimSpace(blocks["project_name"]), `"'`)
 	archives := blocks["archives"]
+	// Joined with a space, as a folded `>-` block renders. A literal `|`
+	// block keeps its newlines in goreleaser's name, so the template is
+	// written as `>-`.
 	name := strings.Join(blockScalar(archives, "name_template"), " ")
 	if name == "" {
 		return "", nil, fmt.Errorf("%s's archives block has no name_template; goreleaser's default adds "+
@@ -295,10 +298,11 @@ func blockScalar(text, key string) []string {
 	return nil
 }
 
-// familyNameProblems holds the archive names to the family's,
+// archiveNameProblems holds the archive names to
 // <name>_<version>_<os>_<arch>, a zip on Windows and a tar.gz elsewhere,
-// where name is the module's.
-func familyNameProblems(names map[string]string, name, version string) []string {
+// where name is the module's: goreleaser's own form, which the sibling
+// servers' releases (google-chat-mcp, google-docs-mcp) also use.
+func archiveNameProblems(names map[string]string, name, version string) []string {
 	var problems []string
 	for _, pair := range slices.Sorted(maps.Keys(names)) {
 		goos, goarch, _ := strings.Cut(pair, "-")
@@ -308,7 +312,7 @@ func familyNameProblems(names map[string]string, name, version string) []string 
 		}
 		want := fmt.Sprintf("%s_%s_%s_%s.%s", name, version, goos, goarch, format)
 		if names[pair] != want {
-			problems = append(problems, fmt.Sprintf("%s names the %s archive %s; the family's name is %s",
+			problems = append(problems, fmt.Sprintf("%s names the %s archive %s; archives are named <name>_<version>_<os>_<arch>, so this one is %s",
 				goreleaserPath, pair, names[pair], want))
 		}
 	}
@@ -323,25 +327,25 @@ func moduleName(module string) string {
 	return path.Base(majorSuffix.ReplaceAllString(module, ""))
 }
 
-// releaseArchiveProblems holds the build matrix to the family's
-// archives, releaseMatrix, both ways. A pair left out is a machine whose
+// releaseArchiveProblems holds the build matrix to releaseMatrix's
+// archives, both ways. A pair left out is a machine whose
 // owner has nothing to download; a bundle reaching it under emulation
 // does not help someone installing from an archive. A pair beyond it is
-// an archive no sibling's release carries.
+// an archive no sibling server's release carries.
 func releaseArchiveProblems(built []string) []string {
-	family := releasePairs()
+	matrix := releasePairs()
 	var problems []string
-	for _, pair := range family {
+	for _, pair := range matrix {
 		if !slices.Contains(built, pair) {
 			problems = append(problems, fmt.Sprintf("%s does not build %s, so the release carries no %s "+
-				"archive; the family's releases carry %s", goreleaserPath, pair, strings.ReplaceAll(pair, "-", "_"),
-				strings.Join(family, ", ")))
+				"archive; a release carries %s", goreleaserPath, pair, strings.ReplaceAll(pair, "-", "_"),
+				strings.Join(matrix, ", ")))
 		}
 	}
 	for _, pair := range built {
-		if !slices.Contains(family, pair) {
-			problems = append(problems, fmt.Sprintf("%s builds %s, which is not one of the family's "+
-				"archives, %s", goreleaserPath, pair, strings.Join(family, ", ")))
+		if !slices.Contains(matrix, pair) {
+			problems = append(problems, fmt.Sprintf("%s builds %s, which is not one of the archives "+
+				"a release carries, %s", goreleaserPath, pair, strings.Join(matrix, ", ")))
 		}
 	}
 	return problems
@@ -430,8 +434,8 @@ var versionTemplate = regexp.MustCompile(`\{\{\s*\.Version\s*\}\}`)
 // use: the Markdown at the root, under docs/ and under .github/, the
 // workflows, and
 // .goreleaser.yaml itself, raw, with its version template written as
-// docVersion. CHANGELOG.md and audit/ are left out: they record the
-// names releases shipped with.
+// docVersion. CHANGELOG.md is left out: it records the names releases
+// shipped with.
 func archiveNamingFiles(root string, goreleaser []byte) ([]namedFile, error) {
 	var docs []string
 	for _, pattern := range []string{"*.md", "docs/*.md", ".github/*.md"} {
@@ -493,7 +497,7 @@ func oldFormProblems(file, text, project string, found []string) []string {
 		if slices.ContainsFunc(found, func(a string) bool { return strings.HasPrefix(m, a) }) {
 			continue
 		}
-		problems = append(problems, fmt.Sprintf("%s names %s, the archives' old form; the family's names are "+
+		problems = append(problems, fmt.Sprintf("%s names %s, the archives' old form; they are named "+
 			"%s_<version>_<os>_<arch>", file, m, project))
 	}
 	return problems

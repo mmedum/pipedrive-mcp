@@ -2,9 +2,9 @@ package pipedrive
 
 import "context"
 
-// ListDealFields returns the field metadata for deals. Used by the
-// auth probe (limit=1 form is in probe.go) and by the per-Client
-// deal field cache.
+// ListDealFields returns the field metadata for deals, for the deal
+// field cache. It reads one page, Pipedrive's default of 100 fields, and
+// does not follow next_cursor.
 func (c *Client) ListDealFields(ctx context.Context) ([]Field, error) {
 	var resp listEnvelope[Field]
 	if err := c.do(ctx, "/dealFields", &resp); err != nil {
@@ -38,7 +38,7 @@ func (c *Client) WarmDealFields(ctx context.Context) {
 }
 
 // ReloadDealFields clears and re-fetches the deal-field cache,
-// returning the count of fields now cached. Used by the
+// returning the count of fields cached after the reload. Used by the
 // refresh_field_cache tool to pick up custom-field renames or
 // additions without restarting the server. Reload is followed by an
 // eager Load so the next get_deal/list_deals call sees fresh data

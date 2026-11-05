@@ -5,8 +5,8 @@
 // mcp.NewInMemoryTransports (net.Pipe-backed), and drives the handler
 // through the SDK's CallTool API. This exercises the full
 // schema-validate → handler → response shape end-to-end without
-// spawning the binary or hitting stdio. CLAUDE.md "Where things go"
-// names this as the standard test pattern for Phase 1+ tools.
+// spawning the binary or hitting stdio, and it is how a tool handler
+// is tested here.
 package testutil
 
 import (

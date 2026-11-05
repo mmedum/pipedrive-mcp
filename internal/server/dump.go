@@ -13,9 +13,8 @@ import (
 // comparing two dumps by hand can tell an SDK bump from a change to the
 // surface. The schema-ack gate leaves the header out.
 //
-// It mirrors the go.mod pin by hand, and it has drifted twice: once
-// saying v1.5.0 against a v1.6.0 pin, and again saying v1.6.0 after the
-// v1.8.0 upgrade. TestSDKVersionMatchesGoMod is the check;
+// It mirrors the go.mod pin by hand, so an SDK upgrade can leave it
+// behind. TestSDKVersionMatchesGoMod is the check;
 // runtime/debug.ReadBuildInfo would remove the constant entirely but does
 // not list the dependency in a test binary, so there would be nothing to
 // test it with.
@@ -32,8 +31,8 @@ type dumpHeader struct {
 
 // dumpDocument is what --dump-schemas writes. Every list is written, an
 // empty one as [], so the schema gate can tell a list the server has
-// nothing in, such as its resources and prompts today, from a list an
-// older dump did not carry.
+// nothing in, such as its resources and prompts, from a list an older
+// dump did not carry.
 type dumpDocument struct {
 	Header            dumpHeader              `json:"header"`
 	Instructions      string                  `json:"instructions"`

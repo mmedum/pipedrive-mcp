@@ -165,8 +165,8 @@ func TestDelete_RejectsANonPositiveID(t *testing.T) {
 
 // The point of naming fields rather than passing a flag: a caller who
 // agreed to replace the title has NOT agreed to replace the value, and
-// the guard now says so. `overwrite: true` could not express that — it
-// permitted every populated field the write happened to touch, so a
+// the guard says so. A blanket `overwrite: true` cannot express that: it
+// would permit every populated field the write happened to touch, so a
 // caller who meant one thing authorized all of them.
 //
 // This does not stop a model routing around the guard; nothing in band

@@ -20,11 +20,6 @@ const changelogFile = "CHANGELOG.md"
 // `[Unreleased]` that still compares from an older tag silently claims
 // the last release's work is unreleased.
 //
-// This is not hypothetical. v0.4.0 shipped with no `[0.4.0]` definition
-// at all and `[Unreleased]` still pointing at v0.3.2, and it took until
-// the v0.5.0 release-prep pass for anyone to notice — a whole release
-// during which the file misdescribed itself.
-//
 // Unlike the `changelog` gate, this needs no base ref: it compares the
 // file to itself, so it belongs in `make check` rather than in a job
 // that only runs on a pull request.

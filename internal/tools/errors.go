@@ -18,10 +18,11 @@ import (
 // alongside the upstream ones, and errorClass checks it first.
 var errRefused = errors.New("refused")
 
-// refuse builds a guarded-write refusal. Per CLAUDE.md "Guarded
-// writes" a refusal names two things: what it is protecting, and the
-// argument that would permit the write. `unlock` is not optional —
-// a refusal the caller cannot act on is a bug.
+// refuse builds a guarded-write refusal. A refusal names two things:
+// what it is protecting, and the argument that would permit the write
+// (D-29). `unlock` is not optional, since a refusal the caller cannot
+// act on is a bug. Whatever a refusal says, a model can echo back, so a
+// refusal informs a model and cannot stop one (see requireOverwrite).
 func refuse(protecting, unlock string) error {
 	return fmt.Errorf("%w: %s. Pass %s to allow it", errRefused, protecting, unlock)
 }
@@ -50,6 +51,14 @@ func validateAction[T any](action string, allowed map[string]T) error {
 // record carries now. An empty want means the caller did not ask for
 // the check, which is the common case.
 //
+// It catches a concurrent edit, not a determined race. Pipedrive has no
+// compare-and-set and its reference offers no conditional update, so
+// update_time is the only version and the read and the write are two
+// calls. update_time has one-second granularity, so two edits inside
+// one second carry the same version. Checked by the integration tests
+// TestGuard_StaleExpectVersionRefuses and TestWrite_DealDateRoundTrips.
+// https://developers.pipedrive.com/docs/api/v1/Deals#updateDeal
+//
 // This lives here rather than in a resource file because every
 // manage_* tool needs exactly this comparison.
 func checkExpectVersion(want, got, resource string) error {
@@ -60,10 +69,10 @@ func checkExpectVersion(want, got, resource string) error {
 }
 
 // errorResult wraps an internal/pipedrive error into a CallToolResult
-// with isError: true. Per CLAUDE.md (MCP error mapping): upstream API
-// failures become tool execution errors, not JSON-RPC protocol errors,
-// so the LLM client gets a renderable error message rather than a
-// generic transport failure.
+// with isError: true. Upstream and validation failures are tool
+// execution errors, never JSON-RPC protocol errors, so the LLM client
+// gets a renderable error message rather than a generic transport
+// failure (D-50).
 //
 // The leading [class] tag lets the LLM branch on the error category
 // (auth, not_found, rate_limited, etc.) without parsing free text.
@@ -82,12 +91,10 @@ func errorResult(err error) *mcp.CallToolResult {
 // It exists because llmMessage answers an upstream failure with
 // apiErr.Message and nothing else, which is right when the upstream
 // error IS the whole story and wrong when a tool has something to add.
-// The search-liveness check is the case that found this: its second
-// API call failing made `search` report a bare rate-limit message, so
-// the model read it as "the search was rate-limited" — when the search
-// had in fact matched, and narrowing `types` would have avoided the
-// failing half entirely. A plain fmt.Errorf wrapper did not survive:
-// llmMessage's errors.As branch discarded it.
+// When search's liveness check fails, a bare rate-limit message reads
+// as "the search was rate-limited", when the search matched and
+// narrowing `types` skips the failing half. A plain fmt.Errorf wrapper
+// does not survive: llmMessage's errors.As branch discards it.
 //
 // The wrapped error still classifies: errorClass walks the chain, so a
 // hinted rate-limit is still [rate_limited].
@@ -99,9 +106,9 @@ type hinted struct {
 func (h *hinted) Error() string { return h.hint + ": " + h.err.Error() }
 func (h *hinted) Unwrap() error { return h.err }
 
-// withHint wraps err with guidance the caller can act on. Per the
-// house rule behind refusals: a failure the caller cannot act on is a
-// bug, and the hint is the part that makes it actionable.
+// withHint wraps err with guidance the caller can act on. As with a
+// refusal, a failure the caller cannot act on is a bug, and the hint is
+// the part that makes it actionable.
 func withHint(err error, format string, args ...any) error {
 	return &hinted{hint: fmt.Sprintf(format, args...), err: err}
 }

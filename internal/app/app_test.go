@@ -139,8 +139,7 @@ func TestSettings_LogValue_RedactsTheToken(t *testing.T) {
 // TestRuntime_NewServer_CarriesTheDryRunFloor pins the reason this
 // package exists. PIPEDRIVE_DRY_RUN reaches the write tools only
 // through the config a Runtime carries, so a caller that assembled the
-// arguments by hand — as the integration suite once did — could drop
-// the floor without anything failing.
+// arguments by hand could drop the floor without anything failing.
 func TestRuntime_NewServer_CarriesTheDryRunFloor(t *testing.T) {
 	workspace(t, "acme")
 	t.Setenv("PIPEDRIVE_DRY_RUN", "true")

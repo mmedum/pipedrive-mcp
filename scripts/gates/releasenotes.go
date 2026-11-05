@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -22,7 +23,7 @@ func releaseNotes(w io.Writer, args []string) error {
 		return fmt.Errorf("usage: gates release-notes VERSION [CHANGELOG]")
 	}
 	version := strings.TrimPrefix(args[0], "v")
-	file := "CHANGELOG.md"
+	file := changelogFile
 	if len(args) == 2 && args[1] != "" {
 		file = args[1]
 	}
@@ -39,45 +40,48 @@ func releaseNotes(w io.Writer, args []string) error {
 }
 
 // sectionFor returns the body under `## [version]`, without the blank
-// lines that top and tail it. It stops at the next heading and at a
-// markdown link definition, which is what a compare-link footer is made
-// of: the footer follows the oldest section with no heading in between.
+// lines that top and tail it.
 func sectionFor(changelog, version string) string {
-	want := "## [" + version + "]"
-	var body []string
-	inside := false
-	for _, line := range strings.Split(changelog, "\n") {
-		switch {
-		case strings.HasPrefix(line, want):
-			inside = true
-			continue
-		case !inside:
-			continue
-		case strings.HasPrefix(line, "## "), isLinkDefinition(line):
-			return joinTrimmed(body)
-		case len(body) == 0 && strings.TrimSpace(line) == "":
-			continue
-		}
-		body = append(body, line)
+	lines := strings.Split(changelog, "\n")
+	from, to := changelogSection(lines, version)
+	body := lines[from:to]
+	for len(body) > 0 && strings.TrimSpace(body[0]) == "" {
+		body = body[1:]
 	}
 	return joinTrimmed(body)
+}
+
+// changelogSection is the range of lines under `## [version]`, empty
+// when there is no such heading. It stops at the next heading and at a
+// link definition, which is what a compare-link footer is made of: the
+// footer follows the oldest section with no heading in between. The docs
+// gate reads the [Unreleased] range with it, so it checks the lines
+// release-notes lifts.
+func changelogSection(lines []string, version string) (from, to int) {
+	want := "## [" + version + "]"
+	start := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, want) })
+	if start < 0 {
+		return 0, 0
+	}
+	to = start + 1
+	for to < len(lines) && !strings.HasPrefix(lines[to], "## ") && !isLinkDefinition(lines[to]) {
+		to++
+	}
+	return start + 1, to
 }
 
 // promoteHeadings lifts every heading one level, because the file and the
 // page are two different documents. In CHANGELOG.md a version is an h2
 // and its change kinds are h3s under it; on the release page the version
 // heading is gone, because GitHub renders the tag name as the h1, so an
-// unaltered section starts at h3 and skips a rank. Fenced code is left
-// alone, and only h3 and deeper are lifted, so a second h1 is impossible.
+// unaltered section starts at h3 and skips a rank. Only h3 and deeper are
+// lifted, so a second h1 is impossible. Fences are read as the docs gate
+// reads them, because a `###` inside a code block is content.
 func promoteHeadings(body string) string {
 	lines := strings.Split(body, "\n")
-	fenced := false
+	code := docsCodeLines(lines)
 	for i, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "```") {
-			fenced = !fenced
-			continue
-		}
-		if !fenced && strings.HasPrefix(line, "###") {
+		if !code[i] && strings.HasPrefix(line, "###") {
 			lines[i] = line[1:]
 		}
 	}
@@ -91,10 +95,9 @@ func joinTrimmed(body []string) string {
 	return strings.Join(body, "\n")
 }
 
+// isLinkDefinition reports whether a line is a Markdown link definition,
+// as a changelog's compare-link footer is made of. It is the docs gate's
+// rule, held to the first column: an indented one continues a list item.
 func isLinkDefinition(line string) bool {
-	if !strings.HasPrefix(line, "[") {
-		return false
-	}
-	end := strings.Index(line, "]")
-	return end > 0 && strings.HasPrefix(line[end:], "]: ")
+	return !strings.HasPrefix(line, " ") && docsMDLinkDef.MatchString(line)
 }

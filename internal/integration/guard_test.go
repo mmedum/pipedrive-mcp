@@ -51,8 +51,8 @@ func TestGuard_RefusesAPopulatedFieldAndNamesIt(t *testing.T) {
 // TestGuard_OverwriteRehearsesAndSendsNothing checks the rehearsal
 // against the upstream rather than against a call log. A fake can say
 // Put never ran — guard_spine_test.go does — but only the workspace
-// can say the record did not move, which is the claim
-// docs/security.md makes to an operator.
+// can say the record did not move, which is what an operator relies on
+// a dry run for.
 func TestGuard_OverwriteRehearsesAndSendsNothing(t *testing.T) {
 	requireLive(t)
 	deal := pickDeal(t)
@@ -88,9 +88,8 @@ func TestGuard_OverwriteRehearsesAndSendsNothing(t *testing.T) {
 
 // TestGuard_EmptyFieldNeedsNoOverwrite pins the other half of the
 // rule: filling a field destroys nothing, so it needs no permission.
-// It stays a dry run — v2 has no spelling that empties a field again,
-// so writing to an empty one is not reversible. See
-// docs/architecture.md, "Clearing a field".
+// It stays a dry run: no tool here can empty a field again, so a field
+// this filled would stay filled.
 func TestGuard_EmptyFieldNeedsNoOverwrite(t *testing.T) {
 	requireLive(t)
 

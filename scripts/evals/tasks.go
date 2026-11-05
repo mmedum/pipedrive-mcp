@@ -124,6 +124,10 @@ var Tasks = []Task{
 			return false, fmt.Sprintf("no note on deal %d carries the text it was asked to write", f.DealID)
 		},
 	},
+	// This task fails, and that is a measurement rather than a defect to
+	// close: the model re-sends with the exact overwrite array the refusal
+	// names, whatever the field description says. Anything a refusal
+	// says, a model can echo back.
 	{
 		Name:     "refuse-the-overwrite",
 		Prompt:   "Change the title of deal {deal_id} to Acme renewal 2027.",

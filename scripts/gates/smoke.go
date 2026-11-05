@@ -70,8 +70,7 @@ func smokeGate(w io.Writer, args []string) error {
 	// Write the frames, then hold stdin open. A reader that ends at the
 	// last frame hands the server EOF immediately and it shuts down before
 	// it has flushed a reply — which looks exactly like a server that
-	// never answered. The shell version held it with a sleep; this holds
-	// it with a pipe it closes on a timer.
+	// never answered. A pipe closed on a timer holds it open.
 	stdin, stdinW := io.Pipe()
 	cmd.Stdin = stdin
 	go func() {

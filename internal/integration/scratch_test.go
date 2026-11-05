@@ -12,17 +12,15 @@ import (
 // The records a write probe works in, created by this suite and deleted
 // afterwards.
 //
-// Nothing here is anybody's. A probe used to pick a real record, edit a
-// field and put it back — the restore was verified, the contract was
-// kept, and a real customer's deal still went to won and to lost four
-// times because a status change is not a field. Even where the field
-// restores perfectly, a live record edited by a test is a live record
-// participating in somebody's reporting, notifications and history for
-// as long as the test holds it.
+// Nothing here is anybody's. A probe never borrows a real record: a
+// status change is not a field a restore puts back, and even a field
+// that restores perfectly sits on a live record in somebody's
+// reporting, notifications and history for as long as the test holds
+// it.
 //
-// So the probes stopped borrowing. Every mutation below lands on a
-// record with "mcp-test" in its name, in the pipeline named by
-// PIPEDRIVE_TEST_PIPELINE_ID, and is deleted when the test ends.
+// Every mutation below lands on a record with "mcp-test" in its name,
+// in the pipeline named by PIPEDRIVE_TEST_PIPELINE_ID, and is deleted
+// when the test ends.
 type scratch struct {
 	OrgID      int64
 	PersonID   int64
@@ -108,13 +106,11 @@ func newScratch(t *testing.T) *scratch {
 	// One call, with the parts rather than a full name. first_name and
 	// emails are populated so a probe has something to overwrite.
 	//
-	// This used to be a create and then an update. create required
-	// `name`, and Pipedrive refuses a body carrying `name` together
-	// with first_name/last_name — "Cannot set 'name' and
-	// 'first_name'/'last_name' at the same time" — so there was no way
-	// through this tool to create a person with structured names. That
-	// was a gap in the surface rather than a quirk of this fixture, and
-	// building the fixture the natural way is what keeps it closed.
+	// Pipedrive refuses a body carrying `name` together with
+	// first_name/last_name — "Cannot set 'name' and
+	// 'first_name'/'last_name' at the same time" — so manage_person's
+	// create takes either. Building the fixture from the parts keeps
+	// that path exercised.
 	s.PersonID = newID("manage_person", map[string]any{
 		"action":     "create",
 		"first_name": "Mcptest", "last_name": s.Title + " person",

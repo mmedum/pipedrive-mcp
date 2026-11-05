@@ -41,9 +41,8 @@ func Info() BuildInfo {
 	}
 	i.GoVersion = bi.GoVersion
 	// `go install module@v1.2.3` applies no ldflags, so a binary
-	// installed the way the README suggests would call itself "dev"
-	// forever. Go records the module version it was built from, which
-	// is the honest answer in that case.
+	// installed that way would call itself "dev". Go records the module
+	// version it was built from, which is the honest answer then.
 	if Version == "dev" {
 		if v := bi.Main.Version; v != "" && v != "(devel)" {
 			i.Version = canonical(v)
@@ -66,14 +65,10 @@ func Info() BuildInfo {
 // was built.
 //
 // There are two sources and they disagree. goreleaser stamps Version
-// with its own {{.Version}}, which has the leading v stripped, so a
-// release archive said "0.3.1"; `go install` stamps nothing and the
-// fallback reads the module version out of the build info, which is
-// "v0.3.1". The same release therefore reported two different strings
-// depending on how somebody installed it, and anything parsing
-// --version got a different answer per install method. Reported from
-// outside, by a reader comparing the servers side by side, and fixed in
-// the four sibling servers before this one.
+// with its own {{.Version}}, which has the leading v stripped ("0.3.1");
+// `go install` stamps nothing, and the fallback reads the module version
+// out of the build info ("v0.3.1"). Without this, one release would
+// report two strings depending on how it was installed.
 //
 // The v stays, because that is how the tag, the module version and the
 // release are all named; "dev" and any other non-release string are

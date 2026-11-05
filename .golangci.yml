@@ -29,6 +29,7 @@ linters:
     - makezero
     - rowserrcheck
     - forbidigo
+    - depguard
 
   settings:
     misspell:
@@ -45,6 +46,30 @@ linters:
           msg: stdout carries only MCP JSON-RPC frames; take an io.Writer instead
         - pattern: ^os\.Stdout$
           msg: stdout carries only MCP JSON-RPC frames; take an io.Writer instead
+    depguard:
+      rules:
+        # The HTTP client imports the standard library alone, so it stays
+        # usable and testable without the MCP transport and no generated
+        # client reaches it (D-70, D-71).
+        pipedrive-client-stdlib-only:
+          list-mode: strict
+          files:
+            - "**/internal/pipedrive/**"
+          allow:
+            - $gostd
+          deny:
+            - pkg: github.com/modelcontextprotocol/go-sdk
+              desc: internal/pipedrive is the HTTP client and imports nothing of MCP; put schemas and presentation in internal/tools (D-70)
+        # Pipedrive's OpenAPI description inlines every response shape and
+        # declares no 401, 403, 429 or 5xx, so a generated client has no
+        # shared types and nothing the error mapping could be built from.
+        hand-written-client:
+          list-mode: lax
+          deny:
+            - pkg: github.com/juhokoskela/pipedrive-go
+              desc: a client generated from Pipedrive's OpenAPI description; the Pipedrive client is the hand-written internal/pipedrive (D-71)
+            - pkg: github.com/oapi-codegen/runtime
+              desc: the runtime of oapi-codegen's generated clients; the Pipedrive client is the hand-written internal/pipedrive (D-71)
     gocyclo:
       min-complexity: 15
     govet:

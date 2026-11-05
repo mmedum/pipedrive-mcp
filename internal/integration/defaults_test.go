@@ -6,15 +6,13 @@ import (
 	"testing"
 )
 
-// A dry-run create shows the values Pipedrive fills in on the real one.
-//
-// A dry run used to report a deal created with only a title and a
-// pipeline as stage 0, owner 0 and no currency, and each create tool
-// linked to record 0 — the zero values of a record nobody had filled in,
-// which a caller could quote as what the create would store. It is held
-// by comparison rather than by documentation: the same arguments as a
-// dry run and as a real create, in the suite's own pipeline, must agree
-// on what the real one fills in.
+// A dry-run create shows the values Pipedrive fills in on the real one,
+// rather than the zero values a caller could quote as what the create
+// would store: stage 0, owner 0, no currency, a link to record 0.
+// Pipedrive's reference does not name these defaults, so this holds
+// them by comparison: the same arguments as a dry run and as a real
+// create, in the suite's own pipeline, must agree on what the real one
+// fills in.
 func TestWrite_CreateDefaultsMatchTheDryRun(t *testing.T) {
 	pipeline, _ := testPipelineStage(t)
 	cases := []struct {

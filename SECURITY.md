@@ -2,82 +2,22 @@
 
 ## Reporting a vulnerability
 
-Please report security issues privately. Do **not** open a public GitHub
-issue.
+Report it privately, through GitHub's
+[security advisory form](https://github.com/mmedum/pipedrive-mcp/security/advisories/new)
+on this repository. Do not open a public issue.
 
-- Open a private report through GitHub's [security advisory flow](https://github.com/mmedum/pipedrive-mcp/security/advisories/new),
-  which reaches the maintainer and nobody else.
-- GitHub Security Advisories: use the "Report a vulnerability" button on the
-  repository's Security tab.
-
-Include enough detail for the maintainer to reproduce the issue: affected
-version, steps, and any logs or stack traces. If the
-issue requires a particular Pipedrive account configuration to reproduce,
-describe it without including real credentials or PII.
-
-## Response targets
-
-These are best-effort targets, not contractual SLAs. The project is
-community-maintained by a small group of maintainers. We will firm these up
-as the team grows.
-
-- Acknowledgment within **3 business days** of report.
-- Patch targeted within:
-  - **30 days** for high or critical severity.
-  - **90 days** for medium severity.
-  - Lower-severity issues are tracked but rolled into normal release cadence.
-
-Confirmed vulnerabilities are coordinated with the reporter and disclosed
-publicly only after a fix is available, unless active exploitation forces
-earlier disclosure.
+Include what an attacker could do, how to reproduce it, and the version
+(`pipedrive-mcp --version`, a release tag or a commit). Never include
+anything from a real Pipedrive account: no token, company domain, record
+or name. A description of a record's shape is enough.
 
 ## Supported versions
 
-Security patches are produced for the most recent MAJOR.MINOR release plus
-the previous MAJOR.MINOR. Older versions are unsupported.
+Only the latest release receives fixes.
 
-| Version         | Supported |
-| --------------- | --------- |
-| 1.3.x (current) | yes       |
-| 1.2.x           | yes       |
-| < 1.2           | no        |
+## Response
 
-The table above describes what is shipped today, not what is planned.
-It was written forward once — declaring `1.x` current and everything
-below `0.9` unsupported — and stood that way through five releases, so
-the published policy told every user of the shipped release that it
-received no patches. It is now updated as part of cutting a release
-(`docs/release.md`). `1.x` went in when 1.0.0 was cut, which is the
-first time this row has been true on the day it was written.
+We acknowledge a report within **7 days**.
 
-## Operator guidance
-
-Operator-level guidance — token handling,
-threat model, the LLM audit-trail caveat, and the guarded-write
-contract (`dry_run`, `overwrite`, `expect_version`) — lives in
-[`docs/security.md`](docs/security.md). This file is the **reporting**
-policy; that one is the **runtime** policy.
-
-## Provenance
-
-Every release is signed via [cosign](https://github.com/sigstore/cosign)
-keyless OIDC. One signature covers the release: `checksums.txt` is signed,
-and it holds the hash of every archive and every SBOM. Verify with
-(replace `X.Y.Z` with the release version — goreleaser strips the `v`
-prefix from archive filenames):
-
-```sh
-cosign verify-blob checksums.txt \
-  --bundle checksums.txt.bundle \
-  --certificate-identity-regexp '^https://github\.com/mmedum/pipedrive-mcp/\.github/workflows/release\.yml@refs/tags/' \
-  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
-
-sha256sum -c checksums.txt --ignore-missing       # on macOS: shasum -a 256 -c
-```
-
-The signature is checked first: until it passes, `checksums.txt` is only
-what the release assets say now.
-
-A CycloneDX SBOM is attached per-archive (e.g.
-`pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz.cdx.json`); each SBOM's hash is
-in the signed `checksums.txt`.
+[`docs/security.md`](docs/security.md) is the threat model. It says what
+counts as a vulnerability here and what does not.

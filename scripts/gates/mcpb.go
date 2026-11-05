@@ -24,7 +24,9 @@ import (
 	"github.com/mmedum/pipedrive-mcp/internal/server"
 )
 
-// The bundle gate and the packer (§12, and the standard's §10b).
+// The bundle gate and the packer. Every release ships a Claude Desktop
+// bundle (.mcpb) beside its archives, so installing the server does not
+// mean editing a client's config file by hand.
 //
 // They are two subcommands because the useful half needs no build. The
 // checks below are REFERENTIAL — they ask whether the manifest's names
@@ -103,8 +105,8 @@ func (f staged) mode() os.FileMode {
 	return 0o644
 }
 
-// bundleFiles is what a bundle contains, in the family's layout: Go's
-// architecture names, as in the release archives. The macOS slot is
+// bundleFiles is what a bundle contains: Go's architecture names, as in
+// the release archives. The macOS slot is
 // goreleaser's universal binary: a manifest has no key for the
 // architecture, so every platform it claims has to work on both.
 //
@@ -163,7 +165,7 @@ type manifest struct {
 
 // mcpbGate runs every check against the committed manifest under root,
 // on the names the packer stages, and holds the release's archives to
-// the family's and to the bundle.
+// releaseMatrix and to the bundle.
 func mcpbGate(root string) error {
 	_, m, problems, err := committedManifest(root)
 	if err != nil {
@@ -180,7 +182,7 @@ func mcpbGate(root string) error {
 	fmt.Printf("  %s: %d staged files, %d platforms, %d user_config keys: every name resolves, and the document satisfies %s\n",
 		manifestPath, len(bundleFiles), len(m.Compatibility.Platforms), len(m.UserConfig),
 		vendoredSchemaPath(m.ManifestVersion))
-	fmt.Printf("  %s: %d archives under the family's names, each one the bundle reaches, the docs name and release.yml attests\n",
+	fmt.Printf("  %s: %d archives named <name>_<version>_<os>_<arch>, each one the bundle reaches, the docs name and release.yml attests\n",
 		goreleaserPath, archives)
 	return nil
 }
@@ -601,12 +603,12 @@ func checkManifestShape(m manifest) []string {
 	return problems
 }
 
-// claudeDesktopFloor is the Claude Desktop version every bundle in the
-// family claims.
+// claudeDesktopFloor is the Claude Desktop version the bundle claims,
+// the same floor as the sibling servers' bundles.
 const claudeDesktopFloor = ">=0.10.0"
 
 // identityProblems holds what the manifest says it is: the server's own
-// name, a binary, the family's Claude Desktop floor, a privacy policy,
+// name, a binary, the Claude Desktop floor, a privacy policy,
 // and exactly the platforms the packer stages an entry point for, so
 // dropping one platform and its override together is refused. The
 // manifest specification requires privacy_policies of a server that
@@ -622,7 +624,7 @@ func identityProblems(m manifest, files []staged) []string {
 		problems = append(problems, fmt.Sprintf("server.type is %q; the bundle carries a binary", m.Server.Type))
 	}
 	if m.Compatibility.ClaudeDesktop != claudeDesktopFloor {
-		problems = append(problems, fmt.Sprintf("compatibility.claude_desktop is %q; the family's bundles claim %q",
+		problems = append(problems, fmt.Sprintf("compatibility.claude_desktop is %q; the bundle claims %q, as the sibling servers' bundles do",
 			m.Compatibility.ClaudeDesktop, claudeDesktopFloor))
 	}
 	var entryPoints []string
@@ -679,8 +681,8 @@ func bundleVarsFrom(vars []config.Var, leftOut map[string]string) (asked []confi
 }
 
 // bundleKey is the user_config key a setting is asked under: its name
-// without the prefix, lowercased, which gives the family's bundles the
-// same keys.
+// without the prefix, lowercased, which gives the sibling servers'
+// bundles the same keys.
 func bundleKey(name string) string {
 	return strings.ToLower(strings.TrimPrefix(name, config.EnvPrefix))
 }
@@ -1449,8 +1451,7 @@ func launcherNamesIn(body string) []string {
 //
 // It is a referential check like the others: "MIT" in a manifest beside
 // an Apache license is well formed, packs, installs, and is wrong about
-// the one thing a redistributor reads it for. The first draft of this
-// manifest said MIT.
+// the one thing a redistributor reads it for.
 func licenseOf(root string) (string, error) {
 	data, err := os.ReadFile(filepath.Join(root, "LICENSE")) //nolint:gosec // a repository path from a constant
 	if err != nil {

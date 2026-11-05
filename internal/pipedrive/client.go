@@ -50,7 +50,7 @@ type Client struct {
 	token       string
 	http        *http.Client
 	logger      *slog.Logger
-	maxAttempts int           // retry attempts for 429 and 5xx; default 3
+	maxAttempts int           // attempts per call, the first included; default 3
 	baseDelay   time.Duration // base for jittered exponential backoff; default 1s
 
 	meMu   sync.Mutex // guards me, meErr and meDone
@@ -126,75 +126,54 @@ func (c *Client) do(ctx context.Context, path string, out any) error {
 	return c.exec(ctx, http.MethodGet, apiV2, path, nil, out)
 }
 
-// doV1 is the v1-only escape hatch for the notes carve-out
-// (Pipedrive has no /api/v2/notes endpoint). Same retry/error-mapping
-// pipeline as `do`. New callers should not be added without a
-// CHANGELOG ### Changed entry per CLAUDE.md hard rule #1.
+// doV1 is `do` on /api/v1. Only notes and WhoAmI use v1, because v2 has
+// no /notes and no /users. A new v1 caller needs the same reason, said
+// at its call site and in a CHANGELOG entry under ### Changed, and the
+// owner's go-ahead.
 func (c *Client) doV1(ctx context.Context, path string, out any) error {
 	return c.exec(ctx, http.MethodGet, apiV1, path, nil, out)
 }
 
-// postV1 is the v1-only POST helper used by the notes carve-out
-// write tools. Body is marshaled to JSON; Content-Type is set
-// automatically. POST is NOT retried on 5xx (only on 429) since
-// the server may have already committed before responding —
-// retrying could create duplicate rows.
+// postV1 is a POST on /api/v1, which creates a note. Like every write it
+// is retried only on a 429 or a failed dial: after a 5xx the row may
+// exist, and sending it again could create a second one.
 func (c *Client) postV1(ctx context.Context, path string, body, out any) error {
 	return c.exec(ctx, http.MethodPost, apiV1, path, body, out)
 }
 
-// postV2 is the v2 POST helper. Body is marshaled to JSON;
-// Content-Type is set automatically. Same retry policy as postV1:
-// 429 only, never 5xx — POST may have committed before responding.
+// postV2 is a POST on /api/v2, retried as postV1 is.
 func (c *Client) postV2(ctx context.Context, path string, body, out any) error {
 	return c.exec(ctx, http.MethodPost, apiV2, path, body, out)
 }
 
-// patchV2 is the v2 partial-update helper (PATCH /api/v2/<resource>/{id}).
-// Fields the body omits keep their stored value, so callers send only
-// what they intend to change — which is why every Update*Request field
-// is a pointer with omitempty: nil omits, and a pointer to the zero
-// value clears. Retry policy follows shouldRetry: 429 only, never 5xx,
-// since a PATCH may have committed before responding.
+// patchV2 is a PATCH on /api/v2, Pipedrive's partial update: a field
+// the body omits keeps its stored value. That is why every
+// Update*Request field is a pointer with omitempty: nil omits, and a
+// pointer sends what it points at. Retried as postV1 is.
 func (c *Client) patchV2(ctx context.Context, path string, body, out any) error {
 	return c.exec(ctx, http.MethodPatch, apiV2, path, body, out)
 }
 
-// putV1 is the v1-only PUT helper used by the notes carve-out update
-// path (`PUT /api/v1/notes/{id}`). Pipedrive v1 treats a notes PUT as
-// a partial update: fields the body omits keep their stored value, so
-// callers send only what they intend to change. Retry policy follows
-// shouldRetry — PUT is idempotent by HTTP semantics, but Pipedrive
-// gives no such guarantee, so it stays on the conservative non-GET
-// branch (429 only, never 5xx).
+// putV1 is a PUT on /api/v1, which updates a note. v1 treats it as a
+// partial update: a field the body omits keeps its stored value. Retried
+// as postV1 is, since Pipedrive's reference does not promise the PUT is
+// idempotent.
 func (c *Client) putV1(ctx context.Context, path string, body, out any) error {
 	return c.exec(ctx, http.MethodPut, apiV1, path, body, out)
 }
 
-// deleteV1 is the v1-only DELETE helper used by the notes carve-out
-// destructive tool. Same retry policy as postV1: only 429 is
-// retried, 5xx is not (the resource may already be gone, retrying
-// could surface a 404 that obscures the real failure).
+// deleteV1 is a DELETE on /api/v1, which deletes a note. Retried as
+// postV1 is: after a 5xx the note may be gone, and a retry's 404 would
+// hide the failure that mattered.
 func (c *Client) deleteV1(ctx context.Context, path string, out any) error {
 	return c.exec(ctx, http.MethodDelete, apiV1, path, nil, out)
 }
 
-// deleteV2 is the v2 DELETE helper (DELETE /api/v2/<resource>/{id}).
-// Same retry policy as the other writes: only 429 is retried, never
-// 5xx — the delete may already have committed, and retrying would
-// surface a 404 that obscures the real failure.
-//
-// Pipedrive's v2 delete is SOFT and time-boxed: the documentation for
-// every resource that has one says "Marks a <resource> as deleted.
-// After 30 days, the <resource> will be permanently deleted." That is
-// why the types carry is_deleted rather than the row disappearing.
-// Nothing in this server restores one; Pipedrive's own UI can, within
-// the window.
+// deleteV2 is a DELETE on /api/v2, retried as deleteV1 is. A v2 delete
+// is soft, and Pipedrive purges the record after 30 days (DeleteDeal).
 func (c *Client) deleteV2(ctx context.Context, path string) error {
-	// No out parameter: the v2 delete response carries only the id, and
-	// every caller discards it. A caller that wants the record's final
-	// state reads it before deleting, which the guarded-write path does
-	// anyway.
+	// No out parameter: the response carries only the id. A caller that
+	// wants the record's final state reads it before deleting.
 	return c.exec(ctx, http.MethodDelete, apiV2, path, nil, nil)
 }
 
@@ -282,15 +261,18 @@ func (c *Client) attempt(
 
 	apiErr := classifyResponse(resp.StatusCode, version, requestURL, rawBody)
 	if attempt+1 < c.maxAttempts && shouldRetry(method, resp.StatusCode) {
+		// Pipedrive's rate-limit page documents x-ratelimit-* headers and
+		// no Retry-After; one that does arrive is the floor of the wait.
+		// https://pipedrive.readme.io/docs/core-api-concepts-rate-limiting
 		return true, parseRetryAfter(resp.Header.Get("Retry-After")), apiErr
 	}
 	return false, 0, apiErr
 }
 
-// shouldRetry encodes the per-method retry policy. GET is idempotent
-// so retrying 5xx is safe. Non-GET (POST/PATCH/DELETE) is retried
-// only on 429: the server explicitly told us to back off without
-// committing, vs 5xx where the request may have partially succeeded.
+// shouldRetry is the retry policy for an answer. A 429 is retried for
+// every method: Pipedrive's rate-limit page says a request over the
+// limit is rejected, so it was not applied. A 5xx is retried on a GET
+// alone, since a write may have committed before the error.
 func shouldRetry(method string, status int) bool {
 	if status == http.StatusTooManyRequests {
 		return true
@@ -334,10 +316,11 @@ func decodeSuccess(raw []byte, out any) error {
 
 func classifyResponse(status int, version apiVersion, requestURL string, raw []byte) error {
 	var env envelope
-	// Best-effort: classify tolerates an empty envelope. A body that is
-	// not JSON at all is the shape an edge error page arrives in, and
-	// saying so beats a message-less error — the length is reported and
-	// the body is not, so the no-PII rule above still holds.
+	// classify tolerates an empty envelope. A body that is not JSON is an
+	// edge's error page: Pipedrive's rate-limit page says a client that
+	// keeps going after 429s gets an HTML 403 from Cloudflare. Its length
+	// is reported and not the body, which may echo PII.
+	// https://pipedrive.readme.io/docs/core-api-concepts-rate-limiting
 	nonJSON := ""
 	if len(raw) > 0 && json.Unmarshal(raw, &env) != nil {
 		nonJSON = fmt.Sprintf("non-JSON response (%d bytes)", len(raw))
@@ -352,9 +335,10 @@ func classifyResponse(status int, version apiVersion, requestURL string, raw []b
 	return apiErr
 }
 
-// pathOf returns the path portion of a URL for use in classify's endpoint
-// hint. Falls back to the input on parse failure (defensive; we built the
-// URL ourselves so parse should always succeed).
+// pathOf returns the path portion of a URL, for the log and
+// APIError.Endpoint: the query string can carry a search term. Falls
+// back to the input on a parse failure, which a URL built here never
+// produces.
 func pathOf(u string) string {
 	parsed, err := url.Parse(u)
 	if err != nil {
@@ -411,16 +395,19 @@ func shouldRetryNetwork(method string, err error) bool {
 	if method == http.MethodGet {
 		return true
 	}
-	// A write is repeated only when it never left: a failed dial sent
-	// nothing. Any later failure may follow a commit Pipedrive made.
+	// A write is repeated only when it never left. A failed dial, DNS
+	// included, is a *net.OpError with Op "dial", and nothing was sent;
+	// after that a lost answer may follow a commit, which is also why
+	// net/http replays a write only when nothing was written (D-54).
+	// https://cs.opensource.google/go/go/+/refs/tags/go1.27.3:src/net/dial.go;l=810
+	// https://cs.opensource.google/go/go/+/refs/tags/go1.27.3:src/net/http/transport.go;l=844
 	var opErr *net.OpError
 	return errors.As(err, &opErr) && opErr.Op == "dial"
 }
 
-// readBody reads up to 8 MiB. The driving case is /dealFields and
-// (eventually) /personFields blobs in workspaces with hundreds of
-// custom fields — the data list of 100 deals is well under 1 MiB.
-// Hard-limited to keep a runaway upstream from pinning memory.
+// readBody reads up to 8 MiB, so a runaway upstream cannot pin memory.
+// The largest answers are the *Fields metadata, which carry every option
+// of every dropdown; a page of 100 deals is well under 1 MiB.
 func readBody(r io.Reader) ([]byte, error) {
 	const limit = 8 << 20
 	return io.ReadAll(io.LimitReader(r, limit))

@@ -8,12 +8,12 @@ import (
 )
 
 // ListDealsOptions filters a /deals list call. Zero values mean "no
-// filter on this dimension". Limit is clamped to [1, 500] by Pipedrive;
-// the tool layer applies its own (smaller) cap before calling here.
+// filter on this dimension". Pipedrive takes a limit of 1 to 500; the
+// tool layer applies its own smaller cap before calling here.
 //
 // Pipedrive v2 returns custom_fields nested in every deal record by
-// default — there is no opt-in query parameter, and supplying
-// `include_fields=custom_fields` is rejected with a 400.
+// default. include_fields does not list custom_fields, and a request
+// that passes it is rejected with a 400.
 type ListDealsOptions struct {
 	Status        string // open | won | lost | deleted
 	PipelineID    int64
@@ -28,20 +28,20 @@ type ListDealsOptions struct {
 	Limit         int
 	Cursor        string // opaque pagination token from a previous response
 
-	// Archived reads the archive instead of the live pipeline. Since
-	// 2025-07-15 Pipedrive serves archived deals from their own
-	// endpoint and returns none of them from /deals, so this is the
-	// only way to see one — a filter would not do, because the rows are
-	// not in the collection being filtered.
+	// Archived reads /deals/archived instead of /deals. Pipedrive's
+	// /deals returns "all not archived deals", so no filter on it reaches
+	// an archived one. No integration test reads /deals/archived.
+	// https://developers.pipedrive.com/docs/api/v1/Deals#getArchivedDeals
 	Archived bool
 }
 
 // CreateDealRequest is the JSON body for POST /api/v2/deals. v2
-// requires `title` only; everything else has Pipedrive-side defaults
-// (currency = workspace default, value = 0, owner_id = the API
-// token's user, status = open, stage_id = first stage of the default
-// pipeline, ...). The tool layer enforces title non-empty client-side
-// so a typo surfaces as [validation] instead of an upstream 400.
+// requires `title` only; Pipedrive fills the rest (owner_id = the API
+// token's user, currency = that user's default, status = open, a stage
+// in the pipeline, ...), as the integration test
+// TestWrite_CreateDefaultsMatchTheDryRun/deal checks. The tool layer
+// enforces title non-empty so a typo surfaces as [validation] instead
+// of an upstream 400.
 type CreateDealRequest struct {
 	Title             string   `json:"title"`
 	Value             float64  `json:"value,omitempty"`
@@ -69,17 +69,18 @@ type CreateDealRequest struct {
 // zero".
 //
 // CLEARING a field is NOT supported here, and pointers do not change
-// that. Verified live against v2: null is rejected for
-// expected_close_date ("The value is not a valid 'string'"), and an
-// empty string stores the zero date 0000-00-00 rather than removing the
-// value. Neither empties the field.
+// that (D-42). v2 rejects null for expected_close_date ("The value is
+// not a valid 'string'"), and stores "" as the zero date 0000-00-00. A
+// deal that never had a date omits the field on read, so the zero date
+// reads as a value, not as a clear. The reference gives only the type.
+// Checked by hand against v2; no integration test writes either, since
+// it would leave a zero date behind.
+// https://developers.pipedrive.com/docs/api/v1/Deals#updateDeal
 //
-// v1 CAN clear it — PUT /api/v1/deals/{id} with a null works — but this
-// server deliberately does not use that: it would be a third v1
-// carve-out on an API whose 2026-07-31 sunset has passed, for a
-// capability nobody has asked for. See docs/architecture.md,
-// "Clearing a field", and do not advertise clearing in a tool
-// description without changing this type in the same commit.
+// PUT /api/v1/deals/{id} with a null does clear it. It is not used: it
+// would be a third v1 carve-out, on an endpoint Pipedrive has put out of
+// support. Do not advertise clearing in a tool description without
+// changing this type in the same commit.
 //
 // Status carries the won/lost transitions; Pipedrive sets won_time and
 // lost_time itself, so they are not writable here.
@@ -95,9 +96,13 @@ type UpdateDealRequest struct {
 	ExpectedCloseDate *string  `json:"expected_close_date,omitempty"`
 	Probability       *float64 `json:"probability,omitempty"`
 	Status            *string  `json:"status,omitempty"`
-	LostReason        *string  `json:"lost_reason,omitempty"`
-	// IsArchived is the one field an archived deal still accepts;
-	// Pipedrive refuses every other edit while a deal is archived.
+	// LostReason is accepted only when the resulting status is lost, so a
+	// reopen cannot clear it. Pipedrive's reference: "Can only be set if
+	// deal status is lost."
+	LostReason *string `json:"lost_reason,omitempty"`
+	// IsArchived is the one field an archived deal still accepts.
+	// Pipedrive answers any other edit to one with a bare 403, which its
+	// reference does not mention; no integration test edits one.
 	IsArchived *bool `json:"is_archived,omitempty"`
 
 	// CustomFields is what FieldCache.Encode produces; see
@@ -199,15 +204,15 @@ func (c *Client) ListDeals(ctx context.Context, opts ListDealsOptions) ([]Deal, 
 	return resp.Data, resp.AdditionalData.NextCursor, nil
 }
 
-// DeleteDeal marks a deal as deleted. Pipedrive's delete is SOFT and
-// time-boxed — its documentation says "Marks a deal as deleted.
-// After 30 days, the deal will be permanently deleted." Within that
-// window the row still exists, carrying is_deleted; nothing in this
-// server puts it back, and Pipedrive's own UI is what can.
+// DeleteDeal marks a deal as deleted. A v2 delete is SOFT and
+// time-boxed: "Marks a deal as deleted. After 30 days, the deal will be
+// permanently deleted." Within the window the record carries is_deleted.
+// Nothing in this server puts it back; Pipedrive's Restore data page
+// does, for deals, people, organizations and activities.
+// https://developers.pipedrive.com/docs/api/v1/Deals#deleteDeal
+// https://support.pipedrive.com/en/article/restore-data
 //
-// The response carries only the id, so there is nothing typed to
-// return: a caller that wants the record's final state reads it before
-// deleting, which the guarded-write path does anyway.
+// The response carries only the id, so nothing typed is returned.
 func (c *Client) DeleteDeal(ctx context.Context, id int64) error {
 	return c.deleteV2(ctx, "/deals/"+strconv.FormatInt(id, 10))
 }

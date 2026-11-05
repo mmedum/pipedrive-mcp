@@ -28,7 +28,7 @@ type dealsClient interface {
 const dealStatusOpen = "open"
 
 // dealStatusLost is the only status Pipedrive accepts a lost_reason
-// alongside. See the reopen handling in writeDealAction.
+// alongside, which is why reopen sends status alone (dealRequestFor).
 const dealStatusLost = "lost"
 
 // Validating the status before calling the API lets a typo surface as
@@ -169,11 +169,9 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string, opts Regi
 //
 // A transition does authorize itself — it names both the change and the
 // field it lands on, so the caller already sees the whole blast radius,
-// and only a free-form update needs permission. That used to be spelled
-// as `in.Action != "update"` at the guard, which is a rule stated by
-// exclusion: a new action was a transition unless it happened to be
-// named update, whatever it actually did. Here a new action states what
-// it is, in the same place it is declared to exist at all.
+// and only a free-form update needs permission (D-43). Each action
+// states what it is in the same place it is declared to exist at all,
+// rather than the guard deriving it by exclusion from the name update.
 type dealAction struct {
 	creates    bool
 	transition bool
@@ -347,10 +345,12 @@ func writeDealAction(ctx context.Context, c dealsClient, companyDomain string, i
 	}
 	req.CustomFields = cf.Values
 
-	// Pipedrive refuses every edit to an archived deal except unarchiving
-	// it, and answers with a bare 403. The read this write already does
-	// can say so first, in words the caller can act on — which is the
-	// whole of the guarded-write contract.
+	// The archived-deal guard (D-45) lives in Get, the first thing run
+	// calls, so nothing in the spine runs before it and it cannot be
+	// stepped around: unarchive sends is_archived alone (dealRequestFor),
+	// a create carries no is_archived, and an archived deal is refused
+	// before expect_version is read, so neither check lets a write past
+	// the other.
 	deal, changed, res := guardedWrite[pipedrive.Deal]{
 		Spec:          dealBaseFields,
 		Custom:        cf,
@@ -367,9 +367,10 @@ func writeDealAction(ctx context.Context, c dealsClient, companyDomain string, i
 			if err != nil {
 				return nil, err
 			}
-			// Pipedrive answers every other edit to an archived deal
-			// with a bare 403. The read this write already does can say
-			// so first, and name the action that fixes it.
+			// Pipedrive refuses every edit to an archived deal except
+			// unarchiving it, with a bare 403. The read this write
+			// already does can say so first, and name the action that
+			// fixes it.
 			if d.IsArchived && in.Action != "unarchive" {
 				return nil, refuse(
 					fmt.Sprintf("deal %d is archived, and Pipedrive accepts no edit to an archived deal", in.DealID),
@@ -424,19 +425,19 @@ func dealRequestFor(in manageDealInput) (pipedrive.UpdateDealRequest, map[string
 	case "unarchive":
 		return pipedrive.UpdateDealRequest{IsArchived: ptr(false)}, nil, nil
 	case "reopen":
-		// Status alone. This used to send lost_reason:"" as well, to
-		// keep the record honest — a deal that is open again was not
-		// lost for a reason — and Pipedrive rejects the entire write
-		// for it: "Lost reason and lost time must can only be set when
-		// status is lost". It validates the RESULTING state, so the
-		// refusal lands whether the deal was won or lost beforehand,
-		// which made reopen fail every time rather than some of the
-		// time.
+		// Status alone. Pipedrive accepts lost_reason only on a deal
+		// that is lost, and it validates the RESULTING state: a reopen
+		// that also sends lost_reason:"" is rejected whole, whether the
+		// deal was won or lost, with "Lost reason and lost time must can
+		// only be set when status is lost". Its reference says only that
+		// lost_reason "can only be set if deal status is lost".
 		//
-		// So Pipedrive keeps whatever lost_reason it had, and the tool
-		// description says so rather than promising a clear that
-		// cannot happen. Three live eval runs found this; the fake
-		// accepts any request, so only the real API could refuse it.
+		// So the deal keeps whatever lost_reason it had, and the tool
+		// description says so rather than promising a clear that cannot
+		// happen. Checked by the integration tests
+		// TestWrite_DealReopensFromWonAndFromLost/mark_won and
+		// TestWrite_DealReopensFromWonAndFromLost/mark_lost.
+		// https://developers.pipedrive.com/docs/api/v1/Deals#updateDeal
 		return pipedrive.UpdateDealRequest{Status: ptr(dealStatusOpen)}, nil, nil
 	default: // update
 		req := pipedrive.UpdateDealRequest{
@@ -489,13 +490,17 @@ func dealAfterUpdate(before pipedrive.Deal, req pipedrive.UpdateDealRequest) pip
 }
 
 // fillDealDefaults puts on a dry-run preview what Pipedrive fills in on a
-// create that leaves a field out, as a live test holds it
-// (TestWrite_CreateDefaultsMatchTheDryRun): the owner is the signed-in
-// user, the currency that user's default, and a deal given a pipeline
-// and no stage goes to the pipeline's first stage. It reads only for a
-// field the call left out. A deal given neither goes to the default
-// pipeline, which no read here names, so its stage stays unknown, as
-// does anything a read fails to settle: the preview shows no guess.
+// create that leaves a field out: the owner is the signed-in user, the
+// currency that user's default, and a deal given a pipeline and no stage
+// goes to the pipeline's first stage. Pipedrive's reference names none
+// of these defaults. Checked by the integration test
+// TestWrite_CreateDefaultsMatchTheDryRun/deal.
+// https://developers.pipedrive.com/docs/api/v1/Deals#addDeal
+//
+// It reads only for a field the call left out. A deal given neither goes
+// to the default pipeline, which no read here names, so its stage stays
+// unknown, as does anything a read fails to settle: the preview shows no
+// guess.
 func fillDealDefaults(ctx context.Context, c dealsClient, d *pipedrive.Deal) {
 	if me := previewUser(ctx, c, d.OwnerID == 0 || d.Currency == ""); me != nil {
 		if d.OwnerID == 0 {
@@ -553,9 +558,8 @@ type dealFieldResolver interface {
 }
 
 // resolvedDeal resolves custom-field hashes to workspace names and summarizes
-// in one step. Written out separately at six sites per resource, a
-// forgotten resolve silently shipped 40-char field hashes to the LLM
-// instead of the names it can actually cite.
+// in one step, so no site can summarize without resolving and hand the
+// LLM 40-character field hashes instead of the names it can cite.
 func resolvedDeal(ctx context.Context, c dealFieldResolver, domain string, r *pipedrive.Deal) dealSummary {
 	return summarizeDeal(domain, r, c.ResolveDealCustomFields(ctx, r.CustomFields))
 }
@@ -588,14 +592,17 @@ func summarizeDeal(domain string, d *pipedrive.Deal, customFields map[string]any
 // deleteDealAction marks a deal deleted.
 //
 // No permitting argument beyond dry_run and expect_version, and that is
-// the rule rather than an oversight: Pipedrive's delete is soft and
-// time-boxed, which is the reversible case, and a guard is only added
-// where the caller cannot see what they are about to lose. The read
-// this performs puts the deal on screen first.
+// the rule rather than an oversight (D-47): Pipedrive's delete is soft
+// and time-boxed, which is the reversible case, and a guard is only
+// added where the caller cannot see what they are about to lose. The
+// read this performs puts the deal on screen first.
 //
 // The notes and activities hanging off the deal are not deleted with
-// it, which a live probe established (docs/security.md), so there is
-// nothing further to guard.
+// it, so there is nothing further to guard. Pipedrive's help center says
+// deleting a deal deletes its linked activities; through the API they
+// stay, and list_activities still lists them. Checked by the integration
+// test TestWrite_DeletingAParentLeavesWhatHangsOffIt/deal.
+// https://support.pipedrive.com/en/article/restore-data
 func deleteDealAction(ctx context.Context, c dealsClient, companyDomain string, in manageDealInput) (*mcp.CallToolResult, manageDealOutput) {
 	if err := validatePositiveID(in.DealID, "deal_id"); err != nil {
 		return errorResult(err), manageDealOutput{}

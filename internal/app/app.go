@@ -3,12 +3,9 @@
 // the API token, build the Pipedrive client, wire the MCP server.
 // domain.go holds the first of those; this file holds the rest.
 //
-// It exists because that sequence used to live unexported inside
-// package main, so nothing else could perform it and every other caller
-// re-derived it. The integration suite re-derived it and dropped the
-// PIPEDRIVE_DRY_RUN floor on the way — which docs/security.md promises
-// an operator holds everywhere — and that is the kind of divergence a
-// shared constructor prevents structurally rather than by comment.
+// Every entry point, the integration suite included, goes through it, so
+// none can rebuild the sequence by hand and drop the PIPEDRIVE_DRY_RUN
+// floor an operator relies on to hold for every write.
 //
 // Nothing here logs, exits or touches the network. The caller decides
 // what a missing token means: main exits, a test skips.
@@ -47,12 +44,9 @@ type Settings struct {
 // Domain is the validated workspace subdomain.
 func (s Settings) Domain() string { return s.Config.CompanyDomain }
 
-// String keeps %v and %+v from printing the token.
-//
-// LogValue alone was not enough and the comment above used to claim it
-// was: fmt reads unexported fields through reflection, so %+v on a
-// Settings rendered `token:<the real token>`. Nothing did that, which
-// is exactly why it would have gone unnoticed until something did.
+// String keeps %v and %+v from printing the token. LogValue alone does
+// not: fmt reads unexported fields through reflection, so %+v would
+// render `token:<the real token>`.
 func (s Settings) String() string { return s.LogValue().String() }
 
 // LogValue renders Settings for slog without the token.

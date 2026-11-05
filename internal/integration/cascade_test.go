@@ -11,13 +11,15 @@ import (
 
 // What deleting a parent record does to the records hanging off it.
 //
-// docs/security.md said this was not documented by Pipedrive and not
-// verified here, and that if it were ever established the guard to add
-// was on the three parents. This is the probe that establishes it, on a
-// tree of records the suite creates in its own pipeline: an
-// organization, a person in it, a deal linked to both, an activity and a
-// note on the deal, and a note on the parent itself. Each case deletes
-// one parent and reads every other record back.
+// Pipedrive's reference says only that a delete marks the record
+// deleted, while its help center says deleting a deal deletes the
+// activities linked to it; a delete that cascaded would need a guard on
+// the three parents (D-28). Through the API nothing cascades, which is
+// what this establishes, on a tree of records the suite creates in its
+// own pipeline: an organization, a person in it, a deal linked to both,
+// an activity and a note on the deal, and a note on the parent itself.
+// Each case deletes one parent and reads every other record back.
+// https://support.pipedrive.com/en/article/restore-data
 //
 // What it establishes is that the other records are not deleted, and no
 // more: a deal still reads with a status other than "deleted", a note

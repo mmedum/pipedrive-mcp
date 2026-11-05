@@ -45,9 +45,8 @@ func TestPinsShell(t *testing.T) {
 	}
 }
 
-// The hole that failed v0.3.0: an action pinned by SHA whose tool is
-// left to float. Each case is the shape of a real step, and the two
-// named ones are the two that actually shipped unpinned.
+// An action pinned by SHA whose tool is left to float. Each case is the
+// shape of a real step.
 func TestUnpinnedTools(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -55,7 +54,7 @@ func TestUnpinnedTools(t *testing.T) {
 		wantBad bool
 	}{
 		{
-			"cosign with no release input — what failed v0.3.0",
+			"cosign with no release input",
 			"jobs:\n  a:\n    steps:\n      - name: Install cosign\n        uses: sigstore/cosign-installer@" + fakeSHA + "\n",
 			true,
 		},
@@ -83,6 +82,12 @@ func TestUnpinnedTools(t *testing.T) {
 			"gitleaks takes its scanner version from the environment",
 			"jobs:\n  a:\n    steps:\n      - uses: gitleaks/gitleaks-action@" + fakeSHA + "\n        env:\n          GITLEAKS_VERSION: 8.31.0\n",
 			false,
+		},
+		{
+			"a blank line above an unpinned installer lends it no later step's version",
+			"jobs:\n  a:\n    steps:\n      - run: echo\n\n      - uses: sigstore/cosign-installer@" + fakeSHA +
+				"\n      - uses: anchore/sbom-action/download-syft@" + fakeSHA + "\n        with:\n          cosign-release: v3.1.3\n          syft-version: v1.51.1\n",
+			true,
 		},
 		{
 			"an action that installs nothing needs no version",
@@ -138,3 +143,53 @@ func TestEveryActionIsClassified(t *testing.T) {
 }
 
 const fakeSHA = "0000000000000000000000000000000000000000"
+
+// make check runs each tool at CI's version of it: golangci-lint and
+// gitleaks, which CI runs through actions, at the version ci.yml names,
+// and pre-commit runs CI's gitleaks, the `v` prefix aside, since go wants
+// it and the action does not. A tool CI runs through make is pinned in the
+// Makefile alone, and exactly.
+func TestToolPinsAgree(t *testing.T) {
+	const (
+		precommit = "repos:\n  - repo: https://github.com/gitleaks/gitleaks\n    rev: v8.30.1\n"
+		makefile  = "GOVULNCHECK_VERSION ?= v1.8.0\nGOLANGCI_LINT_VERSION ?= v2.14.0\nGITLEAKS_VERSION ?= v8.30.1\n"
+		workflow  = "env:\n  GOLANGCI_LINT_VERSION: \"v2.14.0\"\n" +
+			"        env:\n          GITLEAKS_VERSION: \"8.30.1\"\n"
+	)
+	cases := []struct {
+		name                          string
+		precommit, makefile, workflow string
+		want                          string
+	}{
+		{"all three agree", precommit, makefile, workflow, ""},
+		{"golangci-lint drifted", precommit, strings.Replace(makefile, "v2.14.0", "v2.15.0", 1), workflow,
+			"GOLANGCI_LINT_VERSION is v2.15.0 in the Makefile and v2.14.0 in ci.yml; a commit can pass one and fail the other"},
+		{"the Makefile's gitleaks drifted", precommit, strings.Replace(makefile, "v8.30.1", "v8.31.0", 1), workflow,
+			"GITLEAKS_VERSION is v8.31.0 in the Makefile and 8.30.1 in ci.yml; a commit can pass one and fail the other"},
+		{"pre-commit drifted", strings.Replace(precommit, "v8.30.1", "v8.29.0", 1), makefile, workflow,
+			"gitleaks is v8.29.0 in pre-commit and 8.30.1 in ci.yml; a commit can pass the hook and fail the job"},
+		{"ci.yml names no golangci-lint", precommit, makefile, strings.Replace(workflow, "GOLANGCI_LINT_VERSION", "COSIGN_VERSION", 1),
+			"the Makefile pins GOLANGCI_LINT_VERSION and ci.yml does not; make check runs a version CI never does"},
+		{"CI names no gitleaks", precommit, makefile, strings.Replace(workflow, "GITLEAKS_VERSION", "COSIGN_VERSION", 1),
+			"the Makefile pins GITLEAKS_VERSION and ci.yml does not; make check runs a version CI never does\n" +
+				"no GITLEAKS_VERSION in ci.yml; the check is reading the wrong file"},
+		{"the Makefile pins no golangci-lint", precommit, strings.Replace(makefile, "GOLANGCI_LINT_VERSION ?= v2.14.0\n", "", 1), workflow,
+			"the Makefile pins no GOLANGCI_LINT_VERSION; the check is reading the wrong file"},
+		{"a tool CI runs through make floats", precommit, strings.Replace(makefile, "v1.8.0", "v1.8", 1), workflow,
+			`the Makefile pins GOVULNCHECK_VERSION to "v1.8", which is not exactly one version`},
+		{"an empty pin, read on its own line", precommit, strings.Replace(makefile, "v1.8.0", "", 1), workflow,
+			`the Makefile pins GOVULNCHECK_VERSION to "", which is not exactly one version`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := pinsAgree(c.precommit, c.makefile, c.workflow)
+			got := ""
+			if err != nil {
+				got = err.Error()
+			}
+			if got != c.want {
+				t.Errorf("error = %q, want %q", got, c.want)
+			}
+		})
+	}
+}

@@ -1,232 +1,115 @@
-# Release runbook
+# Releasing
 
-How to cut a tagged release. Two parallel workflows trigger on a
-`v*` tag push:
+A maintainer releases by pushing a tag, on the owner's explicit go.
+`release.yml` checks that two builds are byte-identical (D-93), takes the
+tag's CHANGELOG section as the release notes (D-91), and publishes with
+GoReleaser. The archives, an SBOM per archive and the Claude Desktop
+bundle are in `checksums.txt`, which one cosign signature covers, beside
+build provenance (D-92). A tag without a pre-release suffix also
+publishes the MCP registry entry through `publish-mcp.yml`, and an entry
+cannot be withdrawn (D-97).
 
-- `.github/workflows/release.yml` — archives, checksums, cosign-signed
-  blobs, CycloneDX SBOM, GitHub Release, SLSA L2 build-provenance.
-  Driven by `.goreleaser.yaml` plus a thin orchestration step that
-  extracts the matching `## [X.Y.Z]` section from `CHANGELOG.md` as
-  the release notes (so our Keep-a-Changelog format wins, not
-  goreleaser's git-log changelog).
+## Before the release commit
 
-This doc is the **before** and **after** checklist for the maintainer
-who pushes the tag.
+- `make check` passes, and `make leaks-history` passes over everything
+  the repository has published, which `make check` does not read (D-89).
+- `make integration-writes` has run if the release touches the write
+  path or a response shape, and `make evals` if it changes text the
+  model reads (D-79, D-80). `CONTRIBUTING.md` says what each writes.
+- `/simplify`, `/code-review medium` and `/security-review` have run
+  since the previous tag. Nothing they produce is committed.
+- Refresh `internal/pipedrive/testdata/v2-response-fields.json` from
+  <https://developers.pipedrive.com/docs/api/v1/openapi-v2.yaml>, with
+  the spec's SHA256 and the capture date (D-72). A field that appears or
+  goes is a finding. Check there whether v2 has gained notes or users
+  (D-04).
+- Re-fetch the vendored schemas: a pinned hash proves the bytes are the
+  ones reviewed, not that the URL still serves them (D-95). The bundle
+  manifest's ref and hash are in `scripts/gates/mcpb.go`:
 
-This is a one-person operation today. Hold yourself to the checklist —
-the gates that protect production are the ones you actually run, not
-the ones you list.
+  ```bash
+  ref=$(grep -oP 'schemaRef = "\K[^"]+' scripts/gates/mcpb.go)
+  curl -sSL -o packaging/mcpb/mcpb-manifest-v0.3.schema.json \
+    "https://raw.githubusercontent.com/anthropics/mcpb/$ref/schemas/mcpb-manifest-v0.3.schema.json"
+  sha256sum packaging/mcpb/mcpb-manifest-v0.3.schema.json
+  ```
 
-## Before tagging
+  The registry schema, `packaging/registry/server.schema.json`, takes the
+  URL and hash in `scripts/gates/mcpregistry.go` the same way.
+- Rehearse the build into `dist/`, publishing nothing, with the
+  GoReleaser version `release.yml` pins. It skips signing, which needs
+  the workflow's identity, and SBOMs, since syft is installed only in CI:
 
-A release lands a verified state of `main`. Don't tag from a branch.
+  ```bash
+  go run github.com/goreleaser/goreleaser/v2@v2.13.1 release --snapshot --clean --skip=sign,sbom,publish
+  ```
 
-- [ ] All exit criteria for the current phase are met (see
-      `CONTRIBUTING.md` "Phases and approvals" + the phase plan the
-      maintainer is working from).
-- [ ] `make check` passes locally on the commit you're about to tag.
-- [ ] `make smoke` passes locally.
-- [ ] `make leaks-history` passes: nothing from a real account in any
-      commit message, file version, path or tag the repository has
-      published. It reads the whole object store, so it is not in
-      `make check`.
-- [ ] Sandbox integration tests green (Phase 1+): `make integration-writes`.
-      Not `make integration` — that skips every write probe, so the box
-      gets ticked by a run that wrote nothing.
-- [ ] `CHANGELOG.md` `[Unreleased]` section reflects exactly the
-      shipped surface — no stragglers, no missing entries.
-- [ ] `make dump-schemas` output diffed against the previous tag.
-      Any break of it has a `BREAKING CHANGE:` footer naming the item
-      somewhere in the range, which the schema-ack gate asked for on
-      the pull request that made it.
-- [ ] `/security-review` over the cumulative diff since the previous
-      tag. Output committed under `audit/security-reviews/v<tag>.md`.
-- [ ] `/simplify` over the cumulative diff. Output under
-      `audit/security-reviews/v<tag>-simplify.md` (or skip if you
-      ran the per-PR pass diligently).
-- [ ] Manual Claude Desktop / Claude Code smoke against your sandbox
-      (Phase 1+). Transcript committed under
-      `audit/release-smoke/v<tag>.md`.
-- [ ] CHANGELOG `[Unreleased]` heading renamed to the version,
-      with the date, in a release-prep commit. The release workflow's
-      changelog excerpt step depends on this.
-- [ ] `SECURITY.md`'s supported-versions table names the version being
-      tagged as current, and drops whatever fell out of the window.
-      It is a published promise about which releases get patches, and
-      it was written forward once and left that way for five releases,
-      telling every user of the shipped release it got none.
-- [ ] Bump any pinned tool versions in `.github/workflows/*.yml`
-      that drifted (govulncheck, go-licenses) — not strictly required
-      but worth doing on the release commit.
-- [ ] Re-fetch the vendored bundle-manifest schema if `schemaRef` in
-      `scripts/gates/mcpb.go` has moved, or if you want to know the pin
-      is still honest. The gate validates the manifest against
-      `packaging/mcpb/mcpb-manifest-v<version>.schema.json` and checks
-      that file against the SHA256 recorded in `vendoredSchemaSHA256` —
-      which proves the bytes are the ones somebody reviewed, NOT that
-      they still match what the URL serves. Only a re-fetch shows that:
+  `checksums.txt` must list the bundle. A bundle missing from it ships
+  unsigned and looks no different.
 
-      ```sh
-      ref=$(grep -oP 'schemaRef = "\K[^"]+' scripts/gates/mcpb.go)
-      curl -sSL -o packaging/mcpb/mcpb-manifest-v0.3.schema.json \
-        "https://raw.githubusercontent.com/anthropics/mcpb/$ref/schemas/mcpb-manifest-v0.3.schema.json"
-      sha256sum packaging/mcpb/mcpb-manifest-v0.3.schema.json
-      ```
+## Steps
 
-      A changed hash means upstream retagged under a ref that is
-      supposed to be immutable — worth understanding before updating
-      the constant.
-- [ ] Refresh `internal/pipedrive/testdata/v2-response-fields.json` from
-      Pipedrive's v2 description, so the upstream-type check is holding
-      the mirror against a current document rather than a stale one. It
-      is derived from
-      <https://developers.pipedrive.com/docs/api/v1/openapi-v2.yaml>;
-      the file records the source URL, the spec's SHA256 and the capture
-      date. A field appearing or disappearing is a finding, not a chore —
-      `is_archived` and the archived-deals split were both invisible
-      until somebody looked.
-- [ ] The same for the vendored MCP registry schema
-      (`packaging/registry/server.schema.json`, hash in
-      `registrySchemaSHA256`). Its URL is dated rather than tagged, so
-      it is the likelier of the two to move under you — and a registry
-      entry cannot be withdrawn once published.
+1. On a topic branch, rename `[Unreleased]` in `CHANGELOG.md` to
+   `## [X.Y.Z] - YYYY-MM-DD`, leave an empty `[Unreleased]` above it, and
+   add the version's link reference at the bottom.
+2. Compare `make dump-schemas` with the previous tag's. A break needs a
+   MAJOR (D-75) and the owner's decision before it is written; a new
+   major also raises go.mod's `/vN`.
+3. Commit as `Release X.Y.Z`, open a pull request, and merge once CI is
+   green on that commit.
+4. Tag the merge, annotated, and push the tag on its own:
 
-## Tagging
+   ```bash
+   git switch main && git pull --ff-only
+   git tag -a vX.Y.Z -m "vX.Y.Z"
+   git push origin vX.Y.Z
+   ```
 
-```sh
-git checkout main
-git pull --ff-only
-git tag -s "v0.X.Y" -m "v0.X.Y"
-git push origin "v0.X.Y"
+## What no rehearsal reaches
+
+Signing, attestation and the registry publish need the workflow's OIDC
+token, so read the first run after any change to the pipeline.
+
+| Fails | State afterward | Recovery |
+|---|---|---|
+| reproducible build, release notes or cosign | no release | fix it, then release the next patch |
+| attestation | release published, unattested, no entry | fix it, then release the next patch |
+| registry publish | release fine, no entry | `gh workflow run publish-mcp.yml --ref main -f tag=vX.Y.Z`; do not tag again |
+
+## Verify from outside
+
+```bash
+cd "$(mktemp -d)" && gh release download vX.Y.Z --repo mmedum/pipedrive-mcp
+cosign verify-blob checksums.txt --bundle checksums.txt.bundle \
+  --certificate-identity 'https://github.com/mmedum/pipedrive-mcp/.github/workflows/release.yml@refs/tags/vX.Y.Z' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum -c checksums.txt --ignore-missing
+gh attestation verify pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz --repo mmedum/pipedrive-mcp
 ```
 
-`-s` requires a configured GPG key. If you don't sign tags, drop the
-flag — but cosign keyless signing covers artifact provenance, so tag
-signing is optional.
+A pass prints little, so read the exit code. The release carries
+`pipedrive-mcp_X.Y.Z_darwin_amd64.tar.gz`,
+`pipedrive-mcp_X.Y.Z_darwin_arm64.tar.gz`,
+`pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz`,
+`pipedrive-mcp_X.Y.Z_linux_arm64.tar.gz`,
+`pipedrive-mcp_X.Y.Z_windows_amd64.zip` and
+`pipedrive-mcp_X.Y.Z_windows_arm64.zip`, each with its `.cdx.json`
+SBOM, and `pipedrive-mcp_X.Y.Z.mcpb` (D-94). Check the registry job
+too: a release with no entry looks like one with an entry.
 
-The release workflow runs automatically. Watch it at
-`https://github.com/mmedum/pipedrive-mcp/actions`.
+Last, outside the repository, run
+`go install github.com/mmedum/pipedrive-mcp/cmd/pipedrive-mcp@latest`
+as a user would, and check that `pipedrive-mcp --version` names the new
+release.
 
-## After the workflow finishes
+## A bad release
 
-- [ ] Open the GitHub Release page. Verify:
-      - The six archives, under the family's names
-        (`gates mcpb` holds this list to `.goreleaser.yaml`):
-        `pipedrive-mcp_X.Y.Z_darwin_amd64.tar.gz`,
-        `pipedrive-mcp_X.Y.Z_darwin_arm64.tar.gz`,
-        `pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz`,
-        `pipedrive-mcp_X.Y.Z_linux_arm64.tar.gz`,
-        `pipedrive-mcp_X.Y.Z_windows_amd64.zip` and
-        `pipedrive-mcp_X.Y.Z_windows_arm64.zip`.
-      - `checksums.txt` plus `checksums.txt.bundle`, the one signature over
-        the release. Every archive and every SBOM is covered by its
-        hash in that file, so there are no per-artifact `.sig`/`.cert`.
-      - `<archive>.cdx.json` (CycloneDX SBOM) per archive.
-      - SLSA build-provenance attestation visible (cli/cli-style
-        "Provenance" badge on each archive).
-- [ ] Verify the signature locally. Use the archive filename goreleaser
-      actually produces — no `v` prefix, `.tar.gz` extension:
+A bad release is fixed forward.
 
-      cosign verify-blob checksums.txt \
-        --bundle checksums.txt.bundle \
-        --certificate-identity-regexp '^https://github\.com/mmedum/pipedrive-mcp/\.github/workflows/release\.yml@refs/tags/' \
-        --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
-
-      sha256sum -c checksums.txt --ignore-missing   # on macOS: shasum -a 256 -c
-
-      The signature first: until it passes, the checksums are only what
-      the release assets say now.
-- [ ] Verify the build attestation with `gh attestation verify`:
-
-      gh attestation verify pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz \
-        --owner mmedum
-- [ ] The Claude Desktop bundle, `pipedrive-mcp_X.Y.Z.mcpb`, is on the
-      release page and has a row in `checksums.txt`. The bundle is not an
-      archive goreleaser built — a hook drops it into `dist/` and
-      `checksum.extra_files` names it — so it is the one artifact that
-      can go missing without anything else looking wrong. It carries the
-      Windows amd64 binary alone: a manifest names one command per
-      platform, and Windows on arm64 runs that binary under emulation.
-- [ ] The registry entry published. The `registry` job runs after
-      `archives` and is skipped for prereleases on purpose, because an
-      entry cannot be withdrawn. Check the job, not the release page:
-      a green release with no entry looks identical to one with an
-      entry.
-- [ ] Re-run `make smoke` against the just-released binary
-      (download → smoke), not the dev binary.
-- [ ] In the next PR, open `CHANGELOG.md` and add a fresh
-      `## [Unreleased]` section so day-2 commits have somewhere to
-      land.
-
-## If a workflow fails
-
-- **Reproducible-build sanity check fails (`release.yml`)**: indicates
-  non-determinism in the build. Most common causes: a non-pinned dep,
-  a dep that embeds build-time metadata (filepath, hostname).
-  Investigate from the two SHA256 hashes in the workflow logs. Fix
-  the cause, force-delete the tag (`git tag -d`, `git push --delete
-  origin`), retag from the fix commit. **Only force-delete a tag if
-  no consumer has pulled the release yet** — published tags are
-  public history; deleting one downstream of an artifact pull breaks
-  any verifier that pinned by tag.
-- **Goreleaser fails on the release notes step**: the `## [X.Y.Z]`
-  section in `CHANGELOG.md` is missing or unrenamed from
-  `[Unreleased]`. Fix the CHANGELOG on `main`, redo the tag.
-- **Cosign signing failure**: usually a transient Fulcio CA blip;
-  re-running the workflow on the same tag works.
-
-### The three steps that only ever run on a real tag
-
-Cosign signing, the build-provenance attestation and the registry
-publish each need an OIDC token that only a workflow run has. So
-`goreleaser check`, `actionlint` and a snapshot build all pass while any
-of the three is wrong, and the first tag is where you find out. Read
-that run rather than watching it go green.
-
-They fail differently, and the difference is what you do next:
-
-| Fails | State afterwards | Recovery |
-| --- | --- | --- |
-| cosign | **No release.** Signing precedes publishing. | Fix, delete the tag, re-tag. |
-| attestation | Release published, unattested. | Re-run the failed job on the same tag. |
-| registry publish | Release fine, no entry. | Dispatch `publish-mcp.yml` against the existing tag. |
-
-The registry publish is its own workflow precisely so the third row is
-possible: re-running `release.yml` would re-run goreleaser against a
-release that already exists, and an entry for a tag that shipped weeks
-ago could not be published at all.
-
-```sh
-gh workflow run publish-mcp.yml --ref main -f tag=vX.Y.Z
-```
-
-It reads the PUBLISHED release's `checksums.txt`, so the hash in the entry
-is the number cosign signed rather than one from a local build. A release
-cut before the checksum file was renamed carries `SHA256SUMS` and
-`SHA256SUMS.bundle` instead; the workflow takes those when
-`checksums.txt` is absent and verifies them the same way.
-
-Two limits of that check, kept on purpose for now. The signature is held
-to `release.yml` on any tag, not to the tag being published, so a
-`checksums.txt` signed for another tag of this repository would pass.
-And the entry takes the one `.mcpb` row in the file without checking its
-name against the tag. Both are hardening outside the change set that
-introduced them; tightening either is a change to this workflow, which
-needs the maintainer's go-ahead.
-
-**Exit 0 on empty output is not evidence.** `gh attestation verify` and
-`cosign verify-blob` both say little when they succeed, and a command
-that verified nothing at all also says little. Check one of them against
-a deliberately corrupted copy of the artifact and confirm it exits
-non-zero before believing the run that passed.
-
-If you delete and recreate a tag, also delete the corresponding
-draft Release on GitHub before retrying. The workflow won't overwrite
-a Release that already exists.
-
-## Phase boundary checklist
-
-A release that crosses a phase boundary needs the additional gates
-documented in `CONTRIBUTING.md` ("Phases and approvals" + "Phase 0
-spike checklist") *before* the tag is pushed. The user — not the
-workflow — signs off on phase progression.
+- Never move or delete a pushed tag. The Go module proxy caches it
+  within minutes, and the checksum database records its hash.
+- Ship a patch release with the fix.
+- In that patch, add `retract vX.Y.Z // why` to `go.mod`, so the go
+  command skips the bad version for `@latest`.
+- Mark the bad version's CHANGELOG heading `[YANKED]`:
+  `## [X.Y.Z] - YYYY-MM-DD [YANKED]`.

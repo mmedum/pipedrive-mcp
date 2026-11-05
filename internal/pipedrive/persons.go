@@ -25,11 +25,16 @@ type ListPersonsOptions struct {
 // CreatePersonRequest is the JSON body for POST /api/v2/persons.
 //
 // `name` and first_name/last_name are ALTERNATIVES, not a whole and
-// its parts. Pipedrive rejects a body carrying both — "Cannot set
-// 'name' and 'first_name'/'last_name' at the same time" — so `name`
-// is omitempty: a request that names the parts must not send an empty
-// `name` alongside them. Give one or the other; Pipedrive derives
-// whichever was not given.
+// its parts. Pipedrive rejects a body carrying both (errBothNamings), so
+// `name` is omitempty: a request that names the parts must not send an
+// empty `name` alongside them. Pipedrive derives whichever was not
+// given, so changing first_name changes name too. Checked by the
+// integration test TestWrite_PersonFieldRoundTrips.
+//
+// first_name and last_name are accepted on a create and an update,
+// though Pipedrive's v2 description of either body declares only name.
+// The same test writes first_name on an update.
+// https://developers.pipedrive.com/docs/api/v1/Persons#addPerson
 //
 // Emails and phones are each a list of {value, primary, label}.
 // Multiple `primary: true` entries are silently coerced by
@@ -52,8 +57,8 @@ type CreatePersonRequest struct {
 // errBothNamings is Pipedrive's rule, refused here: `name` and
 // first_name/last_name are alternatives, and a body carrying both
 // comes back "Cannot set 'name' and 'first_name'/'last_name' at the
-// same time". Refusing before the request costs no round trip and can
-// say which argument to drop.
+// same time", which no integration test sends. Refusing before the
+// request costs no round trip and can say which argument to drop.
 var errBothNamings = fmt.Errorf("%w: Pipedrive takes name OR first_name/last_name, never both — "+
 	"pass first_name and last_name and it derives name, or pass name and it splits it", ErrValidation)
 
@@ -191,8 +196,8 @@ func (c *Client) ListPersons(ctx context.Context, opts ListPersonsOptions) ([]Pe
 	return resp.Data, resp.AdditionalData.NextCursor, nil
 }
 
-// ListPersonFields returns the field metadata for persons. Used by
-// the per-Client person field cache.
+// ListPersonFields returns the field metadata for persons, for the
+// person field cache. It reads one page, as ListDealFields does.
 func (c *Client) ListPersonFields(ctx context.Context) ([]Field, error) {
 	var resp listEnvelope[Field]
 	if err := c.do(ctx, "/personFields", &resp); err != nil {
@@ -222,8 +227,8 @@ func (c *Client) WarmPersonFields(ctx context.Context) {
 }
 
 // ReloadPersonFields clears and re-fetches the person-field cache,
-// returning the count of fields now cached. See ReloadDealFields for
-// the rationale.
+// returning the count of fields cached after the reload, as
+// ReloadDealFields does for deals.
 func (c *Client) ReloadPersonFields(ctx context.Context) (int, error) {
 	c.personFields.Reload()
 	if err := c.personFields.Load(ctx); err != nil {
@@ -232,15 +237,9 @@ func (c *Client) ReloadPersonFields(ctx context.Context) (int, error) {
 	return c.personFields.Count(), nil
 }
 
-// DeletePerson marks a person as deleted. Pipedrive's delete is SOFT and
-// time-boxed — its documentation says "Marks a person as deleted.
-// After 30 days, the person will be permanently deleted." Within that
-// window the row still exists, carrying is_deleted; nothing in this
-// server puts it back, and Pipedrive's own UI is what can.
-//
-// The response carries only the id, so there is nothing typed to
-// return: a caller that wants the record's final state reads it before
-// deleting, which the guarded-write path does anyway.
+// DeletePerson marks a person as deleted, softly, as DeleteDeal does a
+// deal: Pipedrive purges it after 30 days.
+// https://developers.pipedrive.com/docs/api/v1/Persons#deletePerson
 func (c *Client) DeletePerson(ctx context.Context, id int64) error {
 	return c.deleteV2(ctx, "/persons/"+strconv.FormatInt(id, 10))
 }

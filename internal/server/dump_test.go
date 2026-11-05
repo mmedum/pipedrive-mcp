@@ -86,8 +86,8 @@ func TestTheDumpIsWhatAClientIsServed(t *testing.T) {
 	}
 }
 
-// The server has no resources or prompts today. One added later is in
-// the dump, sorted, so the schema gate sees it.
+// The server has no resources or prompts. One added to it is in the
+// dump, sorted, so the schema gate sees it.
 func TestTheDumpListsResourcesAndPrompts(t *testing.T) {
 	s := mcp.NewServer(&mcp.Implementation{Name: "fixture"}, nil)
 	read := func(context.Context, *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {

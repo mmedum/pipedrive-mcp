@@ -48,9 +48,8 @@ const Name = "pipedrive-mcp"
 //
 // It takes the whole config.Config rather than a domain and a
 // RegisterOptions, because those two are derived from it and a caller
-// assembling them by hand can make them disagree — which is how the
-// PIPEDRIVE_DRY_RUN floor, a promise docs/security.md makes to an
-// operator, was once dropped for a whole process. cfg.CompanyDomain
+// assembling them by hand can make them disagree, dropping the
+// PIPEDRIVE_DRY_RUN floor for a whole process (D-34). cfg.CompanyDomain
 // drives URL injection in tool outputs and cfg.DryRun is the
 // server-wide rehearsal floor; see the RegisterOptions godoc.
 //

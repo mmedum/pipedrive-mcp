@@ -111,9 +111,9 @@ func TestTheCommittedManifestIsValid(t *testing.T) {
 	}
 }
 
-// The bundle's layout is the family's: Go's architecture names, as in
-// the release archives, and the license and the README at the root.
-func TestTheLayoutIsTheFamilys(t *testing.T) {
+// The bundle's layout: Go's architecture names, as in the release
+// archives, and the license and the README at the root.
+func TestTheBundleLayout(t *testing.T) {
 	want := []string{
 		"LICENSE", "README.md", "server/launch-linux.sh", "server/pipedrive-mcp-darwin",
 		"server/pipedrive-mcp-linux-amd64", "server/pipedrive-mcp-linux-arm64", "server/pipedrive-mcp.exe",
@@ -423,7 +423,7 @@ func TestTheManifestRefusesAKeyInAnotherCase(t *testing.T) {
 
 // TestTheLauncherNamesAreThePackers is the way no manifest can see: the
 // names live in a shell script nothing else reads. The names here are
-// the ones 1.1.3 shipped; the family's layout is -linux-amd64.
+// an older -linux-x64 form; the layout is -linux-amd64.
 func TestTheLauncherNamesAreThePackers(t *testing.T) {
 	want := []string{"the launcher runs [pipedrive-mcp-linux-arm64 pipedrive-mcp-linux-x64]; " +
 		"the packer stages [pipedrive-mcp-linux-amd64 pipedrive-mcp-linux-arm64]"}
@@ -716,7 +716,7 @@ func TestTheBundleSettingsRefuseEachBreak(t *testing.T) {
 }
 
 // What the bundle says it is, broken once each: the server's own name, a
-// binary, the family's floor, a privacy policy, and exactly the
+// binary, the Claude Desktop floor, a privacy policy, and exactly the
 // platforms the packer stages an entry point for.
 func TestTheIdentityRefusesEachBreak(t *testing.T) {
 	const entryPoints = "; the packer stages entry points for [darwin linux win32]"
@@ -730,7 +730,7 @@ func TestTheIdentityRefusesEachBreak(t *testing.T) {
 		{"a node server", func(d map[string]any) { dig(d, "server")["type"] = "node" },
 			`server.type is "node"; the bundle carries a binary`},
 		{"no Claude Desktop floor", func(d map[string]any) { delete(dig(d, "compatibility"), "claude_desktop") },
-			`compatibility.claude_desktop is ""; the family's bundles claim ">=0.10.0"`},
+			`compatibility.claude_desktop is ""; the bundle claims ">=0.10.0", as the sibling servers' bundles do`},
 		{"no Linux", func(d map[string]any) { dig(d, "compatibility")["platforms"] = []any{"darwin", "win32"} },
 			"compatibility.platforms is [darwin win32]" + entryPoints},
 		{"a platform the packer stages nothing for", func(d map[string]any) {

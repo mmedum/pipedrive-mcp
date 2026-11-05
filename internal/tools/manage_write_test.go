@@ -208,18 +208,15 @@ func TestManageDeal_MarkLost_DoesNotInventALostReason(t *testing.T) {
 	}
 }
 
-// This test used to assert the opposite — that reopen blanks
-// lost_reason — and it was green for two releases while reopen failed
-// against the real API every single time. The fake accepts any request,
-// so the test could only ever confirm that the code sent what the code
-// sent.
-//
 // Pipedrive accepts lost_reason ONLY on a deal that is lost, and
 // validates the resulting state: "Lost reason and lost time must can
 // only be set when status is lost". Sending it with status:open is
 // refused whatever the deal was before, so reopen sends the status
-// alone and the old reason stays on the record. Reopening a won deal
-// was broken the same way; three live eval runs were what found it.
+// alone and the old reason stays on the record.
+//
+// The fake accepts any request, so this can only confirm that the code
+// sends what the code sends. What Pipedrive refuses is checked by the
+// integration test TestWrite_DealReopensFromWonAndFromLost.
 func TestManageDeal_Reopen_SendsStatusOnly(t *testing.T) {
 	for _, before := range []*pipedrive.Deal{
 		{ID: 9, Status: "lost", LostReason: "budget", UpdateTime: "t0"},
@@ -722,17 +719,18 @@ func TestManagePerson_UpdateOverlayCoversEveryField(t *testing.T) {
 	}
 }
 
-// ---- regressions from the /security-review of 2026-09-16 ----
+// ---- fields an update writes must be in the table ----
 //
-// Both were the same shape: a field that an update WRITES but that the
-// resource's fieldSpec table did not describe. Untabled, it is invisible
-// to changedFields, so requireOverwrite cannot refuse over it and the
-// `changed` report never admits it moved — while the tool description
-// promises to refuse over ANY populated field and name each one.
+// The cases below share one shape: a field that an update WRITES
+// but that the resource's fieldSpec table does not describe. Untabled,
+// it is invisible to changedFields, so requireOverwrite cannot refuse
+// over it and the `changed` report never admits it moved — while the
+// tool description promises to refuse over ANY populated field and name
+// each one.
 
 func TestManageActivity_ParticipantsAreGuarded(t *testing.T) {
 	// An update REPLACES the participant collection. Riding along on an
-	// unrelated edit, it silently deleted every existing attendee.
+	// unrelated edit, it would silently delete every existing attendee.
 	fake := &fakeActivitiesClient{
 		activity: &pipedrive.Activity{
 			ID: 5, Subject: "Kickoff", Note: "", UpdateTime: "t0",

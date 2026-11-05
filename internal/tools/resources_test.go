@@ -141,9 +141,9 @@ func TestResources_UpstreamErrorCarriesTheClassTag(t *testing.T) {
 }
 
 func TestResources_EveryTemplateResolves(t *testing.T) {
-	// One fetch closure per resource type, and only the deals one was
-	// exercised. A closure that panics or wires up the wrong summarizer
-	// would have shipped unnoticed for the other four.
+	// One fetch closure per resource type, each exercised here. A
+	// closure that panics or wires up the wrong summarizer goes
+	// unnoticed unless its own template is read.
 	fake := &fakeResourcesClient{
 		deal: &pipedrive.Deal{ID: 9, Title: "Acme renewal", Status: "open"},
 	}

@@ -11,14 +11,11 @@ type Pipeline struct {
 
 // Stage is a Pipedrive stage within a pipeline. Subset of /api/v2/stages.
 //
-// IsDeleted, not an active flag. A comment here used to say that
-// Pipeline reads `active` while Stage reads `active_flag`, and that both
-// had been confirmed against the live endpoints. Neither field exists on
-// v2 — both resources carry is_deleted — so both decoded to false for
-// every record and the tools reported every pipeline and stage in the
-// workspace as inactive. Both spellings are v1 vocabulary that came
-// across in the port. TestUpstreamTypesMatchTheSpec is what now holds
-// this against Pipedrive's own description of the response.
+// v2 pipelines and stages carry is_deleted. `active` and `active_flag`
+// are v1 names, absent from v2, so a field read under either is false on
+// every record. TestUpstreamTypesMatchTheSpec holds this against
+// Pipedrive's v2 description.
+// https://developers.pipedrive.com/docs/api/v1/Stages#getStages
 type Stage struct {
 	ID              int64  `json:"id"`
 	Name            string `json:"name"`
@@ -46,9 +43,10 @@ type Field struct {
 
 	// IsWritable is Pipedrive's own answer to whether a write may set
 	// this field. Some built-ins and some derived custom fields are
-	// read-only, and the workspace is the only thing that knows which —
-	// a hand-maintained list here would go stale the first time somebody
-	// adds a formula field.
+	// read-only, and only the workspace knows which. The *Fields endpoints
+	// return is_writable, though Pipedrive's v2 description never
+	// declares it (knownSpecOmissions).
+	// https://developers.pipedrive.com/docs/api/v1/DealFields#getDealFields
 	IsWritable bool `json:"is_writable"`
 }
 
@@ -56,22 +54,26 @@ type Field struct {
 //
 // ID is `any` because Pipedrive does not spell it one way: custom fields
 // carry numeric ids, built-ins like `status` carry strings, and a write
-// has to keep those apart. docs/architecture.md, "Option labels", has
-// the rest — including what this does not preserve.
+// has to send each back as it came. A JSON number decodes to float64, so
+// the type survives and the wire spelling does not; OptionKey compares
+// ids on a rendered form for that reason. Checked by the integration
+// test TestCustomFields_ResolveToWorkspaceWords.
 type FieldOption struct {
 	ID    any    `json:"id"`
 	Label string `json:"label"`
 }
 
-// Deal is a Pipedrive deal record (subset). Custom fields are nested
-// under custom_fields per the v2 API; the LLM-facing rendering in
-// internal/tools/ resolves the 40-char hash keys into names via the
-// per-Client deal field cache.
+// Deal is a Pipedrive deal record (subset). v2 nests custom fields under
+// custom_fields in requests and responses, where v1 puts them at the
+// root; internal/tools resolves their 40-char hash keys into names
+// through the deal field cache. Checked by the integration tests
+// TestCustomFields_ResolveToWorkspaceWords and
+// TestWrite_CustomFieldRoundTripsByLabel.
+// https://developers.pipedrive.com/docs/api/v1/Deals#getDeal
 //
-// Times use Pipedrive's RFC3339-ish format with space (e.g.
-// "2026-04-26 10:00:00"). They are surfaced to the LLM as raw strings
-// so it can pattern-match without timezone surprises; callers that
-// need time.Time should parse explicitly.
+// v2 times are RFC 3339 in UTC ("2021-01-01T00:00:00Z" in Pipedrive's
+// reference). They are kept as the raw strings, so a caller that needs a
+// time.Time parses one.
 type Deal struct {
 	ID                int64    `json:"id"`
 	Title             string   `json:"title"`
@@ -89,12 +91,10 @@ type Deal struct {
 	LostReason        string   `json:"lost_reason,omitempty"`
 	AddTime           string   `json:"add_time"`
 	UpdateTime        string   `json:"update_time"`
-	Probability       *float64 `json:"probability,omitempty"`
-	// IsArchived is not the same as a status. Pipedrive stopped
-	// returning archived deals from /deals on 2025-07-15 and moved them
-	// to /deals/archived, so a list that does not ask for them is
-	// quietly short rather than wrong — and an archived deal cannot be
-	// edited at all.
+	Probability       *float64 `json:"probability,omitempty"` // a JSON number in v2; can be fractional
+	// IsArchived is not a status: an archived deal is alive, but /deals
+	// leaves it out and /deals/archived serves it (ListDealsOptions), and
+	// Pipedrive accepts no edit to it but is_archived (UpdateDealRequest).
 	IsArchived   bool           `json:"is_archived"`
 	CustomFields map[string]any `json:"custom_fields,omitempty"`
 }
@@ -102,7 +102,11 @@ type Deal struct {
 // AdditionalData is the paging envelope returned alongside `data`
 // on list endpoints.
 //
-// V2 uses NextCursor — opaque token; empty string means "last page".
+// V2 uses NextCursor, an opaque token that Pipedrive sends as null at
+// the end of the data, which decodes to "". Only that ends a listing; a
+// page shorter than the limit does not say it is the last.
+// https://developers.pipedrive.com/docs/api/v1/Deals#getDeals
+//
 // V1 (notes carve-out only) uses V1Pagination, an offset-style
 // {start, limit, next_start} block. The tool layer encodes v1's
 // next_start as an opaque cursor string so the LLM-facing surface
@@ -171,8 +175,7 @@ type Person struct {
 // this type. /api/v2/itemSearch returns a different, flat string-only
 // shape — the search-side code does not decode into this type.
 // Street-level components (route, street_number, sublocality, admin
-// areas) are not surfaced today; add them back if a tool starts
-// needing them.
+// areas) are not decoded; add them when a tool needs them.
 type Address struct {
 	Value      string `json:"value,omitempty"`
 	Country    string `json:"country,omitempty"`
@@ -229,13 +232,11 @@ type ActivityAttendee struct {
 	UserID      int64  `json:"user_id,omitempty"`
 }
 
-// Activity is a Pipedrive activity record (subset). Pipedrive v2 dropped
-// the v1 `_flag` suffixes — `busy_flag` → `busy`, `done_flag` → `done`.
-// Activities do NOT carry a `custom_fields` block on v2; the v2 schema
-// omits it entirely. Times use Pipedrive's date/time formats (DueDate
-// is YYYY-MM-DD, DueTime / Duration are HH:MM, AddTime / UpdateTime are
-// the v2 RFC3339-with-space). Strings are surfaced raw to the LLM so it
-// can pattern-match without timezone surprises.
+// Activity is a Pipedrive activity record (subset). v2 drops the v1
+// `_flag` suffixes (`busy_flag` is `busy`, `done_flag` is `done`), and
+// its schema gives an activity no custom_fields. DueDate is YYYY-MM-DD,
+// DueTime and Duration are HH:MM, and AddTime and UpdateTime are RFC
+// 3339 as on Deal; all are kept as the raw strings.
 type Activity struct {
 	ID                      int64                 `json:"id"`
 	Subject                 string                `json:"subject"`
@@ -264,19 +265,20 @@ type Activity struct {
 	UpdateTime              string                `json:"update_time"`
 }
 
-// Note is a Pipedrive v1 note record. v2 has no /notes endpoint
-// (Pipedrive officially recommends staying on v1 for notes per
-// developer-community thread, 2025-05). The carve-out is documented
-// in CLAUDE.md hard rule #1.
+// Note is a Pipedrive v1 note record, read and written on v1 because
+// Pipedrive's v2 has no /notes; Pipedrive's staff advise staying on v1
+// for notes.
+// https://devcommunity.pipedrive.com/t/migration-to-api-v2-equivalent-for-note-endpoints/19155
 //
-// AddTime / UpdateTime use v1's `YYYY-MM-DD HH:MM:SS` format (UTC,
-// space-separated — distinct from v2's RFC3339).
+// AddTime and UpdateTime are v1's "YYYY-MM-DD HH:MM:SS" in UTC, not the
+// RFC 3339 of v2.
 //
-// Foreign keys are pointer-typed because v1 returns null when the
-// note isn't anchored to that entity. LeadID is a UUID string;
-// the rest are int IDs. The pinned-to-* fields come back as actual
-// JSON booleans on v1 (verified live, 2026-04 — earlier external
-// docs claimed 0/1 ints; the docs were wrong).
+// Foreign keys are pointers because v1 returns null when the note is not
+// anchored to that entity. LeadID is a UUID string; the rest are int
+// ids. The pinned_to_*_flag fields arrive as JSON booleans, as the
+// response schema declares, although the list filter of the same name
+// takes 0 or 1.
+// https://developers.pipedrive.com/docs/api/v1/Notes#getNote
 type Note struct {
 	ID                       int64  `json:"id"`
 	Content                  string `json:"content"`

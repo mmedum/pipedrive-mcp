@@ -13,29 +13,19 @@ import (
 // against Pipedrive's own published v2 OpenAPI description.
 //
 // It is a TEST, not a generator. Nothing here is compiled into the
-// binary and no generated code is vendored: the spec has zero $ref, so
+// binary and no generated code is vendored: the spec has no $ref, so
 // every response shape is inlined per operation and a generator emits a
 // separate anonymous struct per endpoint rather than one Deal. The spec
-// is worth having as an oracle and not as a code input. The reasoning is
-// written out in docs/architecture.md, "Hand-rolled HTTP".
+// is worth having as an oracle and not as a code input.
 //
-// What it caught the day it was written, all three confirmed against a
-// live workspace before being fixed:
+// A field this package reads under a name v2 does not send decodes to
+// its zero value on every record, silently; that is the drift this
+// catches. A type the spec contradicts, such as an int where it says
+// number, fails a whole page on one row.
 //
-//   - Pipeline.Active read `active` and Stage.Active read `active_flag`.
-//     Neither field exists in v2 — both resources carry is_deleted — so
-//     both decoded to false for every record, and the tool told the LLM
-//     every pipeline in the workspace was inactive. The comment above
-//     them claimed they had been confirmed against the live endpoints.
-//   - Organization.PeopleCount read `people_count`, which v2 returns only
-//     when asked for through include_fields. It was never requested, so
-//     the field was absent from every row while three tool descriptions
-//     promised it.
-//   - Deal.Probability was *int where the spec says `number`. One deal
-//     with a fractional probability makes the decode fail, and client.go
-//     returns that error, so a single row loses the whole page.
-//
-// Refreshing the fixture is a step in docs/release.md.
+// The fixture is a projection of
+// https://developers.pipedrive.com/docs/api/v1/openapi-v2.yaml, refreshed
+// before each release (docs/release.md).
 const specFixture = "testdata/v2-response-fields.json"
 
 type specFields struct {
@@ -50,11 +40,10 @@ type specFields struct {
 // published spec does not declare, each one verified against the live
 // API. They are exemptions from the check below, not oversights.
 //
-// is_writable is returned by /dealFields, /personFields and
-// /organizationFields — confirmed live on 2026-09-18 — and the
-// guarded-write contract refuses a write to a read-only custom field on
-// the strength of it. The spec mentions is_custom_field 92 times and
-// is_writable not once. The field is real; the description is behind.
+// is_writable is returned live by /dealFields, /personFields and
+// /organizationFields, and a write to a read-only custom field is
+// refused on the strength of it. The spec declares is_custom_field and
+// never is_writable.
 var knownSpecOmissions = map[string]map[string]string{
 	"Field": {
 		"is_writable": "returned live by the *Fields endpoints; the spec has never declared it",

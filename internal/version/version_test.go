@@ -73,7 +73,7 @@ func TestLdflagsStampWins(t *testing.T) {
 	}
 }
 
-// TestUnstampedBuildDoesNotSayDevWhenGoKnowsBetter is the bug this
+// TestUnstampedBuildDoesNotSayDevWhenGoKnowsBetter is the case this
 // fallback exists for: `go install module@v0.3.1` applies no ldflags, so
 // without it the installed binary calls itself "dev" forever and cannot
 // say which release it came from. Under `go test` the main module

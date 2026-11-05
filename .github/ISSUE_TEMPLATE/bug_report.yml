@@ -19,7 +19,7 @@ body:
       description: What you asked for, what the server did, and what you expected instead.
       placeholder: |
         I asked Claude to list deals in the "Renewals" pipeline.
-        It answered with [invalid] ... and no deals came back.
+        It answered with [validation] ... and no deals came back.
     validations:
       required: true
 

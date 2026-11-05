@@ -1,208 +1,142 @@
-# Security guidance for operators
+# Security model
 
-This document is the **runtime** security policy. The **reporting**
-policy (vulnerability disclosure, supported versions, response targets)
-is in [`../SECURITY.md`](../SECURITY.md).
+The threat model and the invariants the code holds.
+[`SECURITY.md`](../SECURITY.md) says how to report a vulnerability.
 
-## Token handling
+It applies to one binary, a subprocess of your MCP client on your
+machine, with your own Pipedrive API token, against one workspace
+(D-01). It talks only to `<domain>.pipedrive.com`. It opens no listener,
+and has no telemetry, no crash reporting and no update check.
 
-The Pipedrive personal API token grants every permission the user
-behind it has. Treat it as a password.
+## Trust boundaries
 
-### Use `pipedrive-mcp login` for the binary path
+| Boundary | Crosses | Assumption |
+|---|---|---|
+| MCP client ↔ this server | An OS pipe | Both run as the same OS user, unauthenticated. Stdout carries only protocol frames (D-58). |
+| This server ↔ Pipedrive | HTTPS to the workspace's subdomain | The token travels in the `x-api-token` header alone (D-62). Redirects are refused (D-55), and every attempt has a timeout (D-56). |
+| This server ↔ disk | The keyring and one pointer file | `pipedrive-mcp login` writes the token to the OS keyring and the domain to a file only you can read (D-63, D-64). No tool writes either, or the environment. |
+| Record authors ↔ the model | Every record, note and field a tool returns | Written by anyone who can edit the workspace, sometimes to steer an assistant. |
 
-The OS keyring (libsecret on Linux, Keychain on macOS, Credential
-Manager on Windows) is the recommended store. `pipedrive-mcp login`
-writes the token there; the MCP client config carries only
-`PIPEDRIVE_COMPANY_DOMAIN`. The benefit is honest but bounded:
+## What is worth stealing
 
-- The token never sits in `~/.claude.json` or `claude_desktop_config.json`,
-  which means it does not appear in routine `cat`-the-config moments,
-  in casual screen shares, in dotfile repositories that accidentally
-  capture `~/.claude.json`, in backup tools that grab the home
-  directory, or in tool-output that prompt-injection might coax an
-  agent into reading.
-- The token also is not in `/proc/self/environ` of the MCP client, so
-  a successful prompt-injection-via-tool-output that scrapes env vars
-  doesn't get it.
+- **The API token.** It carries every permission of the user who owns
+  it. It lives in the OS keyring or the environment.
+- **Workspace content.** Deals, people, organizations, activities and
+  notes pass through tool results to your client, and through nothing
+  else.
+- **The workspace itself.** A field overwritten, a deal closed or a
+  record deleted. Pipedrive has no undo, and a status change fires the
+  workspace's automations.
 
-What the keyring does **not** protect against:
+## Adversaries
 
-- Same-user malware. Any process running as your user can read the
-  keyring through DBus / Secret Service once the login keyring is
-  unlocked (the default on graphical login), exactly as it can read
-  any of your files. The keyring buys disclosure-resistance, not
-  depth-of-defense against compromised user accounts.
-- Long-term token leakage. Pipedrive personal API tokens don't
-  expire by default. Rotate them periodically the same way you'd
-  rotate a password.
+**A record author writing to steer your assistant.** The server returns
+record text faithfully and does not interpret it, so it cannot stop a
+model being persuaded. It limits what persuasion reaches. An update
+refuses to replace a field that holds a value unless `overwrite` names
+it (D-27, D-30). No tool merges records or clears a field (D-08, D-42).
+A delete is soft (D-47). With `PIPEDRIVE_DRY_RUN` set, the server cannot
+write at all (D-33).
 
-### Other practices
+**A malicious MCP client, or a persuaded model driving an honest one.**
+It can call any tool as you. `overwrite` and `expect_version` are
+written by the model, so they inform it and are never your approval: a
+model re-sends a refused write with the `overwrite` the refusal names
+(D-30). Annotations are hints a client may ignore (D-48). Your client's
+approval of each call is the control.
 
-- **Never commit tokens.** `.gitignore` excludes `.env` and `.env.*`
-  files. `gitleaks` runs in CI on every PR.
-- **Rotate quarterly** and any time you suspect compromise.
-  `pipedrive-mcp login` overwrites the keyring entry — same command,
-  no extra step.
-- **Use a dedicated user** in Pipedrive for the MCP server, not your
-  personal account. That way you can scope its workspace permissions
-  precisely and audit its actions in Pipedrive's activity log
-  separately from human user activity.
+**The repository's own live runs.** `make integration-writes` and
+`make evals` write to the configured workspace, a real CRM. A write probe
+changes only records it created, in the pipeline
+`PIPEDRIVE_TEST_PIPELINE_ID` names, and verifies each restore (D-79).
+The evals fail a run that created a record outside its fixture (D-81),
+and the model gets this server's tools and nothing else.
 
-## Threat model
+**A forged release.** One keyless cosign signature covers
+`checksums.txt`, every archive carries build provenance (D-92), and the
+registry entry's hash is read from that file only after the signature
+verifies (D-97).
 
-Threats this server defends against:
+## Invariants the code holds
 
-- **Accidental destructive action by the LLM.** Mitigated by:
-  - A per-call `dry_run` input on every reshaped write, which reports
-    what the write would change and sends nothing.
-  - `overwrite`, which names each field an update may replace and is
-    required before it may replace content that is already there, and
-    `expect_version`, which refuses a write whose record moved since it
-    was read.
-  - `PIPEDRIVE_DRY_RUN=true` as a server-wide floor: every write tool
-    honors it, a per-call `dry_run` can only turn a rehearsal on, and
-    nothing on the wire can turn one off.
-  - Tool descriptions that explicitly tell the LLM not to confabulate
-    values (e.g. `mark_deal_lost`'s `lost_reason`).
-  - Default tool-side `limit=25` on list operations to prevent runaway
-    fanout.
-- **Token and search-term leakage via logs.** Mitigated by: logging never
-  captures the token, and carries only the request path, method, status
-  and duration. The query string, where a search term travels, is
-  stripped from log lines and transport errors.
+A test or a gate holds each of these. A way to break one is a
+vulnerability.
 
-Threats this server **does not** defend against:
+- **Stdout carries only JSON-RPC.** forbidigo, `make smoke` and
+  `TestTheGeneratedLauncherRefusesToStdout` hold it (D-58).
+- **A log line carries the path, method, status, attempt and duration,
+  never a query string, a body or the token.**
+  `TestClient_NoLogOrErrorCarriesTheSearchTerm` and
+  `TestSettings_LogValue_RedactsTheToken` hold it (D-59, D-61). No tool
+  handler logs, so the server keeps no record of tool calls (D-60).
+- **The token leaves only in its header, and never follows a redirect.**
+  `TestClient_HappyPath` and `TestClient_RefusesRedirects` hold it (D-55,
+  D-62).
+- **The model reads Pipedrive's message, never a raw body.** A body that
+  is not JSON is reported by its length.
+  `TestClient_ErrorMessageComesFromTheBody` and
+  `TestErrorText_UnhintedUpstreamIsUnchanged` hold it (D-53).
+- **An update replaces a populated field only when `overwrite` names
+  it.** `TestGuardedWrite_RefusalNeverReachesPut` and
+  `TestOverwrite_NamingSomeFieldsStillRefusesTheRest` hold it (D-27,
+  D-30).
+- **A dry run sends no write, and no call can turn `PIPEDRIVE_DRY_RUN`
+  off.** `TestGuardedWrite_DryRunNeverReachesPut`,
+  `TestRuntime_NewServer_CarriesTheDryRunFloor` and
+  `TestDelete_HonorsTheDryRunFloor` hold it (D-32, D-33).
+- **A write whose answer was lost is not sent again.**
+  `TestClient_AWriteWhoseAnswerIsLostIsSentOnce` and
+  `TestClient_PatchV2_NoRetryOn5xx` hold it (D-54).
+- **The domain is a Pipedrive subdomain before it reaches a URL or the
+  keyring.** `TestLoad_Invalid` holds it (D-65).
+- **Nothing in the repository comes from a real account.** `make leaks`,
+  `make leaks-history` and gitleaks hold it (D-89).
 
-- **Malicious LLM tool selection.** If you give the server a token with
-  write permissions, an LLM with that server in its toolset can
-  legitimately create, update and delete data. The MCP transport does not carry the user's prompt to
-  the server, so the server cannot tell whether a tool call is
-  user-intended. Run with the smallest token scope that gets your job
-  done, and use `PIPEDRIVE_DRY_RUN` for any speculative LLM work.
-- **Compromised MCP client.** This server trusts whatever connects to
-  its stdio. Run it only as a subprocess of a trusted MCP client.
-- **Compromised host.** The token is in process memory and in the
-  parent's environment. Anyone with read access to either gets the
-  token. Run on a host you control.
+## Not a vulnerability
 
-## LLM audit trail
+Do not report these as vulnerabilities. Open an ordinary issue if one
+surprises you.
 
-**This server keeps no record of tool calls.** `internal/tools` holds no
-logger at all, so a successful read or write produces no log line. The
-four log sites in the binary are two startup lines, a debug line per
-HTTP response (suppressed at the default level) and a warning on
-transport failure — none carries a tool name, and there is no request id
-to correlate on.
+- **The client did not prompt.** Annotations are hints, and a client can
+  run a tool with nobody approving (D-48).
+- **A model passed `overwrite` the person did not ask for.** The refusal
+  informs the model; it cannot stop one (D-30). A write that replaces a
+  field `overwrite` did not name is a vulnerability.
+- **What runs as you can act as you**, the environment and the keyring
+  included.
+- **The token reaches everything its user can.** Pipedrive scopes a
+  personal API token to its user, not to a task.
+- **A tool result is not masked.** It is your data, returned to you.
+- **A model following instructions in a record.** That is the client's
+  concern. Content that makes the server itself break an invariant is a
+  vulnerability.
+- **Someone else's code.** A flaw in Pipedrive goes to Pipedrive, and
+  one in a dependency to that project.
 
-That matters more than a missing convenience, because the MCP transport
-carries tool calls and responses but NOT the user's prompt or the
-model's reasoning. Even a complete per-call log could answer "what" and
-never "why".
+## Dependency vulnerabilities
 
-To reconstruct what happened after a surprising action, use the two
-trails that do exist:
+`govulncheck` runs in `make check` and in CI, and fails when this
+server's code can reach a vulnerable symbol. A CVE in a dependency is a
+vulnerability here only then. It is fixed in a release whose CHANGELOG
+entry names the CVE or GHSA; otherwise the dependency is updated in the
+normal course. A direct dependency more than six months behind fails
+`make staleness` unless `go.mod` gives a reason (D-87).
 
-- **Pipedrive's own change record.** It is the authority on what
-  actually changed, and it survives regardless of what this server did
-  or did not write down.
-- **Your MCP client's transcript**, which is the only place the prompt
-  and the tool call sit together:
-- Claude Code logs MCP calls in its session transcript.
+## What you are responsible for
 
-Document this in your team's incident-response run book. The server
-itself cannot do better.
-
-## Destructive operations
-
-Destructive tools register unconditionally, and guard the call instead.
-Registration was never the right enforcement point: a tool that does not
-exist cannot explain itself, so an operator who withheld it handed the
-model a missing capability to guess at rather than a refusal telling it
-why. This matches the Google Workspace MCP servers, which register
-`trash_file` and `delete_message` and guard at call time.
-
-Each destructive path carries the MCP `destructiveHint: true` annotation
-— advisory metadata for client UX, never the enforcement — and says in
-its description exactly what it removes and whether that is reversible.
-
-The destructive surface today:
-
-- `manage_note` with `action: delete` — soft-deletes a note. Pipedrive
-  v1 implements DELETE as a soft delete, so the record persists with
-  `active_flag=false`, `list_notes` filters it out, and `get_note` still
-  returns it. It reads the note first so the result can show what went,
-  and re-deleting an already-inactive note is a no-op rather than a
-  second pointless `DELETE`.
-
-  It takes `dry_run` and no permitting argument beyond it. That is
-  deliberate: a guard is only added where the caller cannot already see
-  what they would lose, and a soft delete is the reversible case
-  `trash_file` handles the same way. What the description does say
-  plainly is that **nothing in this server sets `active_flag` back**, so
-  it should be treated as one-way.
-
-**Deletes on the four v2 resources shipped on an explicit decision
-taken 2026-09-19**, which is what this paragraph used to ask for.
-`manage_deal`, `manage_person`, `manage_organization` and
-`manage_activity` each gained a `delete` action.
-
-They take `dry_run` and `expect_version` and **no permitting flag
-beyond them**, for the reason the note above gives: Pipedrive's v2
-delete is soft and time-boxed — its own documentation says "Marks a
-<resource> as deleted. After 30 days, the <resource> will be
-permanently deleted" — which is the reversible case `trash_file`
-handles the same way. The read each action performs puts the record on
-screen before it goes, so there is nothing the caller cannot already
-see.
-
-Two things the descriptions say plainly rather than guard:
-
-- **Nothing here restores a deleted record.** Pipedrive's own UI can,
-  within the 30-day window. After it, nobody can.
-- **Deleting a parent deletes only the parent.** Verified live on
-  2026-09-30 by `TestWrite_DeletingAParentLeavesWhatHangsOffIt`, on a
-  tree of records the suite creates in its own pipeline: deleting an
-  organization, a person or a deal deleted none of the others — the
-  deal still read with its status, the notes on the parent and on the
-  deal still read active, and the people, organizations and activities
-  were still listed. Whether a record still points at the deleted
-  parent is not checked. So none of the three parents needs a `force`
-  guard, and none asks the person before its delete: a soft delete that
-  reaches nothing else is the reversible case, and Pipedrive's own UI
-  restores it within the window.
-
-`detach_product_from_deal` remains off the roadmap; products are not
-part of this surface at all.
-
-## Dry-run
-
-Two layers, and the relationship between them matters.
-
-Per-call `dry_run: true` is the everyday mechanism: every write takes
-it, reports what it would find and change, and sends nothing.
-
-`PIPEDRIVE_DRY_RUN=true` is the operator's floor. Every write tool
-honors it, so a call may turn a rehearsal *on* but nothing on the wire
-can turn one *off*. That is what makes it safe to answer "use
-`PIPEDRIVE_DRY_RUN` for speculative LLM work" — a flag a tool could
-override would be a false promise, and the tool that can delete is
-exactly the one that would override it.
-
-Validation still runs in dry-run mode, so a rehearsal catches the same
-input errors a real call would.
-
-**Dry-run invocations are not logged either**, for the reason above: no
-tool handler logs anything. A rehearsal leaves no trace here and none in
-Pipedrive, so the only record of what a model attempted is the client
-transcript.
-
-## Supply chain
-
-- All releases signed via [cosign](https://github.com/sigstore/cosign)
-  keyless OIDC. Verification command in
-  [`../SECURITY.md`](../SECURITY.md).
-- A CycloneDX SBOM is attached to every GitHub Release.
-- Dependencies refresh weekly via Dependabot. Any direct dependency
-  more than 6 months out of date fails CI unless documented as `pinned:`
-  in `go.mod`.
+- **The token's user.** Issue the token from a user with the least
+  access you need, ideally one used only by this server, so Pipedrive's
+  own history tells its changes from a person's.
+- **Rehearsing.** Set `PIPEDRIVE_DRY_RUN=true` for read-only or
+  speculative work.
+- **Your client's approvals.** Ask before every `manage_` call in a
+  client that runs with nobody watching.
+- **Where the token lives.** Keep a keyring available, and
+  `PIPEDRIVE_API_TOKEN` out of shared shells and logs.
+  [`troubleshooting.md`](troubleshooting.md#tasks) says how to rotate
+  and revoke the token, and what to do after an exposure.
+- **The record of what happened.** The server keeps none (D-60).
+  Pipedrive's change history says what changed, and your client's
+  transcript holds each call beside the prompt behind it.
+- **What you paste.** A debug log carries request paths, which hold
+  record ids. A token and a tool result never belong in an issue.

@@ -7,7 +7,7 @@ package tools
 // flips the direction), so we return them as a pair.
 //
 // Shared by list_activities, list_notes, list_persons, and
-// list_organizations (architecture.md references this filename).
+// list_organizations.
 func effectiveSort(sortBy, sortDir string) (by, dir string) {
 	switch {
 	case sortBy == "" && sortDir == "":
@@ -22,7 +22,7 @@ func effectiveSort(sortBy, sortDir string) (by, dir string) {
 }
 
 // commonV2TimestampSortFields enumerates the sort_by values Pipedrive v2
-// accepts on every resource that supports the standard timestamp axis
+// accepts on every resource that supports the common timestamp axis
 // (/persons, /organizations, /deals, /activities, ...). Resources that
 // support extra fields embed this set and add their own (e.g. activities
 // adds `due_date`).

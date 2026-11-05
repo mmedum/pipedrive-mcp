@@ -24,6 +24,7 @@ func TestFindLeaks(t *testing.T) {
 		{"company subdomain", "see https://" + "vexqorlund" + ".pipedrive.com/deal/1", "Pipedrive subdomain"},
 		{"invented subdomain", "see https://acme.pipedrive.com/deal/1", ""},
 		{"vendor subdomain", "see https://developers.pipedrive.com/docs", ""},
+		{"the help center", "see https://support.pipedrive.com/en/article/how-can-i-find-my-personal-api-key", ""},
 		{"format verb is not a subdomain", "fmt.Sprintf(`https://%s.pipedrive.com/`, d)", ""},
 		{"api token", "api_token=" + strings.Repeat("3f9a", 10), "API token"},
 		// Real-looking numbers are from ranges set aside for drama (Ofcom,
@@ -137,5 +138,23 @@ func TestHistoryProblemsReadsWhatWasPublished(t *testing.T) {
 	}
 	if !slices.Equal(kinds, want) {
 		t.Errorf("found\n%q\nwant\n%q", kinds, want)
+	}
+}
+
+// Outside a git checkout, such as a module-cache copy, the scan has
+// nothing to enumerate and says so. It reads git's own words through the
+// error lsFiles returns.
+func TestLeaksOutsideAGitCheckoutHasNothingToScan(t *testing.T) {
+	dir := t.TempDir()
+	put(t, dir, "go.mod", "module example.invalid/copy\n")
+	t.Chdir(dir)
+	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(dir))
+	t.Setenv("LC_ALL", "C") // git's own words, untranslated
+	var out strings.Builder
+	if err := leaks(&out, nil); err != nil {
+		t.Fatalf("leaks outside a checkout: %v", err)
+	}
+	if want := "leaks: not a git checkout; nothing to enumerate\n"; out.String() != want {
+		t.Errorf("printed %q, want %q", out.String(), want)
 	}
 }

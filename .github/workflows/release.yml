@@ -106,12 +106,11 @@ jobs:
           # treated as one literal path glob and the action fails with
           # "Could not find subject at path …".
           #
-          # The bundle is a subject in its own right. It was covered only
-          # transitively, through its row in checksums.txt, which means a
-          # verifier had to hold the checksum file AND its signature to
-          # say anything about the .mcpb. `gh attestation verify` on the
-          # bundle itself answered "no attestation found" — for the one
-          # artifact most people install without ever seeing a terminal.
+          # The archive globs match the six archives and nothing else: the
+          # SBOMs end `.cdx.json`. The bundle is a subject in its own
+          # right, so `gh attestation verify` answers for the .mcpb, the
+          # artifact most people install, rather than only through its row
+          # in checksums.txt.
           subject-path: |
             dist/pipedrive-mcp_*.tar.gz
             dist/pipedrive-mcp_*.zip

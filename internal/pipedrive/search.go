@@ -6,12 +6,17 @@ import (
 	"strings"
 )
 
-// ItemType is the closed set of item types Pipedrive's /itemSearch
-// endpoint accepts. The constants are reused by the tools package
-// for input validation so the enum has a single source of truth.
+// ItemType is an /itemSearch item type this server searches. The
+// constants are reused by the tools package for input validation, so
+// the set has one source of truth.
+//
+// Pipedrive's item_types enum also has mail_attachment and project,
+// which are not modeled here. It has no activity: /itemSearch does not
+// index activities.
+// https://developers.pipedrive.com/docs/api/v1/ItemSearch#searchItem
 type ItemType string
 
-// ItemType values matching Pipedrive's /itemSearch `item_types` enum.
+// ItemType values from Pipedrive's /itemSearch `item_types` enum.
 const (
 	ItemTypeDeal         ItemType = "deal"
 	ItemTypePerson       ItemType = "person"
@@ -33,8 +38,9 @@ type SearchHit struct {
 
 // SearchOptions filters an /itemSearch call. Term is required and
 // must be at least 2 characters (1 if ExactMatch). Empty ItemTypes
-// means "search all of deal | person | organization | product | file
-// | lead". Limit is clamped by the tool layer.
+// sends no item_types, and Pipedrive then searches every type it has,
+// mail_attachment and project included. Limit is clamped by the tool
+// layer.
 type SearchOptions struct {
 	Term       string
 	ItemTypes  []string

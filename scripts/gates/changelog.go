@@ -19,8 +19,8 @@ var watchedPaths = []string{"internal/tools/", "internal/pipedrive/", "internal/
 //
 // The [Unreleased] part matters more than it looks: an entry added under
 // an already-released heading is invisible to anyone reading the release
-// it belongs to, and now that the release page IS the changelog section,
-// it is invisible on the page too.
+// it belongs to, and the release page IS the changelog section, so it is
+// invisible on the page too.
 func changelogGate(w io.Writer, args []string) error {
 	if len(args) != 2 {
 		return fmt.Errorf("usage: gates changelog BASE HEAD")
@@ -45,11 +45,12 @@ func changelogGate(w io.Writer, args []string) error {
 		return err
 	}
 	if strings.TrimSpace(diff) == "" {
-		return fmt.Errorf("source under %s changed but CHANGELOG.md did not",
-			strings.Join(watchedPaths, ", "))
+		return fmt.Errorf("source under %s changed but CHANGELOG.md did not; the release notes are "+
+			"CHANGELOG.md's section, so the change would ship unannounced", strings.Join(watchedPaths, ", "))
 	}
 	if n := addedUnderUnreleased(diff); n == 0 {
-		return fmt.Errorf("CHANGELOG.md changed but no new lines under [Unreleased]%s", cutHint(diff))
+		return fmt.Errorf("CHANGELOG.md changed but no new lines under [Unreleased], the section the next "+
+			"release's notes are cut from%s", cutHint(diff))
 	} else {
 		_, _ = fmt.Fprintf(w, "CHANGELOG entry under [Unreleased] confirmed (%d added lines)\n", n)
 	}
@@ -68,14 +69,14 @@ func touchesWatched(nameOnlyDiff string) bool {
 }
 
 // addedUnderUnreleased counts added lines sitting under the [Unreleased]
-// heading, reading the diff as a state machine the way the shell version
-// did: a heading line, added or unchanged, switches the section.
+// heading, reading the diff as a state machine: a heading line, added or
+// unchanged, switches the section.
 //
 // A RELEASE CUT is the one case where the entries do not sit under
 // [Unreleased] and are still in the right place: cutting a release
 // renames that heading to the version, so a pull request that both cuts
 // the release and touches watched source could never satisfy this gate.
-// It failed exactly that way on the v0.5.0 cut. When the diff removes
+// When the diff removes
 // the [Unreleased] heading, the version heading that replaced it is
 // treated as the unreleased section — which is what it was, one commit
 // ago, and the entries under it are the ones being released.

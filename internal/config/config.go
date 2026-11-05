@@ -148,7 +148,9 @@ func Vars() []Var {
 
 // EnvVars is the names of Vars, sorted. A name listed twice is a
 // variable read under two rules, which a test refuses, so it is not
-// compacted.
+// compacted. Only tests call it: they hold every variable the code
+// names to it, and the sibling servers' config packages export the same
+// name for the same checks.
 func EnvVars() []string {
 	vars := Vars()
 	names := make([]string, 0, len(vars))
@@ -164,6 +166,10 @@ func EnvVars() []string {
 const DefaultHTTPTimeout = 30 * time.Second
 
 var (
+	// domainPattern is a DNS host label without its 63-character cap:
+	// lower-case letters, digits and hyphens, with no hyphen at either end
+	// (RFC 1123 §2.1). Pipedrive's reference gives no rule of its own for
+	// a company domain, and a subdomain is a host label.
 	domainPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$`)
 	logLevels     = map[LogLevel]bool{LogDebug: true, LogInfo: true, LogWarn: true, LogError: true}
 	logFormats    = map[LogFormat]bool{LogText: true, LogJSON: true}

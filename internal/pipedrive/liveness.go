@@ -9,6 +9,7 @@ import (
 
 // idsPerFetch is Pipedrive's documented cap on the `ids` parameter:
 // "up to 100 entity ids to fetch".
+// https://developers.pipedrive.com/docs/api/v1/Organizations#getOrganizations
 const idsPerFetch = 100
 
 // livenessPaths are the v2 collections that can answer "does this
@@ -16,14 +17,11 @@ const idsPerFetch = 100
 //
 // Deliberately two entries, not six:
 //
-//   - deal is NOT here, and must not be. /deals stopped returning
-//     archived deals on 2025-07-15 — they live at /deals/archived now
-//     (see Deal.IsArchived) — so an archived deal is absent from
-//     /deals while being perfectly alive. Reading that absence as
-//     deletion would drop live deals out of search, which is worse
-//     than the bug this file exists to fix. Pipedrive drops deleted
-//     deals from its own search index anyway, and a live probe holds
-//     that claim.
+//   - deal is NOT here, and must not be. /deals leaves out an archived
+//     deal, which is alive (Deal.IsArchived), so reading that absence
+//     as deletion would drop live deals out of search. Pipedrive drops a
+//     deleted deal from its own search index promptly. Checked by the
+//     integration test TestWrite_SearchDropsWhatItDeleted/deal.
 //   - product, file and lead are not modeled by this server at all,
 //     so there is no collection here to ask.
 var livenessPaths = map[ItemType]string{
@@ -40,15 +38,18 @@ func CanCheckLiveness(itemType ItemType) bool {
 }
 
 // LiveIDs reports which of the given ids Pipedrive still lists, as a
-// set. An id absent from the result has been deleted — a v2 collection
-// omits a soft-deleted record rather than returning it with a marker.
+// set. An id absent from the result has been deleted: a v2 collection
+// omits a soft-deleted record rather than returning it marked. The
+// reference says only that an id that does not exist is "not included
+// in the response".
 //
-// This exists because /itemSearch does not do the same. A deleted
-// record can keep its place in the search index, and the item it
-// returns carries no is_deleted, no active_flag and no status, so it
-// cannot be told from a live one by looking at it. Confirmed against
-// the live API: a deleted organization stays indexed indefinitely, and
-// a deleted person stays for a while after the delete.
+// This exists because /itemSearch keeps a deleted record, with no
+// is_deleted, no active_flag and no status on it, and takes no parameter
+// to exclude one. A deleted organization stays indexed indefinitely and
+// a deleted person for a while. Both halves are checked by the
+// integration tests TestWrite_SearchDropsWhatItDeleted/organization and
+// /person.
+// https://developers.pipedrive.com/docs/api/v1/ItemSearch#searchItem
 //
 // It does not go through the resource's own List function, which would
 // send include_fields — an aggregate per row, computed for up to a
@@ -60,8 +61,8 @@ func (c *Client) LiveIDs(ctx context.Context, itemType ItemType, ids []int64) (m
 		return nil, fmt.Errorf("%w: no collection can answer whether a %s still exists", ErrValidation, itemType)
 	}
 	live := make(map[int64]bool, len(ids))
-	// Chunked although today's only caller cannot exceed one chunk: a
-	// search page is clamped to 100 hits. Sending 101 ids would let
+	// Chunked although the one caller cannot exceed one chunk: a search
+	// page is clamped to 100 hits. Sending 101 ids would let
 	// Pipedrive answer about the first 100 and say nothing about the
 	// rest, and silence is read here as deleted — which would drop
 	// live records from a search, the failure this whole check exists
