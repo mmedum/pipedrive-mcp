@@ -36,9 +36,10 @@ import (
 	"github.com/mmedum/pipedrive-mcp/internal/version"
 )
 
-// everything below takes them as io.Writer, so nothing else reaches stdout.
+// main names the process's streams once; everything below takes them as
+// io.Writer, so nothing else reaches stdout.
 //
-//nolint:forbidigo // the one place the process's streams are named;
+//nolint:forbidigo // the one place the process's streams are named
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 // run is main with its arguments and its streams passed in, so the
@@ -46,9 +47,8 @@ func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 // terminal. main itself calls os.Exit, which no test survives.
 //
 // The command paths below still exit from inside, because they parse
-// package-level flags and `fail` ends the process. That is a deeper
-// change than this one and needs a real API token to exercise; what
-// matters here is that the guard is reachable from a test.
+// package-level flags and `fail` ends the process; the unknown-command
+// guard is what a test reaches.
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
 		switch args[0] {
@@ -95,8 +95,8 @@ func runServer(stdout io.Writer) {
 	}
 
 	if dumpSchemas {
-		// Every tool registers unconditionally now, so the dump always
-		// carries the full surface the schema gate compares.
+		// Every tool registers unconditionally, so the dump always carries
+		// the full surface the schema gate compares.
 		if err := server.DumpSchemas(stdout, version.Version); err != nil {
 			fail("%v", err)
 		}
@@ -381,9 +381,9 @@ func newLogger(cfg config.Config) *slog.Logger {
 // signaled. Treating these as fatal would make every well-behaved MCP
 // client exit look like a crash.
 //
-// The SDK currently surfaces stdin closure as a non-typed error whose
-// string contains "server is closing" / "EOF". Match defensively in case
-// the wrapping changes — sentinel checks first, string fallback last.
+// The SDK surfaces stdin closure as an untyped error whose string
+// contains "server is closing" or "EOF". Sentinel checks come first and
+// the string match last, in case the wrapping changes.
 func isCleanShutdown(err error) bool {
 	if err == nil {
 		return true

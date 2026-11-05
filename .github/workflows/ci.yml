@@ -10,8 +10,6 @@ permissions:
 
 env:
   GO_VERSION: "1.27.3"
-  GOVULNCHECK_VERSION: "v1.8.0"
-  GO_LICENSES_VERSION: "v1.6.0"
   GOLANGCI_LINT_VERSION: "v2.14.0"
 
 # bash on every runner, for every `run` step in this file. The Windows
@@ -37,16 +35,18 @@ jobs:
           cache: true
 
       - name: Verify gofmt
-        run: |
-          out=$(gofmt -l .)
-          if [ -n "$out" ]; then
-            echo "gofmt issues:" >&2
-            echo "$out" >&2
-            exit 1
-          fi
+        run: make fmt
 
       - name: go vet
         run: go vet ./...
+
+      # Each build tag's files compile only under that tag, so an
+      # untagged vet never sees them.
+      - name: go vet (integration suite)
+        run: go vet -tags=integration ./...
+
+      - name: go vet (evals)
+        run: go vet -tags=live ./...
 
       - name: Build (host target)
         run: go build ./...
@@ -57,30 +57,8 @@ jobs:
       - name: Test (race, shuffle, coverage)
         run: go test -race -shuffle=on -count=1 -coverprofile=cov.out ./...
 
-      - name: Coverage thresholds
-        run: |
-          set -euo pipefail
-          if [ ! -s cov.out ]; then
-            echo "no coverage output (no Go packages yet?) — skipping threshold check"
-            exit 0
-          fi
-          # Compute statement-weighted coverage per package directly from
-          # cov.out. Each non-header line is "path:range numStatements count";
-          # statement coverage = sum(numStatements where count > 0) /
-          # sum(numStatements). Matches what `go test` prints.
-          fail=0
-          for pkg in internal/pipedrive internal/tools internal/credentials internal/app; do
-            total=$(awk -v p="$pkg" 'NR > 1 && index($1, p) { s += $2 } END { print s+0 }' cov.out)
-            if [ "$total" = "0" ]; then
-              echo "$pkg not present yet — skipped"
-              continue
-            fi
-            covered=$(awk -v p="$pkg" 'NR > 1 && index($1, p) && $3 > 0 { s += $2 } END { print s+0 }' cov.out)
-            cov=$(awk -v c="$covered" -v t="$total" 'BEGIN { printf "%.1f", c*100/t }')
-            echo "$pkg coverage: ${cov}%"
-            awk -v c="$cov" 'BEGIN { exit !(c+0 < 80) }' && { echo "::error::$pkg coverage ${cov}% < 80%"; fail=1; }
-          done
-          [ "$fail" = "0" ]
+      - name: Coverage floor
+        run: go run ./scripts/gates coverage cov.out
 
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
@@ -96,9 +74,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           check-latest: false
           cache: true
-      - run: |
-          go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}
-          govulncheck ./...
+      - run: make vuln
 
   licenses:
     name: License compatibility
@@ -110,10 +86,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           check-latest: false
           cache: true
-      - run: |
-          go install github.com/google/go-licenses@${{ env.GO_LICENSES_VERSION }}
-          go-licenses check ./... \
-            --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
+      - run: make licenses
 
   staleness:
     name: Dependency staleness
@@ -179,6 +152,7 @@ jobs:
           cache: true
       - run: go build -o /tmp/pipedrive-mcp ./cmd/pipedrive-mcp
       - run: go run ./scripts/gates smoke binary /tmp/pipedrive-mcp
+      - run: /tmp/pipedrive-mcp --dump-schemas | go run ./scripts/gates descriptions -
 
   leaks:
     name: Identifier scan
@@ -191,6 +165,18 @@ jobs:
           check-latest: false
           cache: true
       - run: go run ./scripts/gates leaks
+
+  docs:
+    name: Docs references
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: false
+          cache: true
+      - run: go run ./scripts/gates docs
 
   pins:
     name: Action and tool pins
@@ -205,6 +191,20 @@ jobs:
       - run: go run ./scripts/gates pins
       - run: go run ./scripts/gates mcpb
       - run: go run ./scripts/gates changelog-links
+
+  # make check and this workflow run the same gates, and parity holds the
+  # two lists equal.
+  gate-lists:
+    name: Gate lists agree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: false
+          cache: true
+      - run: go run ./scripts/gates parity
 
   secret-scan:
     name: gitleaks

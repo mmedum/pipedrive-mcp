@@ -3,18 +3,16 @@ package tools
 // RegisterOptions carries the server-wide settings a Register function
 // needs.
 //
-// It stays a struct with one field on purpose. The original reason — it
-// stopped a caller swapping two positional bools — left with
-// EnableDestructive, but a named extension point still beats a bare bool
-// at eight call sites, and the swap hazard returns the moment a second
-// setting lands.
+// It stays a struct with one field on purpose: a named field reads
+// better than a bare bool where a Register function takes it, and it
+// keeps two positional bools from being swapped once a second setting
+// lands.
 //
 // DryRun mirrors PIPEDRIVE_DRY_RUN and is a floor, not a default: a
 // handler ORs it with the caller's per-call dry_run, so a call can turn
-// a rehearsal on and nothing on the wire can turn one off. docs/security.md
-// tells an operator that setting the env var makes speculative LLM work
-// safe; a tool that honored only the per-call input would make that
-// false, and the tool that can delete is exactly the one that would.
+// a rehearsal on and nothing on the wire can turn one off (D-33). An
+// operator sets it to make speculative LLM work safe, and a tool that
+// honored only the per-call input would write anyway.
 type RegisterOptions struct {
 	DryRun bool // mirrors PIPEDRIVE_DRY_RUN
 }

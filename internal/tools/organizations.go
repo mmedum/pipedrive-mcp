@@ -321,9 +321,8 @@ type organizationFieldResolver interface {
 }
 
 // resolvedOrganization resolves custom-field hashes to workspace names and summarizes
-// in one step. Written out separately at six sites per resource, a
-// forgotten resolve silently shipped 40-char field hashes to the LLM
-// instead of the names it can actually cite.
+// in one step, so no site can summarize without resolving and hand the
+// LLM 40-character field hashes instead of the names it can cite.
 func resolvedOrganization(ctx context.Context, c organizationFieldResolver, domain string, r *pipedrive.Organization) organizationSummary {
 	return summarizeOrganization(domain, r, c.ResolveOrganizationCustomFields(ctx, r.CustomFields))
 }
@@ -350,24 +349,30 @@ func summarizeOrganization(domain string, o *pipedrive.Organization, customField
 	return out
 }
 
-// deleteOrganizationAction marks a organization deleted.
+// deleteOrganizationAction marks an organization deleted.
 //
 // dry_run and expect_version, and nothing else. Pipedrive's delete is
 // soft and time-boxed, which is the reversible case, and a guard is
 // only added where the caller cannot see what they are about to lose —
 // the read this performs puts the organization on screen first.
 //
-// The records hanging off this one are not deleted with it, which a
-// live probe established (docs/security.md), so there is nothing
-// further to guard.
+// Deleting an organization deletes only the organization: its people,
+// its deals, the notes on it and the activities on its deals are not
+// deleted with it, so there is nothing further to guard. The same holds
+// for a person and a deal. Pipedrive's reference says only that the
+// delete "marks a organization as deleted" and removes it after 30 days,
+// and its help center says deleting an item deletes the items linked to
+// it; through the API they stay. Checked by the integration test
+// TestWrite_DeletingAParentLeavesWhatHangsOffIt/organization.
+// https://developers.pipedrive.com/docs/api/v1/Organizations#deleteOrganization
+// https://support.pipedrive.com/en/article/restore-data
 //
-// There is no already-deleted short-circuit, unlike manage_deal's,
-// because there is nothing here to read one from: a deal carries
-// status "deleted", but pipedrive.Organization has no deleted marker and
-// cannot grow one — the v2 response fixture spec_test.go checks against
-// does not declare is_deleted for this resource, so the tag would fail
-// the gate. A second delete reaches Pipedrive and is reported as
-// whatever Pipedrive answers.
+// There is no already-deleted short-circuit, unlike manage_deal's: a
+// deal carries status "deleted", but pipedrive.Organization does not model
+// is_deleted, though Pipedrive's v2 reference and the response fixture
+// spec_test.go checks against both declare it. A second delete reaches
+// Pipedrive and is reported as whatever Pipedrive answers.
+// https://developers.pipedrive.com/docs/api/v1/Organizations#getOrganization
 func deleteOrganizationAction(ctx context.Context, c organizationsClient, companyDomain string, in manageOrganizationInput) (*mcp.CallToolResult, manageOrganizationOutput) {
 	if err := validatePositiveID(in.OrgID, "orgid"); err != nil {
 		return errorResult(err), manageOrganizationOutput{}

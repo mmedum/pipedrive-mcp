@@ -43,8 +43,8 @@ type CreateNoteRequest struct {
 	ProjectID int64  `json:"project_id,omitempty"`
 }
 
-// GetNote fetches a single note by ID via /api/v1/notes/{id}. v2 has
-// no equivalent endpoint; see types.go for the carve-out rationale.
+// GetNote fetches a single note by ID via /api/v1/notes/{id}; v2 has no
+// /notes.
 func (c *Client) GetNote(ctx context.Context, id int64) (*Note, error) {
 	var resp itemEnvelope[Note]
 	if err := c.doV1(ctx, "/notes/"+strconv.FormatInt(id, 10), &resp); err != nil {
@@ -136,8 +136,7 @@ type UpdateNoteRequest struct {
 
 // UpdateNote edits a note via PUT /api/v1/notes/{id}. Returns the note
 // as Pipedrive echoes it back, so the caller can report which stored
-// values actually changed. v2 has no equivalent endpoint; see types.go
-// for the carve-out rationale.
+// values actually changed. v2 has no /notes.
 //
 // "Did the caller ask for anything?" is deliberately not checked here.
 // The tools layer already knows, because it diffs the request against
@@ -154,9 +153,13 @@ func (c *Client) UpdateNote(ctx context.Context, id int64, req UpdateNoteRequest
 	return &n, nil
 }
 
-// DeleteNote removes a note via DELETE /api/v1/notes/{id}. v1 deletes
-// are SOFT — the record persists with active_flag=false and is still
-// readable via GetNote, but list_notes filters it out by default.
+// DeleteNote removes a note via DELETE /api/v1/notes/{id}. The delete is
+// SOFT, which Pipedrive's reference does not say ("Deletes a specific
+// note"): the note stays with active_flag false, GetNote still returns
+// it, and ListNotes leaves it out. No source says it is ever purged, and
+// nothing here sets the flag back. Checked by the integration test
+// TestWrite_NoteRoundTrip.
+// https://developers.pipedrive.com/docs/api/v1/Notes#deleteNote
 func (c *Client) DeleteNote(ctx context.Context, id int64) error {
 	return c.deleteV1(ctx, "/notes/"+strconv.FormatInt(id, 10), nil)
 }

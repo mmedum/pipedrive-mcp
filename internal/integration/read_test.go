@@ -31,11 +31,10 @@ func pickDeal(t *testing.T) dealRow {
 }
 
 // TestProbeAuth_SucceedsAgainstTheWorkspace exercises the startup
-// probe the binary runs before it serves anything. CLAUDE.md hard rule
-// 6 rests the whole design on an empirical claim — that
-// `/api/v2/dealFields` is present in every workspace, which is why the
-// probe is not a users call — and httptest cannot check that claim
-// against a workspace. This is where it gets checked.
+// probe the binary runs before it serves anything. The probe reads
+// `/api/v2/dealFields` because it answers in every workspace, and v2
+// has no users resource to probe instead. httptest cannot check that
+// claim against a workspace, so this does.
 func TestProbeAuth_SucceedsAgainstTheWorkspace(t *testing.T) {
 	requireLive(t)
 
@@ -93,9 +92,9 @@ func TestListStages_BelongToThePipelineAsked(t *testing.T) {
 }
 
 // TestGet_AgreesWithList is the wire-format check. A summary type that
-// decodes a live list row but not a live get row (or the reverse) is
-// the class of bug that shipped in 0.4.0 — the two endpoints do not
-// return identical JSON, and only a real call shows it.
+// decodes a live list row but not a live get row (or the reverse) is a
+// bug no fake shows: the two endpoints do not return identical JSON,
+// and only a real call shows it.
 func TestGet_AgreesWithList(t *testing.T) {
 	requireLive(t)
 

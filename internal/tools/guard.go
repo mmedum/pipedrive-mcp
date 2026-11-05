@@ -14,8 +14,8 @@ import (
 )
 
 // This file holds the guarded-write machinery every manage_* tool
-// shares. Per CLAUDE.md "Guarded writes": read the target first, then
-// refuse anything the write would destroy that the caller cannot see.
+// shares: read the target first, then refuse anything the write would
+// destroy that the caller cannot see (D-27).
 //
 // The one thing a resource supplies is a []fieldSpec — the LLM-facing
 // names of the fields an update can touch, each with a way to project
@@ -51,7 +51,9 @@ func changedFields[T any](spec []fieldSpec[T], before, after *T) []string {
 // populatedFields narrows names to the fields already holding a value
 // on r. These are what a write would clobber rather than fill, which is
 // exactly the set the overwrite guard refuses over — filling an empty
-// field destroys nothing and needs no permission.
+// field destroys nothing and needs no permission. It takes every spec
+// entry a name matches, so a duplicate name (a custom field named
+// `title`, or two custom fields sharing a name) can only add a refusal.
 func populatedFields[T any](spec []fieldSpec[T], r *T, names []string) []string {
 	var out []string
 	for _, f := range spec {
@@ -70,22 +72,18 @@ func populatedFields[T any](spec []fieldSpec[T], r *T, names []string) []string 
 // every such field, because a caller told only that "something" would
 // be clobbered cannot decide whether they meant it.
 //
-// overwrite used to be a bool, and a blanket one: `overwrite: true`
-// permitted replacing every populated field the write happened to
-// touch. So a caller who meant "change the title" and sent a write that
-// also landed on value got both replaced on one flag, having been told
-// about both but having agreed to nothing in particular.
-//
-// Naming them makes the permit per-field. A caller that names `title`
-// and not `value` is still refused over value, which is the case the
-// bool could not express.
+// Naming them makes the permit per-field (D-30). A caller that names
+// `title` and not `value` is still refused over value, which a blanket
+// flag could not express.
 //
 // It does NOT stop a model routing around the guard, and nothing in
-// band can: whatever the refusal says, a model can echo back. Three
-// eval runs at v0.6.0 had one re-send with `overwrite: true` every
-// time, and rewriting the field description did not change that. What
-// this removes is the blanket — the model now has to be wrong about
-// each field separately, and the call records which ones it claimed.
+// band can: whatever the refusal says, a model can echo back. The eval
+// refuse-the-overwrite fails every run on a model re-sending the write
+// with the exact overwrite list the refusal named, and a field
+// description saying a refusal is not a retry signal does not change
+// that. What naming removes is the blanket: a model has to be wrong
+// about each field separately, and the call records which ones it
+// claimed.
 func requireOverwrite[T any](spec []fieldSpec[T], resource string, before *T, changed, overwrite []string, all bool) error {
 	if all {
 		return nil
@@ -161,9 +159,8 @@ func projectMoney(v float64) string {
 
 // projectOptFloat renders an optional field Pipedrive declares as
 // `number`. Probability is the one: it reads as a whole percentage in
-// the UI and arrives as a JSON number, which is not the same thing —
-// this used to be an int projection over an int field, and a deal with
-// a fractional probability failed the whole page's decode.
+// the UI but arrives as a JSON number that can carry a fraction, and an
+// int field would fail the whole page's decode on one such deal.
 func projectOptFloat(p *float64) string {
 	if p == nil || *p == 0 {
 		return ""
@@ -176,17 +173,14 @@ func projectOptFloat(p *float64) string {
 //
 // THE RULE, and the reason this helper exists rather than two
 // hand-written projections: `render` must cover EVERY field of E that a
-// write can set. Anything it leaves out is a field the caller can change
-// while the diff sees nothing — the write is then skipped as a no-op and
-// the caller is told the record already looks that way.
+// write can set (D-39). Anything it leaves out is a field the caller can
+// change while the diff sees nothing — the write is then skipped as a
+// no-op and the caller is told the record already looks that way.
 //
-// That failure has now happened three times in this package: participants
-// missing from the table entirely, contact points projected to the
-// primary value alone (truncation invisible), and then contact points
-// projected to their values alone (re-flagging the primary and
-// relabeling invisible). Each fix chased the symptom. Stating the rule
-// in one place, with both collections written against it, is the thing
-// that stops a fourth.
+// A contact point projected to its value alone hides re-flagging the
+// primary and relabeling; projected to the primary value alone, it
+// hides a truncation. Both collections are written against this one
+// rule rather than each against its own.
 func projectCollection[E any](es []E, render func(E) string) string {
 	if len(es) == 0 {
 		return ""
@@ -200,17 +194,26 @@ func projectCollection[E any](es []E, render func(E) string) string {
 
 // projectContactPoints covers all three fields of ContactPoint, because
 // manage_person's schema advertises all three as writable: {value,
-// primary, label}. Dropping the primary flag made "make her work address
-// the primary" read as a no-op.
+// primary, label}. Without the primary flag, "make her work address the
+// primary" reads as a no-op.
+//
+// The prediction a write is diffed against takes the set it sends as the
+// set stored, because a person update replaces the stored emails or
+// phones wholesale. Pipedrive's reference says only "The emails of the
+// person". Checked for emails by the integration test
+// TestWrite_PersonEmailsReplaceWholesale, whose restore sends the set
+// without its probe address and fails if the address stays; no test
+// probes phones.
+// https://developers.pipedrive.com/docs/api/v1/Persons#updatePerson
 //
 // Value and Label are quoted rather than concatenated with a separator.
 // Both are free text the caller supplies, so an unquoted join lets two
 // different collections render identically — a label containing the
 // separator can absorb the next entry. That only ever fails closed (the
-// write is skipped rather than waved through), but "two different
-// collections that look the same to the diff" is the exact shape of the
-// three bugs this guard has already had, and quoting removes the
-// category rather than arguing about its reachability.
+// write is skipped rather than waved through), but two different
+// collections that look the same to the diff is the failure
+// projectCollection exists to prevent, and quoting removes the category
+// rather than arguing about its reachability.
 func projectContactPoints(cps []pipedrive.ContactPoint) string {
 	return projectCollection(cps, func(cp pipedrive.ContactPoint) string {
 		out := strconv.Quote(cp.Value) + strconv.Quote(cp.Label)
@@ -274,15 +277,14 @@ func projectBool(b bool) string {
 //
 // The extension is built per call rather than written out once: which
 // custom fields exist is the workspace's business, not ours, and a
-// static list would be a second place to add one. That is the same
-// invariant "one list of field names per resource" protects — the list
-// is simply derived here instead of literal.
+// static list would be a second place to add one. Each resource still
+// has one field table; this one is derived per call instead of literal.
 //
-// One function rather than a build-then-append pair, because the pair
-// left a loaded gun on the table: appending to a package-level table
-// writes through to it whenever it has spare capacity, and every later
-// call on that resource would then inherit one call's custom fields.
-// Building a fresh slice here means no caller is holding the append.
+// One function rather than a build-then-append pair: appending to a
+// package-level table writes through to it whenever it has spare
+// capacity, and every later call on that resource would then inherit
+// one call's custom fields. Building a fresh slice here means no caller
+// is holding the append.
 // The empty fast path below returns base itself, which is safe because
 // it is only ever read — but it is why this says "no caller appends"
 // rather than "appending is impossible".
@@ -318,7 +320,9 @@ func withCustomFields[T any](base []fieldSpec[T], w pipedrive.CustomFieldWrite, 
 // A set's elements are sorted before joining. A set has no order, so two
 // orderings of the same choices are the same value — and reporting a
 // reordering as a change would make the guard refuse a write that alters
-// nothing.
+// nothing. Pipedrive's reference does not promise to echo a multi-select
+// in the order it was sent, either.
+// https://developers.pipedrive.com/docs/api/v1/Deals#updateDeal
 func projectCustomValue(v any) string {
 	switch t := v.(type) {
 	case nil:
@@ -326,8 +330,8 @@ func projectCustomValue(v any) string {
 	case []any:
 		// Through projectCollection rather than joined here, so the
 		// quote-and-join rule has one definition. An option id usually
-		// could not contain the separator anyway — but "usually" is what
-		// the three bugs that rule exists for had in common.
+		// could not contain the separator anyway, but "usually" is how a
+		// collision gets past the diff.
 		keys := make([]string, 0, len(t))
 		for _, e := range t {
 			keys = append(keys, pipedrive.OptionKey(e))
@@ -401,12 +405,17 @@ func setIf[T any](dst, src *T) {
 	}
 }
 
-// guardedWrite is the read-guard-write sequence every manage_* mutation
-// runs. It exists because that sequence is the security-critical part of
-// this package and it was written out once per resource, which is how
-// the postures drifted apart: deals and activities gated the overwrite
-// check behind the action while persons and organizations did not, and
-// nothing made the five agree. Ordering lives here now, once.
+// guardedWrite is the read-guard-write sequence every manage_* update
+// and transition runs. That sequence is the security-critical part of
+// this package, so it is written once and every resource takes the same
+// order (D-37): read (where a resource's own refusal, such as an
+// archived deal's, fires first), expect_version, field table and
+// prediction, diff, the overwrite guard, the dry-run gate, and the
+// write. A copy per resource lets the postures drift apart.
+//
+// A create has no target to guard and does not enter it. Nor does a
+// delete: it reads the record, runs the same expect_version check and
+// honors dry_run itself, and takes no permitting argument (D-47).
 //
 // The caller supplies what actually differs — the field table, the
 // record label, how to fetch, how to predict, how to write — and gets
@@ -421,13 +430,12 @@ type guardedWrite[T any] struct {
 	// record's custom-field map.
 	//
 	// They live here, together, because reaching a custom field needs
-	// two things done and they used to be two edits in two functions:
-	// extend the field table so the diff and the overwrite guard see it,
-	// and overlay it onto the predicted record so the diff has something
-	// to see. A resource that did one and not the other dry-ran as
-	// "nothing changes" and then changed the field unreported. Setting
-	// these two adjacent fields is now the whole of it, and run does
-	// both or neither.
+	// two things done: extend the field table so the diff and the
+	// overwrite guard see it, and overlay it onto the predicted record so
+	// the diff has something to see. A resource that does one and not
+	// the other dry-runs as "nothing changes" and then changes the field
+	// unreported. Setting these two adjacent fields is the whole of it,
+	// and run does both or neither (D-40).
 	Custom   pipedrive.CustomFieldWrite
 	CustomOf func(*T) *map[string]any
 
@@ -438,9 +446,7 @@ type guardedWrite[T any] struct {
 	Version       func(*T) string
 
 	// Overwrite names the populated fields the caller agrees to
-	// replace. A transition passes
-	// true because it names both the change and the field it lands on,
-	// so the caller already sees the whole blast radius.
+	// replace.
 	Overwrite []string
 	// OverwriteAll is the transition case: the caller named the
 	// transition, and the field it lands on is the field they named, so
@@ -460,8 +466,11 @@ type guardedWrite[T any] struct {
 // Three outcomes reach the caller with res == nil: a no-op (changed is
 // empty, nothing was sent), a dry run (changed is what would move,
 // nothing was sent), and a real write (changed is what the upstream
-// actually altered, diffed against the echo rather than the prediction
-// because Pipedrive normalizes some of what it stores).
+// actually altered). A real write diffs against the echo rather than the
+// prediction because Pipedrive derives and normalizes some of what it
+// stores: a write of a person's first_name also changes name, which the
+// dry run cannot predict. Checked by the integration test
+// TestWrite_PersonFieldRoundTrips.
 func (w guardedWrite[T]) run(ctx context.Context) (rec *T, changed []string, stop *mcp.CallToolResult) {
 	before, err := w.Get(ctx)
 	if err != nil {
@@ -501,8 +510,8 @@ func (w guardedWrite[T]) spec() []fieldSpec[T] {
 	return withCustomFields(w.Spec, w.Custom, func(r *T) map[string]any { return *w.CustomOf(r) })
 }
 
-// predict is the caller's overlay plus this write's custom fields, which
-// the caller's overlay no longer has to remember. The merge copies, so
+// predict is the caller's overlay plus this write's custom fields, so
+// the caller's overlay need not carry them. The merge copies, so
 // the prediction never writes through to the record the diff still has
 // to compare against.
 func (w guardedWrite[T]) predict(before *T) T {
@@ -518,9 +527,8 @@ func (w guardedWrite[T]) predict(before *T) T {
 // field they change is the field the caller named.
 //
 // Exported for one reason: the server's MCP instructions state this list
-// in prose, and prose drifts. v0.5.0 shipped with `archive` and
-// `unarchive` missing from that sentence after they were added here, so
-// the instructions understated what a caller could do without asking.
+// in prose, and prose drifts. An action missing from that sentence makes
+// the instructions understate what a caller can do without asking, so
 // internal/server holds the sentence against this.
 func SelfAuthorizingActions() []string {
 	var out []string

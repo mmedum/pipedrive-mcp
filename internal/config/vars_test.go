@@ -23,7 +23,7 @@ import (
 // for from. These are external tests so the readers outside Load, in
 // internal/app and internal/credentials, can be driven from here.
 
-// varsFloor is how many variables the server reads today, on purpose:
+// varsFloor is how many variables the server reads, on purpose:
 // the floor moves with it, so a registry that records nothing cannot
 // pass a walk over it.
 const varsFloor = 6
@@ -364,7 +364,7 @@ var scriptsOwn = map[string]string{
 }
 
 // readsFloor is how many reads of a variable the scan finds outside this
-// package today, on purpose: the floor moves with them, so a scan that
+// package, on purpose: the floor moves with them, so a scan that
 // finds no call cannot pass.
 const readsFloor = 8
 

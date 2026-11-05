@@ -66,6 +66,11 @@ func (c *Client) UpdateOrganization(ctx context.Context, id int64, req UpdateOrg
 // GetOrganization fetches a single organization by ID. custom_fields
 // are nested under the org's `custom_fields` object per Pipedrive v2 —
 // caller resolves hash keys to names via the per-Client FieldCache.
+//
+// Organization does not decode is_deleted, which the v2 response
+// declares, so an organization read here never shows as deleted. What
+// Pipedrive answers for a deleted one is unchecked: no test reads one.
+// https://developers.pipedrive.com/docs/api/v1/Organizations#getOrganization
 func (c *Client) GetOrganization(ctx context.Context, id int64) (*Organization, error) {
 	q := url.Values{}
 	q.Set("include_fields", orgIncludeFields)
@@ -122,18 +127,14 @@ func (c *Client) ListOrganizations(ctx context.Context, opts ListOrganizationsOp
 }
 
 // orgIncludeFields is the include_fields value every organization read
-// sends.
-//
-// people_count is NOT part of v2's default organization response — it is
-// one value of an include_fields enum, and a read that does not ask for
-// it gets a row without the key. This client declared PeopleCount and
-// never asked, so the field was absent from every record while three
-// tool descriptions promised it. Asking is the fix rather than dropping
-// the field: "how many people are at this company" is a question the
-// tool exists to answer.
+// sends. people_count is NOT in v2's default organization response: it
+// is one value of the include_fields enum, and a read that does not ask
+// for it gets a row without the key. No integration test reads it.
+// https://developers.pipedrive.com/docs/api/v1/Organizations#getOrganizations
 const orgIncludeFields = "people_count"
 
 // ListOrganizationFields returns the field metadata for organizations.
+// It reads one page, as ListDealFields does.
 func (c *Client) ListOrganizationFields(ctx context.Context) ([]Field, error) {
 	var resp listEnvelope[Field]
 	if err := c.do(ctx, "/organizationFields", &resp); err != nil {
@@ -162,8 +163,8 @@ func (c *Client) WarmOrganizationFields(ctx context.Context) {
 }
 
 // ReloadOrganizationFields clears and re-fetches the organization-field
-// cache, returning the count of fields now cached. See ReloadDealFields
-// for the rationale.
+// cache, returning the count of fields cached after the reload, as
+// ReloadDealFields does for deals.
 func (c *Client) ReloadOrganizationFields(ctx context.Context) (int, error) {
 	c.organizationFields.Reload()
 	if err := c.organizationFields.Load(ctx); err != nil {
@@ -172,15 +173,9 @@ func (c *Client) ReloadOrganizationFields(ctx context.Context) (int, error) {
 	return c.organizationFields.Count(), nil
 }
 
-// DeleteOrganization marks a organization as deleted. Pipedrive's delete is SOFT and
-// time-boxed — its documentation says "Marks a organization as deleted.
-// After 30 days, the organization will be permanently deleted." Within that
-// window the row still exists, carrying is_deleted; nothing in this
-// server puts it back, and Pipedrive's own UI is what can.
-//
-// The response carries only the id, so there is nothing typed to
-// return: a caller that wants the record's final state reads it before
-// deleting, which the guarded-write path does anyway.
+// DeleteOrganization marks an organization as deleted, softly, as
+// DeleteDeal does a deal: Pipedrive purges it after 30 days.
+// https://developers.pipedrive.com/docs/api/v1/Organizations#deleteOrganization
 func (c *Client) DeleteOrganization(ctx context.Context, id int64) error {
 	return c.deleteV2(ctx, "/organizations/"+strconv.FormatInt(id, 10))
 }

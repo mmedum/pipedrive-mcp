@@ -8,6 +8,8 @@
 //
 //	go run ./scripts/gates changelog BASE HEAD
 //	go run ./scripts/gates deps
+//	go run ./scripts/gates docs
+//	go run ./scripts/gates parity
 //	go run ./scripts/gates release-notes VERSION [CHANGELOG]
 //	go run ./scripts/gates schema-ack BASE HEAD
 //	go run ./scripts/gates smoke binary TARGET
@@ -17,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -28,24 +31,37 @@ type command struct {
 	run  func(io.Writer, []string) error
 	args string
 	doc  string
+	// gate marks a command that runs in BOTH `make check` and ci.yml.
+	// The parity gate reads it, which ties the Makefile and the workflow
+	// to this one list.
+	gate bool
+	// pr marks a command only a pull request can run, because it measures
+	// from the merge-base. Parity holds it to a `run:` step in ci.yml and
+	// keeps it out of `make check`.
+	pr bool
 }
 
-// commands is the one list of what this program does: the usage text and
-// the dispatch both read it, so they cannot drift from each other.
+// commands is the one list of what this program does: the usage text,
+// the dispatch and the parity gate all read it, so they cannot drift
+// from each other.
 var commands map[string]command
 
+// init fills the registry rather than a var literal, because parity reads
+// it and Go will not let a map initializer refer to a function that
+// refers back to the map.
 func init() {
 	commands = map[string]command{
 		"changelog": {
-			run: changelogGate, args: "BASE HEAD",
+			run: changelogGate, args: "BASE HEAD", pr: true,
 			doc: "a change to watched source needs an entry under [Unreleased]",
 		},
 		"changelog-links": {
-			run: func(out io.Writer, _ []string) error { return changelogLinksGate(out) },
-			doc: "every CHANGELOG version heading has its link definition",
+			run:  func(out io.Writer, _ []string) error { return changelogLinksGate(out) },
+			gate: true,
+			doc:  "every CHANGELOG version heading has its link definition",
 		},
 		"mcpb": {
-			run: mcpbCmd, args: "",
+			run: mcpbCmd, args: "", gate: true,
 			doc: "the bundle manifest describes the bundle the packer stages, and the release its six archives",
 		},
 		"mcpb-pack": {
@@ -57,15 +73,15 @@ func init() {
 			doc: "the MCP registry entry, with the bundle's hash from the published checksums",
 		},
 		"leaks": {
-			run: leaks, args: "[history]",
+			run: leaks, args: "[history]", gate: true,
 			doc: "nothing from a real Pipedrive account is in the tree, or with history anywhere in the history",
 		},
 		"pins": {
-			run: pins, args: "",
+			run: pins, args: "", gate: true,
 			doc: "every action is a commit and every tool version is exact",
 		},
 		"deps": {
-			run: depsGate, args: "",
+			run: depsGate, args: "", gate: true,
 			doc: "no direct dependency is more than six months behind without a reason",
 		},
 		"release-notes": {
@@ -73,20 +89,28 @@ func init() {
 			doc: "one version's CHANGELOG section, which is the release note",
 		},
 		"schema-ack": {
-			run: schemaAck, args: "BASE HEAD",
+			run: schemaAck, args: "BASE HEAD", pr: true,
 			doc: "a commit footer names each item of the tool surface a pull request changes",
 		},
 		"smoke": {
-			run: smokeGate, args: "binary TARGET",
+			run: smokeGate, args: "binary TARGET", gate: true,
 			doc: "drive an MCP handshake over stdio and read the reply",
 		},
-		"checklist": {
-			run: checklistGate, args: "[MAKEFILE CLAUDE_MD]",
-			doc: "CLAUDE.md's make check list against the Makefile's check: target",
-		},
 		"descriptions": {
-			run: descriptionsGate, args: "SCHEMA_DUMP|-",
+			run: descriptionsGate, args: "SCHEMA_DUMP|-", gate: true,
 			doc: "hold the tool descriptions against the mechanical house-style rules",
+		},
+		"coverage": {
+			run: coverageGate, args: "PROFILE", gate: true,
+			doc: "the statement-coverage floor on the packages it holds",
+		},
+		"parity": {
+			run: parity, args: "", gate: true,
+			doc: "`make check` and CI run the same gates",
+		},
+		"docs": {
+			run: docs, args: "", gate: true,
+			doc: "decision IDs, citations, links, paths, the codemap and the integration tests the docs and code name all resolve",
 		},
 	}
 }
@@ -126,16 +150,21 @@ func exitCode(err error) int {
 func usage(w io.Writer) {
 	var b strings.Builder
 	b.WriteString("usage: gates COMMAND [ARGS]\n\n")
-	names := make([]string, 0, len(commands))
-	for name := range commands {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	for _, name := range names {
+	for _, name := range commandNames(commands) {
 		c := commands[name]
-		_, _ = fmt.Fprintf(&b, "  %-14s %-24s %s\n", name, c.args, c.doc)
+		mark := " "
+		if c.gate {
+			mark = "*"
+		}
+		_, _ = fmt.Fprintf(&b, "  %s %-16s %-24s %s\n", mark, name, c.args, c.doc)
 	}
+	b.WriteString("\n  * runs in both `make check` and CI; the parity gate checks that.\n")
 	_, _ = io.WriteString(w, b.String())
+}
+
+// commandNames is a registry's command names, sorted.
+func commandNames(registry map[string]command) []string {
+	return slices.Sorted(maps.Keys(registry))
 }
 
 // moduleRoot finds the directory holding go.mod, so a gate reads the

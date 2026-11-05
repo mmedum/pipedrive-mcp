@@ -258,6 +258,16 @@ func ackToken(token string) (isBreak, ok bool) {
 // codeSpanRe is one code span: text in backticks.
 var codeSpanRe = regexp.MustCompile("`([^`]+)`")
 
+// codeSpans is the text of each code span in s.
+func codeSpans(s string) []string {
+	spans := codeSpanRe.FindAllStringSubmatch(s, -1)
+	out := make([]string, 0, len(spans))
+	for _, m := range spans {
+		out = append(out, m[1])
+	}
+	return out
+}
+
 // nameSeparator is what separates the names in a footer's list.
 var nameSeparator = regexp.MustCompile("[\\s,;()'\"]+")
 
@@ -287,10 +297,7 @@ func footerNames(text string) []string {
 			break
 		}
 	}
-	var out []string
-	for _, m := range codeSpanRe.FindAllStringSubmatch(list, -1) {
-		out = append(out, m[1])
-	}
+	out := codeSpans(list)
 	// The rest is split on commas alone, so prose is one item that names
 	// nothing rather than words that each might.
 	for _, n := range strings.Split(codeSpanRe.ReplaceAllString(list, ""), ",") {

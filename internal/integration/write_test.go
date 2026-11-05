@@ -26,9 +26,9 @@ import (
 //  3. verify the restore with a fresh read, not the write's echo;
 //  4. only ever append to a collection and then trim it back, so
 //     replace-semantics cannot drop an entry that was already there;
-//  5. never write a field that was empty — v2 has no spelling that
-//     empties one again (docs/architecture.md, "Clearing a field"), so
-//     an empty field is not a reversible place to write;
+//  5. never write a field that was empty — no tool here can empty a
+//     field again, so an empty field is not a reversible place to
+//     write;
 //  6. assert on shapes, not on content.
 
 // undo registers a probe's restore. A restore that did not take is a
@@ -184,10 +184,13 @@ func TestWrite_PersonFieldRoundTrips(t *testing.T) {
 }
 
 // TestWrite_PersonEmailsReplaceWholesale tests the premise the
-// contact-point guard rests on. It appends an address and takes it
-// away again: every write carries the whole existing set, so if
-// Pipedrive really does replace rather than merge, nothing that was
-// there can be lost either way.
+// contact-point guard rests on: an update replaces the stored emails
+// rather than merging into them. It appends an address and takes it
+// away again, and every write carries the whole existing set, so
+// nothing that was there can be lost either way. The append passes
+// under a merge too; the restore is what tells them apart, since it
+// sends the set without the probe address and fails if the address
+// stays.
 func TestWrite_PersonEmailsReplaceWholesale(t *testing.T) {
 	requireWrites(t)
 
@@ -275,8 +278,8 @@ func TestWrite_OrganizationNameRoundTrips(t *testing.T) {
 
 // TestWrite_DealDateRoundTrips is patchV2 end to end. It moves a date
 // that is already set rather than filling an empty one, because
-// setting an empty field is a one-way trip on v2 — see rule 5 at the
-// top of this file.
+// setting an empty field is a one-way trip on v2 (item 5 of the
+// contract at the top of this file).
 func TestWrite_DealDateRoundTrips(t *testing.T) {
 	requireWrites(t)
 
@@ -343,10 +346,10 @@ func TestWrite_DealDateRoundTrips(t *testing.T) {
 // fixture says, so only the workspace can say whether a label the tools
 // accepted is the one Pipedrive stored.
 //
-// It targets a dropdown that is ALREADY filled in, per rule 5 of the
-// contract above — v2 has no spelling that empties a field again, so an
-// empty one is not a reversible place to write. The restore puts the
-// original label back and a fresh read confirms it.
+// It targets a dropdown that is ALREADY filled in, per item 5 of the
+// contract above: no tool here can empty a field again, so an empty one
+// is not a reversible place to write. The restore puts the original
+// label back and a fresh read confirms it.
 func TestWrite_CustomFieldRoundTripsByLabel(t *testing.T) {
 	requireWrites(t)
 
@@ -437,21 +440,17 @@ func TestWrite_CustomFieldRoundTripsByLabel(t *testing.T) {
 	}
 }
 
-// reopen was broken and nothing here noticed, because the unit fakes
-// accept any request and no probe reopened a real deal. Pipedrive
+// reopen against the real API, from won and from lost. The unit fakes
+// accept any request, so only this shows what Pipedrive refuses: it
 // rejects lost_reason alongside status:open — "Lost reason and lost
-// time must can only be set when status is lost" — and it validates the
-// RESULTING state, so sending it failed reopen from won AND from lost.
+// time must can only be set when status is lost" — and it validates
+// the RESULTING state, so a reopen sending it fails from won AND from
+// lost.
 //
-// THE FIRST VERSION OF THIS PROBE PICKED THE FIRST OPEN DEAL IN THE
-// WORKSPACE and closed it, twice, to prove the transition worked. The
-// field state restored; the automations that fired on every status
-// change did not. A real customer's deal was marked won and lost four
-// times before anyone noticed.
-//
-// So it builds its own deal now, in a pipeline the business does not
-// use, and deletes it. Nothing here transitions a record this suite did
-// not create.
+// NOTHING HERE TRANSITIONS A RECORD THIS SUITE DID NOT CREATE. A status
+// change fires the workspace's automations, which no restore takes
+// back, so this builds its own deal in a pipeline the business does
+// not use, and deletes it.
 func TestWrite_DealReopensFromWonAndFromLost(t *testing.T) {
 	pipeline := requireOwnPipeline(t)
 
@@ -512,14 +511,13 @@ func TestWrite_DealReopensFromWonAndFromLost(t *testing.T) {
 //
 // The three are not the same case, and that is the point:
 //
-//   - organization — Pipedrive KEEPS it in the search index and marks
-//     it in no way at all, so this server drops it. This asserts our
+//   - organization, person — Pipedrive KEEPS them in the search index
+//     and marks them in no way at all (an organization indefinitely, a
+//     person for a while), so this server drops them. This asserts our
 //     filter works.
-//   - deal, person — Pipedrive drops them itself. Nothing here filters
-//     those, so this asserts somebody else's behavior. It is written
-//     down in three comments and a CHANGELOG entry; without this it is
-//     held by nothing, and the day it changes this server starts
-//     handing back deleted records and no test moves.
+//   - deal — Pipedrive drops it itself. Nothing here filters deals, so
+//     this asserts somebody else's behavior; if it changes, this server
+//     hands back deleted deals and only this test moves.
 //
 // Every record is this test's own, created and deleted inside it.
 func TestWrite_SearchDropsWhatItDeleted(t *testing.T) {
@@ -584,8 +582,8 @@ func TestWrite_SearchDropsWhatItDeleted(t *testing.T) {
 
 			if searchFinds(t, name, tc.itemType, id, false) {
 				t.Errorf("search still returns %s %d after it was deleted. "+
-					"For an organization that means this server's liveness check did not drop it; "+
-					"for a deal or person it means Pipedrive stopped dropping them itself and search now has to check that type too",
+					"For an organization or person that means this server's liveness check did not drop it; "+
+					"for a deal it means Pipedrive stopped dropping deleted deals itself and search has to check deals too",
 					tc.itemType, id)
 			}
 		})
@@ -618,15 +616,13 @@ func searchFinds(t *testing.T, term, itemType string, id int64, want bool) bool 
 
 // Linking an activity to a person, against the real API.
 //
-// This is the probe whose absence hid the bug. `manage_activity` has
-// always offered person_id and always described it as "the linked
-// person, who becomes the primary participant" — and always sent it as
-// person_id, which v2 rejects outright: "'person_id' is a read-only
-// field. Add a primary participant to set 'person_id' instead." Every
-// call that set it failed, and nothing here ever set it.
+// v2 rejects person_id on an activity outright: "'person_id' is a
+// read-only field. Add a primary participant to set 'person_id'
+// instead." So manage_activity sends the person as the primary
+// participant, and this reads the activity back to see person_id set.
 //
-// A fake cannot settle this. The fakes accept any request, which is
-// exactly how the broken shape sat in a passing unit test.
+// A fake cannot settle this: the fakes accept any request, so a body
+// Pipedrive rejects still passes a unit test.
 func TestWrite_ActivityLinksToAPerson(t *testing.T) {
 	s := newScratch(t)
 

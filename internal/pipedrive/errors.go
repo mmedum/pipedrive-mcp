@@ -28,7 +28,7 @@ type APIError struct {
 	Class    error  // one of the sentinels
 	Status   int    // HTTP status from Pipedrive
 	Message  string // upstream `error` field, or a short summary
-	Endpoint string // request path, useful for the 403 heuristic
+	Endpoint string // request path, for Error; classification never reads it
 }
 
 func (e *APIError) Error() string {
@@ -37,30 +37,26 @@ func (e *APIError) Error() string {
 
 func (e *APIError) Unwrap() error { return e.Class }
 
-// envelope models the fields of the Pipedrive v2 error response that
-// classify actually reads. The full v2 envelope also has `success`,
-// `data`, and `additional_data.next_cursor`; those are decoded by the
-// success path into caller-typed structs and don't belong here. v1
-// uses the same error shape, so this struct also covers v1 calls when
-// they're added.
-//
-// On v2, error_info is free text ("Please check developers.pipedrive.com").
-// Do not parse it as a structured discriminator — disambiguate 403s on
-// the `error` field instead.
+// envelope is the part of Pipedrive's error body that classify reads;
+// v1 and v2 share the shape. On v2, error_info is free text ("Please
+// check developers.pipedrive.com"), so nothing branches on it: it stands
+// in for the message only when `error` is empty.
 type envelope struct {
 	ErrorMsg  string `json:"error,omitempty"`
 	ErrorInfo string `json:"error_info,omitempty"`
 }
 
-// classify maps an HTTP status + endpoint + decoded envelope to a typed
-// APIError. It applies the 403 disambiguation heuristic: business-rule
-// 403s are recognized by signal words in the upstream `error` field
-// (locked, stage, required, restricted, workflow). Permission 403s fall
-// through to the default.
+// classify maps an HTTP status and the decoded error body to a typed
+// APIError. Pipedrive's v2 description declares no 401, 403, 429 or 5xx
+// on any operation, so the switch takes the common statuses from its
+// status-code page: 401, 403, 404, 410 and 429 each have a class, a 5xx
+// is a server error and any other 4xx is validation. The page's 402, 415
+// and limit-reached 403 are not told apart (#128).
+// https://pipedrive.readme.io/docs/core-api-concepts-http-status-codes
 //
-// The raw response body is intentionally not retained on APIError.
-// Pipedrive can echo PII back in error bodies; if a future need for
-// debug bodies arises, add a redacting accessor — don't add a field.
+// The raw body is not kept on APIError, because Pipedrive can echo PII
+// back in an error body. A need for it gets a redacting accessor, never
+// a field.
 func classify(status int, version apiVersion, endpoint string, env envelope) *APIError {
 	msg := strings.TrimSpace(env.ErrorMsg)
 	if msg == "" {
@@ -73,21 +69,26 @@ func classify(status int, version apiVersion, endpoint string, env envelope) *AP
 	case status == 401:
 		return mk(ErrUnauthorized)
 	case status == 403:
+		// A business rule when the message carries a signal substring,
+		// a permission failure otherwise; the endpoint plays no part
+		// (D-52).
 		if isBusinessRule403(msg) {
 			return mk(ErrForbiddenBusinessRule)
 		}
 		return mk(ErrForbiddenPermission)
 	case status == 404:
+		// An unknown id: "Deal not found" for a deal. The integration test
+		// TestGetDeal_NotFoundMapsToItsClass checks the class, not the text.
 		return mk(ErrNotFound)
 	case status == 429:
 		return mk(ErrRateLimited)
 	case status == 410:
-		// Without this, a 410 fell through `status >= 400` to
-		// ErrValidation and reached the model as "your input was
-		// wrong" — sending it to fix the one thing that was fine. A
-		// retired endpoint is not a caller error and not retryable.
+		// Not the caller's error and not retryable: classed as validation
+		// it would send the model to change the one thing that was right.
+		// 410 is the code Pipedrive documents for a retired resource; a
+		// retired route may as well answer 404, 403 or an edge's HTML page.
 		if version == apiV1 {
-			msg = withV1Sunset(msg)
+			msg = withV1GoneNote(msg)
 		}
 		return mk(ErrGone)
 	case status >= 500:
@@ -98,31 +99,31 @@ func classify(status int, version apiVersion, endpoint string, env envelope) *AP
 	return nil
 }
 
-// withV1Sunset says why a 410 on a v1 path is not the caller's fault
-// and not worth a retry.
+// withV1GoneNote says why a 410 on a v1 path is worth no retry. The four
+// tools on v1 (get_note, list_notes, manage_note and whoami) are there
+// because v2 has no /notes and no /users, so nothing can fall back.
 //
-// The four tools on this path — get_note, list_notes, manage_note and
-// whoami — are there because v2 exposes no /notes and no /users at all,
-// so there is nothing to fall back to. Pipedrive's v1 sunset date,
-// 2026-07-31, has passed; v1 is out of support rather than switched
-// off, and this is the message for the day that changes. A caller that
-// reads "validation" retries with different arguments forever; one that
-// reads this tells the user.
-func withV1Sunset(msg string) string {
+// Pipedrive deprecated selected v1 endpoints and put them out of
+// support; /v1/notes and /v1/users/me are on neither list. That the four
+// still answer is checked by the integration test
+// TestV1CarveOutStillAnswers.
+// https://developers.pipedrive.com/changelog/post/deprecation-of-selected-api-v1-endpoints
+// https://developers.pipedrive.com/changelog/post/deprecated-apiv1-endpoints-become-out-of-support
+func withV1GoneNote(msg string) string {
 	if msg == "" {
-		return v1SunsetNote
+		return v1GoneNote
 	}
-	return msg + " — " + v1SunsetNote
+	return msg + " — " + v1GoneNote
 }
 
-// v1SunsetNote is the explanation appended to a v1 failure. A package
-// const so the tests assert the same string the caller sees rather than
-// grepping fragments of it.
-const v1SunsetNote = "this endpoint is on Pipedrive API v1, which is past its " +
-	"2026-07-31 sunset and has no v2 equivalent — changing the request will not help"
+// v1GoneNote is the explanation appended to a v1 410. A package const so
+// the tests assert the same string the caller sees.
+const v1GoneNote = "this endpoint is on Pipedrive API v1 and has no v2 equivalent — " +
+	"changing the request will not help"
 
-// Case-insensitive substrings in Pipedrive's upstream `error` field
-// that flag a business-logic 403 rather than a permission 403.
+// Case-insensitive substrings of a 403's message that mark a business
+// rule rather than a permission failure. The list is unverified: no 403
+// of either kind has been captured from a real account.
 var businessRule403Signals = []string{
 	"locked",
 	"required",

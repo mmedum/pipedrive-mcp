@@ -89,7 +89,12 @@ func RegisterPipelines(s *mcp.Server, c pipelinesClient, companyDomain string) {
 		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listStagesInput) (*mcp.CallToolResult, listStagesOutput, error) {
 		// Pipedrive's /api/v2/stages returns an empty array both for a
-		// real-but-empty pipeline AND for an unknown/invisible pipeline.
+		// real-but-empty pipeline AND for an unknown/invisible pipeline,
+		// and its reference says nothing about an unknown pipeline_id.
+		// Seen by hand against a workspace; no integration test asks for
+		// an unknown pipeline.
+		// https://developers.pipedrive.com/docs/api/v1/Stages#getStages
+		//
 		// Validate against ListPipelines so the LLM gets a [not_found]
 		// error in the latter case instead of a silently-empty result.
 		// Fan the two calls out so wall-clock cost is max(t1,t2) rather
@@ -117,6 +122,9 @@ func RegisterPipelines(s *mcp.Server, c pipelinesClient, companyDomain string) {
 // ListPipelines concurrently, then enforces the "pipeline must exist"
 // gate so an unknown id surfaces as [not_found] rather than a silently
 // empty result. Returns the stage list on success.
+//
+// ListPipelines reads one page, Pipedrive's default of 100 pipelines, so
+// a pipeline past it reads as not found here.
 func stagesAndValidatedPipeline(ctx context.Context, c pipelinesClient, pipelineID int64) ([]pipedrive.Stage, error) {
 	if pipelineID == 0 {
 		return c.ListStages(ctx, 0)

@@ -94,12 +94,12 @@ func TestClassify_410ExplainsOnlyOnV1(t *testing.T) {
 		{"v1 with an upstream message", apiV1, envelope{ErrorMsg: "Gone"}, true},
 		{"v1 with an empty body", apiV1, envelope{}, true},
 		// A v2 410 really can be a deleted record, and there is no
-		// sunset to explain.
+		// carve-out to explain.
 		{"v2", apiV2, envelope{ErrorMsg: "Gone"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := classify(410, tc.version, "/api/"+string(tc.version)+"/notes/7", tc.env)
-			got := strings.Contains(err.Message, v1SunsetNote)
+			got := strings.Contains(err.Message, v1GoneNote)
 			if got != tc.explain {
 				t.Fatalf("explanation present = %t, want %t; message: %q", got, tc.explain, err.Message)
 			}

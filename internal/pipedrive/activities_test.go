@@ -294,9 +294,8 @@ func TestClient_CreateActivity_PropagatesUpstreamError(t *testing.T) {
 // person_id on an activity is READ-ONLY upstream: it reports the
 // primary participant rather than setting one, and a body carrying it
 // comes back "'person_id' is a read-only field. Add a primary
-// participant to set 'person_id' instead." Confirmed against the live
-// API on 2026-09-24, which is also how the bug was found — nothing had
-// ever set it.
+// participant to set 'person_id' instead." Checked by the integration
+// test TestWrite_ActivityLinksToAPerson.
 func TestPrimaryParticipant(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

@@ -1,8 +1,8 @@
-// Package credentials resolves the Pipedrive API token from secure
-// storage. The OS keyring (libsecret on Linux, Keychain on macOS,
-// Credential Manager on Windows) is the persistent home; the env var
-// fallback exists for CI, automation, and any environment where the
-// keyring is unavailable (headless SSH, WSL without DBus, containers).
+// Package credentials resolves the Pipedrive API token. The OS keyring
+// (libsecret on Linux, Keychain on macOS, Credential Manager on Windows)
+// is the persistent home, and the environment variable overrides it: for
+// CI, automation, and any environment where the keyring is unavailable
+// (headless SSH, WSL without DBus, containers).
 //
 // Resolution order (first non-empty wins):
 //  1. PIPEDRIVE_API_TOKEN env var. Mirrors gh's GH_TOKEN, aws's
@@ -31,7 +31,7 @@ import (
 // platforms; the keyring backend handles platform-specific storage.
 const ServiceName = "pipedrive-mcp"
 
-// EnvVar is the env-var fallback. Documented for CI use.
+// EnvVar is the variable that, when set, overrides the keyring.
 const EnvVar = config.EnvAPIToken
 
 // Source identifies which path a resolved token came from. Useful for
@@ -77,10 +77,11 @@ func IsNotFound(err error) bool {
 // Default returns the production keyring-backed implementation.
 func Default() Backend { return realBackend{} }
 
-// Resolve looks up the token for the given company domain. Env wins
-// over keyring (matches gh/aws precedence); a missing keyring entry is
-// treated as "fall through", but a broken keyring is surfaced so the
-// user knows to set the env var or fix DBus.
+// Resolve looks up the token for the given company domain. The
+// environment wins over the keyring, as gh and aws order theirs (D-63).
+// With the variable unset, a missing keyring entry is ErrNotFound and a
+// broken keyring is surfaced, so the user knows to set the variable or
+// fix DBus.
 func Resolve(b Backend, domain string) (string, Source, error) {
 	if envToken := config.Lookup(os.Getenv, EnvVar); envToken != "" {
 		return envToken, SourceEnv, nil

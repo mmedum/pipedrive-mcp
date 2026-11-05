@@ -12,9 +12,9 @@ are `login`, `logout`, and `status`. Operational flags on the default
 The binary looks for the API token in this order, first non-empty
 wins (matches `gh` / `aws` / `gcloud`):
 
-1. **`PIPEDRIVE_API_TOKEN` env var.** Explicitly overrides whatever is
-   stored. Used for CI and automation, and for "use a different token
-   right now" workflows without touching the keyring.
+1. **`PIPEDRIVE_API_TOKEN` env var.** Overrides whatever is stored
+   (D-63). Use it for automation, or to use another token for one run
+   without touching the keyring.
 2. **OS keyring**, under service `pipedrive-mcp` and account
    `<company-domain>`. Populated by `pipedrive-mcp login`. This is the
    recommended persistent store for interactive use: the token never
@@ -57,8 +57,8 @@ The command:
    fails immediately, before anything is stored.
 4. Writes the token to the OS keyring (service `pipedrive-mcp`,
    account = company domain).
-5. Records the domain in the user-config file (see "Domain
-   resolution" below) so subsequent runs don't need
+5. Records the domain in the user-config file
+   ([Domain resolution](#domain-resolution)), so later runs do not need
    `PIPEDRIVE_COMPANY_DOMAIN`.
 
 ### `pipedrive-mcp logout`
@@ -136,22 +136,22 @@ means the default rather than a value the server refuses.
 - **Validation**: non-empty; the startup probe (`GET /api/v2/dealFields?limit=1`)
   must return 200. A 401 exits non-zero with:
   `auth probe failed: 401 — token rejected. Run `pipedrive-mcp login` again.`
-- **Rotation**: rotate by running `pipedrive-mcp login` again (overwrites
-  the keyring entry); for the env-var path, update the env and restart.
-  Mid-process rotation is not supported in v1.
+- **Rotation**: run `pipedrive-mcp login` again, which overwrites the
+  keyring entry, or update the variable. The server reads the token
+  once, at startup, so restart it either way.
 
 ### `PIPEDRIVE_COMPANY_DOMAIN`
 
-- **Required**: only when no default has been recorded by
-  `pipedrive-mcp login`. See "Domain resolution" above for the full
-  fallback chain.
+- **Required**: only when `pipedrive-mcp login` has recorded no default.
+  [Domain resolution](#domain-resolution) gives the order.
 - **Type**: string.
 - **Examples**: `acme` for `acme.pipedrive.com`. Just the subdomain — no
   scheme, no path, no trailing slash.
-- **Validation**: matches `^[a-z0-9-]+$` (Pipedrive workspace names)
-  after A to Z are lowered. Other values exit non-zero with a clear
-  message, a character Unicode lowers into a to z, such as the Kelvin
-  sign, included.
+- **Validation**: after A to Z are lowered, matches
+  `^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$`: a DNS host label of
+  letters, digits and hyphens, with no hyphen at either end (D-65).
+  Another value exits non-zero, a character Unicode lowers into a to z,
+  such as the Kelvin sign, included.
 - **Precedence**: env wins over the userconfig default (use env to
   point one shell at a different workspace without running `login`).
 
@@ -182,18 +182,17 @@ means the default rather than a value the server refuses.
   true` can turn a rehearsal on for a single write; nothing on the wire
   can turn one off while this is set. Set it when you want a server that
   cannot write, whatever a model asks for.
-- **Not logged**: a rehearsal leaves no record. No tool handler logs
-  anything, so there is nothing to review afterwards — see
-  [`security.md`](security.md), "LLM audit trail".
+- **Not logged**: a rehearsal leaves no record, because no tool handler
+  logs (D-60).
 
 ### `PIPEDRIVE_HTTP_TIMEOUT`
 
 - **Required**: no.
 - **Default**: `30s`.
 - **Type**: Go duration string (`5s`, `1m`, `750ms`).
-- **Effect**: per-request timeout for outbound HTTP calls to Pipedrive.
-  Applies to each retry attempt independently. Total wall-clock time for
-  a single tool call is roughly `timeout * (1 + retries) + backoff`.
+- **Effect**: the timeout of each outbound attempt to Pipedrive (D-56).
+  A call makes up to three attempts, so it can take three timeouts and
+  the waits between them.
 
 ### `PIPEDRIVE_INTEGRATION_WRITES`
 
@@ -209,7 +208,16 @@ means the default rather than a value the server refuses.
 - **Interaction**: `PIPEDRIVE_DRY_RUN` wins. The suite honors the
   dry-run floor the way the server does, so under it the write probes
   skip whatever this is set to. See
-  [`development.md`](development.md#integration-suite).
+  [The live run](../CONTRIBUTING.md#the-live-run).
+
+### `PIPEDRIVE_TEST_PIPELINE_ID`
+
+- **Required**: no, and the server never reads it.
+- **Read by**: the integration write probes and `make evals`.
+- **Effect**: names the pipeline they may create and close deals in.
+  Closing a deal fires the workspace's automations, so it must be a
+  pipeline the business does not use. Without it, the probes that need
+  it skip, and the evals refuse to start (D-79).
 
 ## Examples
 

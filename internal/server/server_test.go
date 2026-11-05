@@ -125,16 +125,13 @@ func TestNew_WarmGoroutineCancelsWithParentContext(t *testing.T) {
 }
 
 // The instructions string is the first thing a connecting LLM reads, and
-// it states in prose a set that code owns. Prose drifts: v0.5.0 needed a
-// release-prep commit whose whole job was fixing this string, because it
-// still told every client custom fields were "not yet writable" after
-// they became writable, and it left archive and unarchive out of the
-// transitions that need no overwrite. Nothing tested it, so nothing
-// said.
+// it states in prose a set that code owns. Prose drifts, and a
+// transition missing from the sentence tells every client it needs an
+// overwrite it does not take.
 //
 // This holds the sentence against the structure it mirrors. It cannot
 // tell prose from truth — no test can — but it closes the half that is
-// mechanical, which is the half that broke.
+// mechanical.
 func TestInstructionsNameEverySelfAuthorizingAction(t *testing.T) {
 	// The SENTENCE, not the whole string. Searching the whole thing
 	// passes on an action named anywhere for any reason — "archive"
@@ -146,16 +143,15 @@ func TestInstructionsNameEverySelfAuthorizingAction(t *testing.T) {
 		"The named transitions — ", " — take no overwrite")
 }
 
-// The README carries the same sentence for a human reader, and nothing
-// watched it: it named five of the seven transitions from the release
-// that added `archive` and `unarchive` until 2026-09-18, telling a
-// reader those two needed an `overwrite` they do not take. That is the
-// same defect the test above exists for, one document over, so it is
-// the same assertion rather than a second mechanism.
+// The README carries the same sentence for a human reader, and a
+// transition missing from it tells a reader the action needs an
+// `overwrite` it does not take. That is the defect the test above
+// exists for, one document over, so it is the same assertion rather
+// than a second mechanism.
 func TestREADMENamesEverySelfAuthorizingAction(t *testing.T) {
 	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
 	if err != nil {
-		t.Fatalf("reading README.md: %v", err)
+		t.Fatalf("reading README.md, whose transition sentence this test holds: %v", err)
 	}
 	assertTransitionSentenceIsComplete(t, "README.md", string(readme),
 		"The named transitions — ", " — take no `overwrite`")

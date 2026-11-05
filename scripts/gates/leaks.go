@@ -17,10 +17,9 @@ import (
 // leaks is the confidentiality gate: nothing that identifies a person, a
 // document or a deployment may be in this repository.
 //
-// It lived in internal/leakcheck as a test. The rules are unchanged; it
-// is a command now because the Makefile's target list is what a person
-// reads to find out what is checked, and a gate running invisibly inside
-// `go test ./...` is one nobody can audit without grepping for it.
+// It is a command rather than a test because the Makefile's target list
+// is what a person reads to find out what is checked, and a gate running
+// inside `go test ./...` is one nobody can audit without grepping for it.
 
 var skipFiles = map[string]bool{"go.sum": true}
 
@@ -32,12 +31,7 @@ func leaks(w io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	// --others --exclude-standard adds files that are not committed yet
-	// but would be by the next `git add -A`. Scanning only the index
-	// meant a brand-new file was invisible until someone staged it, so
-	// `make check` went green on a working tree carrying an address.
-	out, err := exec.Command("git", "-C", root, "ls-files", "-z",
-		"--cached", "--others", "--exclude-standard").Output()
+	files, err := lsFiles(root)
 	if err != nil {
 		// Outside a git checkout there is nothing to enumerate and
 		// nothing to be wrong: a module-cache copy or a source tarball
@@ -48,9 +42,8 @@ func leaks(w io.Writer, args []string) error {
 			_, printErr := fmt.Fprintln(w, "leaks: not a git checkout; nothing to enumerate")
 			return printErr
 		}
-		return fmt.Errorf("git ls-files: %w", err)
+		return err
 	}
-	files := strings.Split(strings.TrimRight(string(out), "\x00"), "\x00")
 	if len(files) < 20 {
 		return fmt.Errorf("only %d files; the scan is not seeing the repository", len(files))
 	}
@@ -89,6 +82,31 @@ func leaks(w io.Writer, args []string) error {
 	return err
 }
 
+// lsFiles is every file git tracks under root, and every untracked file
+// it does not ignore, slash-separated and relative to root, each once.
+// --others --exclude-standard adds what the next `git add -A` would
+// commit: the index alone leaves out a file nobody has staged, so a gate
+// would pass a working tree carrying an address until somebody staged
+// it. The error wraps git's *exec.ExitError and carries what git said.
+// https://git-scm.com/docs/git-ls-files
+func lsFiles(root string) ([]string, error) {
+	out, err := git("-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	seen := map[string]bool{}
+	for _, name := range strings.Split(strings.TrimRight(out, "\x00"), "\x00") {
+		// Each path once: a file with unmerged stages is listed per stage.
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		files = append(files, name)
+	}
+	return files, nil
+}
+
 var (
 	// An address at a domain someone could actually own. RFC 2606 and
 	// RFC 6761 reserve the rest for documentation and tests. This server
@@ -105,6 +123,7 @@ var (
 	// Pipedrive's own hosts belong to the vendor, not to a customer.
 	vendorHost = map[string]bool{
 		"developers": true, "app": true, "api": true, "www": true, "companyname": true, "devcommunity": true,
+		"support": true,
 	}
 
 	// A Pipedrive API token is 40 hex characters. A bare 40-hex run is
@@ -219,9 +238,8 @@ func allowed(text string) string {
 
 // Magic numbers of a linked executable. `go build ./scripts/gates`
 // drops one beside the source under whatever name the directory has,
-// and `git add -A` sweeps it in; two of the four servers in this family
-// did exactly that, and one pushed three of them to a public main,
-// where they are 97% of the packed history.
+// and `git add -A` sweeps it in, where a public history keeps it for
+// good and the text rules cannot read it.
 var executableMagic = [][]byte{
 	[]byte("\x7fELF"),                                  // Linux, BSD
 	[]byte("MZ"),                                       // Windows PE

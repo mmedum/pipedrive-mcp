@@ -3,16 +3,15 @@
 # It is its own workflow, callable two ways, because the registry sends a
 # HEAD to the bundle's download URL before it accepts an entry — so this
 # can only run AFTER the release exists, and a step that can only run
-# last is a step that needs a way to be run again on its own. As a job
-# welded into release.yml it had no such way: re-running that workflow
-# re-runs goreleaser against a release that already exists, and an entry
-# for a tag that shipped weeks ago could not be published at all.
+# last is a step that needs a way to be run again on its own. Inside
+# release.yml it has no such way: re-running that workflow re-runs
+# goreleaser against a release that already exists.
 #
 # It is also its own job for privilege. mcp-publisher is a third-party
 # binary handed a token that can publish under io.github.mmedum, and the
 # release job holds contents: write and attestations: write — so running
-# the publisher there gave it the ability to rewrite the release it had
-# just been told about. Verifying the binary is what makes running it
+# the publisher there would give it the ability to rewrite the release it
+# had just been told about. Verifying the binary is what makes running it
 # acceptable; least privilege is what stops that being the only thing in
 # the way.
 #
@@ -98,6 +97,8 @@ jobs:
       #
       # This has to happen BEFORE registry-publish reads the file. An
       # entry cannot be withdrawn.
+      # Before registry-publish reads them (D-97): an unsigned checksum
+      # file is only what the release assets say.
       - name: Verify those checksums are the ones that were signed
         run: |
           set -euo pipefail

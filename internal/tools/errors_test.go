@@ -52,17 +52,15 @@ func TestErrorClassReadsAnAPIError(t *testing.T) {
 	}
 }
 
-// The operator docs enumerate the [class] tags, and that list drifted:
-// it was missing [refused] since guarded writes shipped and would have
-// been missing [gone] the moment this package gained it. An operator
-// reading a class the runbook does not list cannot tell a new class
-// from a typo.
+// The troubleshooting doc has an entry for each [class] tag, and a
+// hand-kept list drifts. An operator reading a class the doc does not
+// list cannot tell a new class from a typo.
 //
 // Held against allSentinels for the same reason the class mapping is:
 // it is the list the package already keeps, so this adds an assertion
 // rather than a third copy of the names.
-func TestOperationsDocListsEveryErrorClass(t *testing.T) {
-	const doc = "docs/operations.md"
+func TestTroubleshootingDocListsEveryErrorClass(t *testing.T) {
+	const doc = "docs/troubleshooting.md"
 
 	body, err := os.ReadFile(filepath.Join("..", "..", doc))
 	if err != nil {
@@ -81,13 +79,9 @@ func TestOperationsDocListsEveryErrorClass(t *testing.T) {
 
 // Every action a manage_ tool dispatches on has to appear in the
 // description of its own `action` field, because that description is
-// the allowed-value list the model reads.
-//
-// manage_deal's said "create, update, move_stage, mark_won, mark_lost
-// or reopen" while dealActions held eight — archive and unarchive were
-// dispatchable and undocumented, in the same schema whose tool
-// description named "the six transitions" including both. A model
-// reading the field never tried them.
+// the allowed-value list the model reads. An action that dispatches but
+// is missing from the field is one a model reading the field never
+// tries.
 //
 // Reflection on the struct tag rather than the built registry: the tag
 // IS what becomes the description, and reading it needs no client, no

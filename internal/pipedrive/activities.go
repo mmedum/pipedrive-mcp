@@ -10,12 +10,8 @@ import (
 // ListActivitiesOptions filters a /activities list call. Zero values
 // mean "no filter on this dimension".
 //
-// v2 dropped the v1 `type` and `due_date` query params (filtering by
-// activity-type or absolute due-date is not supported on the list
-// endpoint — callers can sort by due_date instead). v2 list params are
-// drawn from Pipedrive's official spec: filter_id, owner_id, deal_id,
-// lead_id, person_id, org_id, done, updated_since, updated_until,
-// sort_by, sort_direction, include_fields, limit, cursor.
+// v2 has no `type` or `due_date` filter, unlike v1 (ListActivities); a
+// caller can sort by due_date instead.
 //
 // Done is a tri-state: nil = no filter (the default), &true = only
 // completed, &false = only open. The tool layer maps a human-friendly
@@ -65,6 +61,11 @@ const DefaultActivityType = "task"
 //	'person_id' instead. For example: "participants": [{ "person_id": 1,
 //	"primary": true }]
 //
+// Pipedrive's reference lists no person_id in the body and says a
+// primary participant sets it, without naming the rejection. Checked by
+// the integration test TestWrite_ActivityLinksToAPerson.
+// https://developers.pipedrive.com/docs/api/v1/Activities#addActivity
+//
 // So both request structs carry PersonID as `json:"-"` and it never
 // reaches the wire. Callers pass it and this turns it into the thing
 // Pipedrive accepts.
@@ -73,9 +74,10 @@ const DefaultActivityType = "task"
 // primary, anyone else already named stays on as a non-primary
 // participant, and a duplicate of the named person is dropped rather
 // than sent twice. Returning participants unchanged when there is no
-// person id keeps nil meaning "leave the collection alone" — an update
-// REPLACES it, so a nil that became an empty slice would silently drop
-// every attendee.
+// person id keeps nil meaning "leave the collection alone". An update is
+// taken to REPLACE the collection, so a nil that became an empty slice
+// would drop every participant. Pipedrive's reference does not say, and
+// no integration test updates participants.
 //
 // The TOOLS layer calls this while BUILDING the request, and that call
 // is the load-bearing one: the guarded-write diff has to see the
@@ -102,10 +104,9 @@ func PrimaryParticipant(personID int64, participants []ActivityParticipant) []Ac
 // CreateActivityRequest is the JSON body for POST /api/v2/activities.
 // v2 requires `subject`. Type defaults to DefaultActivityType
 // upstream when omitted; the tool layer encourages the LLM to set
-// it explicitly. Validating Type against the workspace's
-// activityTypes enum is intentionally deferred: it would need a
-// cache + probe, and Pipedrive's 400 on invalid type already
-// surfaces cleanly as [validation] via the standard error mapping.
+// it explicitly. Type is not checked against the workspace's activity
+// types: that would need a cache and a probe, and Pipedrive's 400 on an
+// unknown type already reaches the caller as [validation].
 //
 // Location is a single-line string on input — Pipedrive parses it
 // server-side into the structured ActivityLocation response (same
@@ -213,6 +214,10 @@ func (c *Client) CreateActivity(ctx context.Context, req CreateActivityRequest) 
 // Returns the page plus the next cursor (empty string = end of
 // results). Cursor pagination is opaque; callers pass whatever
 // NextCursor was returned on the prior page.
+//
+// Activity type cannot be filtered server-side: v2's /activities takes
+// no type parameter, so a caller filters the rows on their own type.
+// https://developers.pipedrive.com/docs/api/v1/Activities#getActivities
 func (c *Client) ListActivities(ctx context.Context, opts ListActivitiesOptions) ([]Activity, string, error) {
 	q := url.Values{}
 	if opts.OwnerID > 0 {
@@ -257,15 +262,9 @@ func (c *Client) ListActivities(ctx context.Context, opts ListActivitiesOptions)
 	return resp.Data, resp.AdditionalData.NextCursor, nil
 }
 
-// DeleteActivity marks a activity as deleted. Pipedrive's delete is SOFT and
-// time-boxed — its documentation says "Marks a activity as deleted.
-// After 30 days, the activity will be permanently deleted." Within that
-// window the row still exists, carrying is_deleted; nothing in this
-// server puts it back, and Pipedrive's own UI is what can.
-//
-// The response carries only the id, so there is nothing typed to
-// return: a caller that wants the record's final state reads it before
-// deleting, which the guarded-write path does anyway.
+// DeleteActivity marks an activity as deleted, softly, as DeleteDeal
+// does a deal: Pipedrive purges it after 30 days.
+// https://developers.pipedrive.com/docs/api/v1/Activities#deleteActivity
 func (c *Client) DeleteActivity(ctx context.Context, id int64) error {
 	return c.deleteV2(ctx, "/activities/"+strconv.FormatInt(id, 10))
 }

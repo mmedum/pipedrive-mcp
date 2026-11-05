@@ -14,9 +14,9 @@ type searchClient interface {
 	LiveIDs(ctx context.Context, itemType pipedrive.ItemType, ids []int64) (map[int64]bool, error)
 }
 
-// `lead` is included even though Phase 1 doesn't ship a lead resource
-// yet — it lets the LLM at least find leads by name. Sourced from
-// pipedrive.ItemType constants so the enum has one home.
+// `lead` is included though no tool here reads a lead: it lets the LLM
+// at least find leads by name. Sourced from pipedrive.ItemType constants
+// so the enum has one home.
 var allowedSearchTypes = map[string]bool{
 	string(pipedrive.ItemTypeDeal):         true,
 	string(pipedrive.ItemTypePerson):       true,
@@ -26,6 +26,11 @@ var allowedSearchTypes = map[string]bool{
 	string(pipedrive.ItemTypeLead):         true,
 }
 
+// searchMinTermLen is /itemSearch's documented minimum term length, and
+// one character is enough with exact_match. Checking it here makes a
+// short term a [validation] error that names the minimum, rather than
+// whatever Pipedrive answers.
+// https://developers.pipedrive.com/docs/api/v1/ItemSearch#searchItem
 const searchMinTermLen = 2
 
 type searchHit struct {
@@ -112,23 +117,33 @@ func RegisterSearch(s *mcp.Server, c searchClient) {
 	})
 }
 
-// dropDeletedHits removes the hits whose records no longer exist. It
-// costs one extra API call per checkable item type the page holds, and
+// dropDeletedHits removes the hits whose records are deleted. It costs
+// one extra API call per checkable item type the page holds, and
 // nothing on a page that holds none.
 //
-// Pipedrive's search index can keep a deleted record and return it
-// with nothing to say so — no is_deleted, no active_flag, no status —
-// so the workspace reads as littered in search while every list_ tool
-// shows it clean. Confirmed against the live API: a deleted
-// organization stays indexed indefinitely; a deleted person stays for
-// a while after the delete.
+// Pipedrive's search index keeps a deleted record and returns it with
+// nothing to say so — no is_deleted, no active_flag, no status — and
+// /itemSearch takes no parameter that excludes it. Its reference does
+// not mention deleted records. Without this the workspace reads as
+// littered in search while every list_ tool shows it clean. A deleted
+// organization stays indexed indefinitely; a deleted person stays for a
+// while after the delete. Checked by the integration tests
+// TestWrite_SearchDropsWhatItDeleted/organization and
+// TestWrite_SearchDropsWhatItDeleted/person.
+// https://developers.pipedrive.com/docs/api/v1/ItemSearch#searchItem
 //
 // What is checked is whatever pipedrive.CanCheckLiveness can answer
 // for — organizations and persons. Deals are deliberately not checked:
 // /deals excludes ARCHIVED deals, which are alive, so the check would
 // drop live deals out of search. Products, files and leads are not
 // modeled here at all. Pipedrive drops deleted deals from its own
-// index, and a live probe holds that claim rather than a comment.
+// index; checked by the integration test
+// TestWrite_SearchDropsWhatItDeleted/deal.
+//
+// The drop happens after Pipedrive has paged, so a page can come back
+// shorter than its limit, or empty with next_cursor still set. The
+// tool description tells the caller to keep going until next_cursor is
+// empty.
 //
 // A failure here fails the search. Returning the page unfiltered would
 // be the bug this exists to fix, silently, and a caller who cannot

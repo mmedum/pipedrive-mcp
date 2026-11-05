@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// The family's six archives under the family's names. Every case breaks
-// one thing and asserts the sentence that names it.
+// The six archives under their <name>_<version>_<os>_<arch> names. Every
+// case breaks one thing and asserts the sentence that names it.
 
 // sixArchives is what the release carries, written out: the names the
 // docs give, for version X.Y.Z.
@@ -28,14 +28,14 @@ func repoGoreleaser(t *testing.T) string {
 	return withoutCommentLines(string(repoFile(t, goreleaserPath)))
 }
 
-func TestTheReleaseMatrixIsTheFamilysSix(t *testing.T) {
+func TestTheReleaseMatrixIsTheSix(t *testing.T) {
 	want := []string{"darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64", "windows-amd64", "windows-arm64"}
 	if got := releasePairs(); !slices.Equal(got, want) {
 		t.Errorf("releasePairs = %v, want %v", got, want)
 	}
 }
 
-func TestGoreleaserBuildsTheFamilysSix(t *testing.T) {
+func TestGoreleaserBuildsTheSix(t *testing.T) {
 	blocks, err := goreleaserBlocks(repoGoreleaser(t))
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestGoreleaserMatrixReadsTheCrossProduct(t *testing.T) {
 // left out, in either key order, and a second build.
 func TestGoreleaserMatrixRefusesWhatItDoesNotRead(t *testing.T) {
 	const lists = "    goos:\n      - linux\n      - windows\n    goarch:\n      - amd64\n      - arm64\n"
-	const ignored = ".goreleaser.yaml's build has an ignore list; the family builds every pair of its goos and " +
+	const ignored = ".goreleaser.yaml's build has an ignore list; the release builds every pair of its goos and " +
 		"goarch lists, and this check reads no ignore"
 	for text, want := range map[string]string{
 		"  - id: x\n" + lists + "    ignore:\n      - goos: windows\n        goarch: arm64\n": ignored,
@@ -114,7 +114,7 @@ func TestBlockScalar(t *testing.T) {
 }
 
 func TestReleaseArchiveProblems(t *testing.T) {
-	const family = "darwin-amd64, darwin-arm64, linux-amd64, linux-arm64, windows-amd64, windows-arm64"
+	const matrix = "darwin-amd64, darwin-arm64, linux-amd64, linux-arm64, windows-amd64, windows-arm64"
 	for _, tc := range []struct {
 		name  string
 		built []string
@@ -125,12 +125,12 @@ func TestReleaseArchiveProblems(t *testing.T) {
 			"windows-arm64 left out",
 			[]string{"darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64", "windows-amd64"},
 			[]string{".goreleaser.yaml does not build windows-arm64, so the release carries no windows_arm64 " +
-				"archive; the family's releases carry " + family},
+				"archive; a release carries " + matrix},
 		},
 		{
 			"a seventh",
 			append(releasePairs(), "windows-386"),
-			[]string{".goreleaser.yaml builds windows-386, which is not one of the family's archives, " + family},
+			[]string{".goreleaser.yaml builds windows-386, which is not one of the archives a release carries, " + matrix},
 		},
 	} {
 		if got := releaseArchiveProblems(tc.built); !slices.Equal(got, tc.want) {
@@ -139,7 +139,7 @@ func TestReleaseArchiveProblems(t *testing.T) {
 	}
 }
 
-func TestTheArchivesAreTheFamilysNames(t *testing.T) {
+func TestTheArchivesAreNamedNameVersionOSArch(t *testing.T) {
 	text := repoGoreleaser(t)
 	built, err := goreleaserMatrix(text)
 	if err != nil {
@@ -159,7 +159,7 @@ func TestTheArchivesAreTheFamilysNames(t *testing.T) {
 	if !maps.Equal(names, sixArchives) {
 		t.Errorf("the archives render as %v, want %v", names, sixArchives)
 	}
-	if got := familyNameProblems(names, "pipedrive-mcp", docVersion); len(got) > 0 {
+	if got := archiveNameProblems(names, "pipedrive-mcp", docVersion); len(got) > 0 {
 		t.Errorf("the committed names are refused: %q", got)
 	}
 }
@@ -211,17 +211,17 @@ func TestReleaseArchivesRefusesWhatItCannotRender(t *testing.T) {
 	}
 }
 
-func TestFamilyNameProblems(t *testing.T) {
-	got := familyNameProblems(map[string]string{
+func TestArchiveNameProblems(t *testing.T) {
+	got := archiveNameProblems(map[string]string{
 		"linux-amd64":   "pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz",
 		"windows-arm64": "pipedrive-mcp_X.Y.Z_windows_arm64.tar.gz",
 		"darwin-arm64":  "pipedrive-mcp_X.Y.Z_darwin_arm64.tar.gz",
 	}, "pipedrive-mcp", docVersion)
 	want := []string{
 		".goreleaser.yaml names the linux-amd64 archive pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz; " +
-			"the family's name is pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz",
+			"archives are named <name>_<version>_<os>_<arch>, so this one is pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz",
 		".goreleaser.yaml names the windows-arm64 archive pipedrive-mcp_X.Y.Z_windows_arm64.tar.gz; " +
-			"the family's name is pipedrive-mcp_X.Y.Z_windows_arm64.zip",
+			"archives are named <name>_<version>_<os>_<arch>, so this one is pipedrive-mcp_X.Y.Z_windows_arm64.zip",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %q, want %q", got, want)
@@ -406,6 +406,9 @@ func TestReleaseProblemsRunsEveryCheck(t *testing.T) {
 		name             string
 		file             string
 		old, replacement string
+		// add is the content of file, a new file, where the case needs a
+		// file that names an archive rather than an edit to one that does.
+		add string
 		// only keeps the problems naming it, where one break sets off
 		// several rules and the case is about one of them.
 		only         string
@@ -424,35 +427,35 @@ func TestReleaseProblemsRunsEveryCheck(t *testing.T) {
 			only: "so the release carries no",
 			want: []string{
 				".goreleaser.yaml does not build windows-amd64, so the release carries no windows_amd64 archive; " +
-					"the family's releases carry darwin-amd64, darwin-arm64, linux-amd64, linux-arm64, windows-amd64, windows-arm64",
+					"a release carries darwin-amd64, darwin-arm64, linux-amd64, linux-arm64, windows-amd64, windows-arm64",
 				".goreleaser.yaml does not build windows-arm64, so the release carries no windows_arm64 archive; " +
-					"the family's releases carry darwin-amd64, darwin-arm64, linux-amd64, linux-arm64, windows-amd64, windows-arm64",
+					"a release carries darwin-amd64, darwin-arm64, linux-amd64, linux-arm64, windows-amd64, windows-arm64",
 			},
 			wantArchives: 4,
 		},
 		{
-			name: "the old form in prose", file: "docs/architecture.md",
-			old: "`pipedrive-mcp_<version>_<os>_<arch>`", replacement: "`pipedrive-mcp-<version>-<os>-<arch>`",
+			name: "the old form in prose", file: "docs/fixture.md",
+			add: "Unpack `pipedrive-mcp-<version>-<os>-<arch>`.\n",
 			want: []string{
-				"docs/architecture.md names pipedrive-mcp-<version>-<os>-<arch>, the archives' old form; " +
-					"the family's names are pipedrive-mcp_<version>_<os>_<arch>",
+				"docs/fixture.md names pipedrive-mcp-<version>-<os>-<arch>, the archives' old form; " +
+					"they are named pipedrive-mcp_<version>_<os>_<arch>",
 			},
 			wantArchives: 6,
 		},
 		{
-			name: "a stale name in the pull request template", file: ".github/pull_request_template.md",
-			old: "Thanks for contributing.", replacement: "Thanks for contributing. pipedrive-mcp-X.Y.Z-linux-amd64 ",
+			name: "a stale name under .github", file: ".github/fixture.md",
+			add: "Attach pipedrive-mcp-X.Y.Z-linux-amd64 to the report.\n",
 			want: []string{
-				".github/pull_request_template.md names pipedrive-mcp-X.Y.Z-linux-amd64, the archives' old form; " +
-					"the family's names are pipedrive-mcp_<version>_<os>_<arch>",
+				".github/fixture.md names pipedrive-mcp-X.Y.Z-linux-amd64, the archives' old form; " +
+					"they are named pipedrive-mcp_<version>_<os>_<arch>",
 			},
 			wantArchives: 6,
 		},
 		{
-			name: "a stale name in the README", file: "README.md",
-			old: "pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz", replacement: "pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz",
+			name: "a stale name at the root", file: "fixture.md",
+			add: "Download pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz.\n",
 			want: []string{
-				"README.md names pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz, which is no archive the release carries; " + they,
+				"fixture.md names pipedrive-mcp-X.Y.Z-linux-amd64.tar.gz, which is no archive the release carries; " + they,
 			},
 			wantArchives: 6,
 		},
@@ -466,7 +469,7 @@ func TestReleaseProblemsRunsEveryCheck(t *testing.T) {
 		},
 		{
 			name: "the release check leaves an archive out", file: "docs/release.md",
-			old: "`pipedrive-mcp_X.Y.Z_windows_arm64.zip`", replacement: "`windows_arm64`",
+			old: "pipedrive-mcp_X.Y.Z_windows_arm64.zip", replacement: "windows_arm64",
 			want: []string{
 				"docs/release.md does not name pipedrive-mcp_X.Y.Z_windows_arm64.zip, so the release check never looks for it",
 			},
@@ -482,22 +485,25 @@ func TestReleaseProblemsRunsEveryCheck(t *testing.T) {
 			wantArchives: 6,
 		},
 		{
-			name: "the old template", file: goreleaserPath, only: "family's name",
+			name: "the old template", file: goreleaserPath, only: "so this one is",
 			old: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}", replacement: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}-{{ .Arch }}",
 			want: []string{
-				".goreleaser.yaml names the darwin-amd64 archive pipedrive-mcp_X.Y.Z_darwin-amd64.tar.gz; the family's name is pipedrive-mcp_X.Y.Z_darwin_amd64.tar.gz",
-				".goreleaser.yaml names the darwin-arm64 archive pipedrive-mcp_X.Y.Z_darwin-arm64.tar.gz; the family's name is pipedrive-mcp_X.Y.Z_darwin_arm64.tar.gz",
-				".goreleaser.yaml names the linux-amd64 archive pipedrive-mcp_X.Y.Z_linux-amd64.tar.gz; the family's name is pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz",
-				".goreleaser.yaml names the linux-arm64 archive pipedrive-mcp_X.Y.Z_linux-arm64.tar.gz; the family's name is pipedrive-mcp_X.Y.Z_linux_arm64.tar.gz",
-				".goreleaser.yaml names the windows-amd64 archive pipedrive-mcp_X.Y.Z_windows-amd64.zip; the family's name is pipedrive-mcp_X.Y.Z_windows_amd64.zip",
-				".goreleaser.yaml names the windows-arm64 archive pipedrive-mcp_X.Y.Z_windows-arm64.zip; the family's name is pipedrive-mcp_X.Y.Z_windows_arm64.zip",
+				".goreleaser.yaml names the darwin-amd64 archive pipedrive-mcp_X.Y.Z_darwin-amd64.tar.gz; archives are named <name>_<version>_<os>_<arch>, so this one is pipedrive-mcp_X.Y.Z_darwin_amd64.tar.gz",
+				".goreleaser.yaml names the darwin-arm64 archive pipedrive-mcp_X.Y.Z_darwin-arm64.tar.gz; archives are named <name>_<version>_<os>_<arch>, so this one is pipedrive-mcp_X.Y.Z_darwin_arm64.tar.gz",
+				".goreleaser.yaml names the linux-amd64 archive pipedrive-mcp_X.Y.Z_linux-amd64.tar.gz; archives are named <name>_<version>_<os>_<arch>, so this one is pipedrive-mcp_X.Y.Z_linux_amd64.tar.gz",
+				".goreleaser.yaml names the linux-arm64 archive pipedrive-mcp_X.Y.Z_linux-arm64.tar.gz; archives are named <name>_<version>_<os>_<arch>, so this one is pipedrive-mcp_X.Y.Z_linux_arm64.tar.gz",
+				".goreleaser.yaml names the windows-amd64 archive pipedrive-mcp_X.Y.Z_windows-amd64.zip; archives are named <name>_<version>_<os>_<arch>, so this one is pipedrive-mcp_X.Y.Z_windows_amd64.zip",
+				".goreleaser.yaml names the windows-arm64 archive pipedrive-mcp_X.Y.Z_windows-arm64.zip; archives are named <name>_<version>_<os>_<arch>, so this one is pipedrive-mcp_X.Y.Z_windows_arm64.zip",
 			},
 			wantArchives: 6,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := releaseRoot(t)
-			if tc.file != "" {
+			switch {
+			case tc.add != "":
+				put(t, root, tc.file, tc.add)
+			case tc.file != "":
 				edit(t, root, tc.file, tc.old, tc.replacement)
 			}
 			problems, archives, err := releaseProblems(root)
@@ -518,14 +524,20 @@ func TestReleaseProblemsRunsEveryCheck(t *testing.T) {
 // docs/release.md has to is one the scan is not reading.
 func TestReleaseProblemsRefusesToReadNothing(t *testing.T) {
 	root := releaseRoot(t)
-	for _, rel := range []string{"README.md", "SECURITY.md", "docs/release.md", goreleaserPath, ".github/workflows/release.yml"} {
-		body, err := os.ReadFile(filepath.Join(root, rel)) //nolint:gosec // a test's own temporary file
-		if err != nil {
-			t.Fatal(err)
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
 		}
-		put(t, root, rel, strings.ReplaceAll(string(body), "pipedrive-mcp_", "server_"))
+		body, err := os.ReadFile(path) //nolint:gosec // a test's own temporary file
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(path, []byte(strings.ReplaceAll(string(body), "pipedrive-mcp_", "server_")), 0o600)
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	_, _, err := releaseProblems(root)
+	_, _, err = releaseProblems(root)
 	const want = "found 0 archive names across "
 	if err == nil || !strings.HasPrefix(err.Error(), want) {
 		t.Fatalf("got %v, want an error starting %q", err, want)

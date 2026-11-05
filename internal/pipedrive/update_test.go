@@ -50,15 +50,10 @@ func TestClient_PatchV2_SendsOnlyWhatIsSet(t *testing.T) {
 }
 
 func TestClient_PatchV2_EmptyStringIsSentVerbatimNotAsNull(t *testing.T) {
-	// A pointer to the empty string sends "", not null. That matters
-	// because of what was found against the live API on 2026-09-16:
-	// v2 REJECTS null for expected_close_date ("The value is not a
-	// valid 'string'"), and accepts "" while storing the zero date
-	// 0000-00-00 rather than removing the value.
-	//
-	// So neither spelling clears the field, and this test pins the wire
-	// shape so nobody "fixes" it into a null that the API refuses. See
-	// docs/architecture.md, "Clearing a field".
+	// A pointer to the empty string sends "", not null. v2 rejects null
+	// for expected_close_date and stores "" as the zero date, so neither
+	// clears a field (UpdateDealRequest). This pins the wire shape so
+	// nobody "fixes" it into a null that the API refuses.
 	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)

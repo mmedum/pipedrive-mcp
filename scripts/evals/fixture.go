@@ -282,12 +282,10 @@ func fixtureIDs(f Fixture) map[string][]int64 {
 
 // pipelineEnv names a pipeline the evals may create and close deals in.
 //
-// An integration probe in this repository once closed the first open
-// deal in the workspace to prove a transition worked. The field state
-// restored; the automations that fired on each status change did not,
-// and a real customer's deal was marked won and lost four times. The
-// evals close a deal too — several tasks are about exactly that — so
-// they take the same rule: never in a pipeline the business uses.
+// A deal's status change fires the workspace's automations, and
+// restoring the field does not undo them. Several tasks close a deal, so
+// the evals run in a pipeline set aside for them, never one the business
+// uses.
 const pipelineEnv = "PIPEDRIVE_TEST_PIPELINE_ID"
 
 func testPipeline() (int64, error) {

@@ -685,10 +685,10 @@ func TestManageNote_Delete_RejectsZeroID(t *testing.T) {
 }
 
 func TestManageNote_RejectsBadAction(t *testing.T) {
-	// Two error channels, per CLAUDE.md "MCP error mapping". An action
-	// the schema rejects outright never reaches the handler; one that
-	// satisfies the schema but names nothing we implement does, and
-	// comes back as a tool-execution error that enumerates the enum.
+	// Two error channels. An action the schema rejects outright never
+	// reaches the handler and is the SDK's protocol error; one that
+	// satisfies the schema but names nothing we implement does reach
+	// it, and comes back as a tool-execution error naming the enum.
 	for _, action := range []string{"obliterate", ""} {
 		t.Run("action="+action, func(t *testing.T) {
 			fake := &fakeNotesClient{}
@@ -848,9 +848,8 @@ func TestManageNote_ReadBeforeWriteErrorSurfaces(t *testing.T) {
 }
 
 func TestManageNote_ServerWideDryRunIsAFloor(t *testing.T) {
-	// docs/security.md promises that PIPEDRIVE_DRY_RUN makes speculative
-	// LLM work safe. manage_note is the only tool that can delete, so if
-	// it ignored the flag that promise would be false.
+	// PIPEDRIVE_DRY_RUN is a floor every write honors: with it set, no
+	// action reaches upstream, whatever the call says.
 	for _, action := range []string{"create", "update", "delete"} {
 		t.Run(action, func(t *testing.T) {
 			fake := &fakeNotesClient{

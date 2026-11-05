@@ -34,7 +34,7 @@ builds:
       - darwin
       - windows
     # Six archives: darwin, linux and windows, each on amd64 and arm64,
-    # as across the family. `gates mcpb` holds this list to them.
+    # as the sibling servers release. `gates mcpb` holds this list to them.
     goarch:
       - amd64
       - arm64
@@ -66,8 +66,9 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
-    # The family's names, <name>_<version>_<os>_<arch>. `gates mcpb`
-    # holds the docs and the attestation's globs to what this renders.
+    # <name>_<version>_<os>_<arch>, as the sibling servers name theirs.
+    # `gates mcpb` holds the docs and the attestation's globs to what
+    # this renders.
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files:
@@ -88,7 +89,7 @@ checksum:
 
 signs:
   # One signature, over the checksum file, in cosign's bundle format —
-  # the same shape the four sibling MCP servers use. Every archive and
+  # the same shape the sibling MCP servers use. Every archive and
   # every SBOM is covered by its hash in checksums.txt, so signing each
   # artifact separately bought a longer asset list rather than more
   # assurance.
@@ -97,7 +98,7 @@ signs:
   # `--output-signature`/`--output-certificate` are deprecated: a cosign
   # new enough to default to `--new-bundle-format` ignores them and then
   # fails with `create bundle file: open : no such file or directory`,
-  # because no bundle path was given. That is what broke v0.3.0.
+  # because no bundle path was given.
   #
   # `signature:` is a shell-style template expanded with `${artifact}`,
   # NOT a Go template. Don't use `{{ .Artifact }}` — goreleaser v2 runs
@@ -139,13 +140,12 @@ sboms:
 # release workflow extracts the matching section and passes it to
 # `goreleaser release --release-notes`, so there is nothing to generate.
 #
-# This block used to say `disable: true`, which reads like the way to
-# suppress the generated commit list and is not: Disable is evaluated in
-# the changelog pipe's Skip, which runs before Run, so ctx.ReleaseNotes
-# was never assigned and the file the workflow had just written was never
-# opened. Every release page this project has published is the footer
-# with nothing above it. Deleting the block is what actually leaves
-# --release-notes in charge.
+# Do not add one with `disable: true`. It reads like the way to suppress
+# the generated commit list and is not: Disable is evaluated in the
+# changelog pipe's Skip, which runs before Run, so ctx.ReleaseNotes is
+# never assigned, the file the workflow wrote is never opened, and the
+# release page is the footer with nothing above it. No block is what
+# leaves --release-notes in charge.
 
 release:
   draft: false
@@ -158,8 +158,7 @@ release:
     - glob: ./dist/*.mcpb
   # The notes come first and the verification block after, matching the
   # sibling servers: a reader wants to know what changed before being
-  # told how to check the signature. This was a `header:` while the
-  # notes were being discarded, when it was the only thing on the page.
+  # told how to check the signature.
   #
   # The signature is checked before the checksums are read: until cosign
   # passes, checksums.txt is only what the release assets say now.

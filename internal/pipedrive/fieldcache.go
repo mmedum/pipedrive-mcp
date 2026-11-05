@@ -13,8 +13,13 @@ import (
 
 // FieldCache lazy-loads Pipedrive field metadata for one resource type
 // and resolves a stored custom-field entry back into the words the
-// workspace uses for it: the 40-char hash key to its field name, and an
-// enum or set field's option id to its label. Loaded behind a per-entry
+// workspace uses for it: Pipedrive keys a custom field by a 40-char hash
+// and stores a dropdown's value as an option id, and this turns them into
+// the field's name and the option's label. Checked by the integration
+// test TestCustomFields_ResolveToWorkspaceWords.
+// https://developers.pipedrive.com/docs/api/v1/DealFields#getDealFields
+//
+// Loaded behind a per-entry
 // sync.Once: concurrent first-callers see one fetch, all subsequent
 // callers observe the same error if the fetch failed. Reload() swaps the
 // entry so the next access refetches, while in-flight callers safely
@@ -35,8 +40,8 @@ type FieldCache struct {
 //
 // loaded is set to true inside once.Do *after* byKey/err are written.
 // It lets Count() report the cache size without itself triggering
-// once.Do — an earlier no-op once.Do here would silently seal the
-// once and skip the real fetch on a concurrent first Load.
+// once.Do: a no-op once.Do there would seal the once and skip the real
+// fetch of a concurrent first Load.
 type cacheEntry struct {
 	once  sync.Once
 	err   error
@@ -183,9 +188,10 @@ func optionTables(opts []FieldOption) (labels map[string]string, ids map[string]
 //
 // Whether to resolve at all is the option table's decision: a field
 // with no options has nothing to look a value up in. The value's own
-// shape then decides only how to walk it — an array is a set's several
-// ids, anything else a single one — which is what keeps this
-// independent of Pipedrive's field-type taxonomy.
+// shape then decides only how to walk it: an enum stores one option id
+// and a set an array of them, which keeps this independent of
+// Pipedrive's field-type taxonomy. Checked by the integration test
+// TestCustomFields_ResolveToWorkspaceWords.
 //
 // An id with no matching option comes back as itself, the same soft
 // failure the unknown-key path takes: a cache lagging behind a
@@ -334,15 +340,12 @@ func (w CustomFieldWrite) Empty() bool { return len(w.Values) == 0 }
 // back to when two fields share a name, and Resolve hands it out already
 // whenever the cache does not recognize a key.
 func (e *cacheEntry) writableField(name string) (cachedField, error) {
-	// The key branch checks `custom` for the same reason the name branch
-	// does. byKey holds the built-ins too, and a built-in's key is its
-	// plain identifier — so without this, "Title" is refused while
-	// "title" goes through, and the guard then measures the wrong thing:
-	// a built-in's value does not live in the record's custom_fields
-	// map, so it always reads as empty and the overwrite refusal never
-	// fires over it. Pipedrive rejects such a body ("Unknown key
-	// 'title'"), so the damage was bounded upstream — which is not where
-	// this server's guard is supposed to hold.
+	// The key branch checks `custom` as the name branch does. byKey holds
+	// the built-ins too, under their plain identifiers, and a built-in's
+	// value is not in the record's custom_fields map: written through
+	// custom_fields it would read as empty, and no overwrite refusal would
+	// fire over it. Pipedrive rejects such a body ("Validation failed:
+	// custom_fields: Unknown key 'title'"); no integration test sends one.
 	keys := e.byName[strings.ToLower(name)]
 	if _, ok := e.byKey[name]; ok {
 		// An exact key beats a name match, and seeding the candidate
@@ -449,7 +452,7 @@ func (fc *FieldCache) Reload() {
 	fc.mu.Unlock()
 }
 
-// Count returns the number of fields currently cached. Returns 0 if
+// Count returns the number of fields cached. Returns 0 if
 // the cache hasn't been loaded or the load failed. Used by the
 // refresh_field_cache tool to surface a per-resource sanity check
 // the LLM (and operator) can read after triggering a reload.

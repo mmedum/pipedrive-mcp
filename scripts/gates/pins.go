@@ -9,24 +9,23 @@ import (
 	"strings"
 )
 
-// pins is the gate. It was four tests, which meant `make check` ran it
-// only as part of `go test ./...` and the target list gave no sign it
-// existed. The rules are unchanged; what moved is that a person reading
-// the Makefile can now see that pinning is checked.
+// pins is a command rather than a test, so a person reading the
+// Makefile's target list can see that pinning is checked.
 
 var (
-	usesLine    = regexp.MustCompile(`(?m)^\s*-?\s*uses:\s*([^\s#]+)`)
+	// usesLine is a step's `uses:`. Its spaces are [ \t], never \s, which
+	// crosses a newline and would start a match on a blank line above the
+	// step, lending the step the next step's keys.
+	usesLine    = regexp.MustCompile(`(?m)^[ \t]*-?[ \t]*uses:[ \t]*([^\s#]+)`)
 	fullSHA     = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	exactSemver = regexp.MustCompile(`^v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
 
 	// versionLine matches any input that names a tool's version, derived
-	// from the shape of the key rather than from a list of them. The
-	// list this replaces named two keys that could never match:
-	// `gitleaks-version`, which gitleaks-action has never had — it reads
-	// `GITLEAKS_VERSION` from the environment — and
-	// `golangci-lint-version`, where that action takes plain `version`.
-	// Both read as coverage and provided none, and deriving would have
-	// covered `GITLEAKS_VERSION` on the day it was added.
+	// from the shape of the key rather than from a list of them. A list
+	// names keys an action may not have: gitleaks-action reads
+	// `GITLEAKS_VERSION` from the environment and has no
+	// `gitleaks-version`, and golangci-lint-action takes plain `version`.
+	// A key that can never match reads as coverage and provides none.
 	//
 	// `go-version-file` ends in `file`, so it is not matched, and it is
 	// a pin by reference anyway; a bare `go-version` would be caught,
@@ -105,7 +104,7 @@ func pins(w io.Writer, _ []string) error {
 	if versions < 3 {
 		return fmt.Errorf("only %d tool versions found; the input names have probably changed", versions)
 	}
-	if agreeErr := scannersAgree(root); agreeErr != nil {
+	if agreeErr := toolPinsAgree(root); agreeErr != nil {
 		problems = append(problems, agreeErr.Error())
 	}
 	if len(problems) > 0 {
@@ -116,33 +115,88 @@ func pins(w io.Writer, _ []string) error {
 	return err
 }
 
-// scannersAgree keeps pre-commit and CI on one gitleaks. Two versions
-// means a commit can pass the hook and fail the job, on rules that exist
-// in one and not the other.
-func scannersAgree(root string) error {
-	config, err := os.ReadFile(filepath.Join(root, ".pre-commit-config.yaml"))
+// toolPinsAgree keeps every local run of a tool on the version CI runs.
+// CI runs govulncheck and go-licenses through make, at the Makefile's
+// version alone. It runs golangci-lint and gitleaks through actions, so
+// the Makefile and ci.yml each name those two, and pre-commit names
+// gitleaks too. Two versions means a commit can pass one and fail
+// another, on rules that exist in one and not the other.
+func toolPinsAgree(root string) error {
+	read := func(rel string) (string, error) {
+		data, err := os.ReadFile(filepath.Join(root, rel)) //nolint:gosec // a repository path from a constant
+		if err != nil {
+			return "", fmt.Errorf("read %s: %w", rel, err)
+		}
+		return string(data), nil
+	}
+	precommit, err := read(".pre-commit-config.yaml")
 	if err != nil {
-		return fmt.Errorf("read .pre-commit-config.yaml: %w", err)
+		return err
 	}
-	workflow, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "ci.yml"))
+	makefile, err := read("Makefile")
 	if err != nil {
-		return fmt.Errorf("read ci.yml: %w", err)
+		return err
 	}
-	hook := gitleaksRev(string(config))
-	if hook == "" {
-		return fmt.Errorf("no rev under the gitleaks repo in .pre-commit-config.yaml; the check is reading the wrong file")
+	workflow, err := read(filepath.Join(".github", "workflows", "ci.yml"))
+	if err != nil {
+		return err
 	}
-	var ci string
-	for _, m := range versionLine.FindAllStringSubmatch(string(workflow), -1) {
-		if strings.EqualFold(m[1], "GITLEAKS_VERSION") {
-			ci = strings.Trim(m[2], `"'`)
+	return pinsAgree(precommit, makefile, workflow)
+}
+
+// makePin matches a tool version the Makefile pins, such as
+// GITLEAKS_VERSION ?= v8.30.1. Its spaces are [ \t], as usesLine's are:
+// \s would read an empty value's version from the next line.
+var makePin = regexp.MustCompile(`(?m)^([A-Z][A-Z0-9_]*_VERSION)[ \t]*\??=[ \t]*(\S*)`)
+
+// actionPins are the Makefile's versions of the tools CI runs through an
+// action, which ci.yml names too.
+var actionPins = []string{"GOLANGCI_LINT_VERSION", "GITLEAKS_VERSION"}
+
+// pinsAgree is toolPinsAgree over the three files' text. Every version
+// the Makefile pins is exact, since `go run` resolves a partial one to the
+// newest match. A version is compared without its `v`, since go wants it
+// and gitleaks-action does not.
+func pinsAgree(precommit, makefile, workflow string) error {
+	ci := map[string]string{}
+	for _, m := range versionLine.FindAllStringSubmatch(workflow, -1) {
+		ci[m[1]] = strings.Trim(m[2], `"'`)
+	}
+	var problems []string
+	local := map[string]string{}
+	for _, m := range makePin.FindAllStringSubmatch(makefile, -1) {
+		local[m[1]] = m[2]
+		if !exactSemver.MatchString(m[2]) {
+			problems = append(problems, fmt.Sprintf("the Makefile pins %s to %q, which is not exactly one version", m[1], m[2]))
 		}
 	}
-	if ci == "" {
-		return fmt.Errorf("no GITLEAKS_VERSION in ci.yml; the check is reading the wrong file")
+	bare := func(v string) string { return strings.TrimPrefix(v, "v") }
+	for _, name := range actionPins {
+		version, pinned := local[name]
+		want, inCI := ci[name]
+		switch {
+		case !pinned:
+			problems = append(problems, fmt.Sprintf("the Makefile pins no %s; the check is reading the wrong file", name))
+		case !inCI:
+			problems = append(problems, fmt.Sprintf("the Makefile pins %s and ci.yml does not; "+
+				"make check runs a version CI never does", name))
+		case bare(version) != bare(want):
+			problems = append(problems, fmt.Sprintf("%s is %s in the Makefile and %s in ci.yml; "+
+				"a commit can pass one and fail the other", name, version, want))
+		}
 	}
-	if strings.TrimPrefix(hook, "v") != strings.TrimPrefix(ci, "v") {
-		return fmt.Errorf("gitleaks is %s in pre-commit and %s in CI; a commit can pass one and fail the other", hook, ci)
+	hook := gitleaksRev(precommit)
+	switch want, ok := ci["GITLEAKS_VERSION"]; {
+	case hook == "":
+		problems = append(problems, "no rev under the gitleaks repo in .pre-commit-config.yaml; the check is reading the wrong file")
+	case !ok:
+		problems = append(problems, "no GITLEAKS_VERSION in ci.yml; the check is reading the wrong file")
+	case bare(hook) != bare(want):
+		problems = append(problems, fmt.Sprintf("gitleaks is %s in pre-commit and %s in ci.yml; "+
+			"a commit can pass the hook and fail the job", hook, want))
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("%s", strings.Join(problems, "\n"))
 	}
 	return nil
 }
@@ -296,17 +350,14 @@ func inspectWorkflow(f workflowFile) (actions, versions, installers int, problem
 	return actions, versions, installers, problems
 }
 
-// The gate could only ever check the versions that were written. An
-// action that installs a tool and names no version at all is an absence,
-// and v0.3.0's release failed on exactly that: `sigstore/cosign-installer`
-// was pinned by SHA with no `cosign-release`, so the job took whatever
-// cosign was newest, and that cosign had changed its default signing
-// format. A SHA pins the wrapper, not the tool. `download-syft` had the
-// same hole one step below it.
+// A version check reads only the versions that are written. An action
+// that installs a tool and names no version at all is an absence: a SHA
+// pins the wrapper, not the tool, so `sigstore/cosign-installer` with no
+// `cosign-release` installs whatever cosign is newest, default signing
+// format and all.
 //
 // So every action is classified here, and an unknown one fails the gate
-// rather than passing quietly — being unknown is the state that let the
-// first two through.
+// rather than passing quietly.
 var (
 	// installerPins maps an action to the input keys that pin the tool
 	// it installs. Any one of them satisfies the rule.
@@ -377,7 +428,7 @@ func unpinnedTools(f workflowFile) (installers int, problems []string) {
 		if !namesAnyKey(block, keys) {
 			problems = append(problems, fmt.Sprintf(
 				"%s: %s is pinned by SHA but the tool it installs is not — set %s. "+
-					"This is what failed the v0.3.0 release", f.name, action, strings.Join(keys, " or ")))
+					"A SHA pins the wrapper, and the tool floats to its newest release", f.name, action, strings.Join(keys, " or ")))
 		}
 	}
 	return installers, problems

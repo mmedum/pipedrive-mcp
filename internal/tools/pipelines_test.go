@@ -125,7 +125,7 @@ func TestListStages_PipelineNotFound(t *testing.T) {
 			{ID: 1, Name: "Sales"},
 		},
 		// Stages slice is intentionally non-empty: even though
-		// list_stages now fans the validation and the listing out in
+		// list_stages fans the validation and the listing out in
 		// parallel, an unknown pipeline must still surface as
 		// [not_found] with the stage data discarded — this slot would
 		// otherwise leak into the response.

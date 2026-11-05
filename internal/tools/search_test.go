@@ -321,9 +321,9 @@ func TestSearch_LivenessCheckFailureFailsTheSearch(t *testing.T) {
 	}
 }
 
-// A deleted person lingers in Pipedrive's search index too — found by
-// a live probe, not by reading the docs — so persons are checked the
-// same way organizations are, and each type costs its own call.
+// A deleted person lingers in Pipedrive's search index too, so persons
+// are checked the same way organizations are, and each type costs its
+// own call.
 func TestSearch_DropsDeletedPersonsAndBillsPerType(t *testing.T) {
 	fake := &fakeSearchClient{
 		hits: []pipedrive.SearchHit{

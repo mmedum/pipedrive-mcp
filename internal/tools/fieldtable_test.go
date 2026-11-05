@@ -167,9 +167,8 @@ func TestWithCustomFieldsDoesNotMutateTheBaseTable(t *testing.T) {
 // Reaching a custom field means the diff sees it and the prediction
 // carries it. guardedWrite does both from one pair of adjacent fields —
 // Custom and CustomOf — so a resource cannot do one and not the other.
-// It used to be two edits in two functions, and a resource that did the
-// first and forgot the second dry-ran as "nothing changes" and then
-// changed the field unreported.
+// A resource that did the first and forgot the second would dry-run as
+// "nothing changes" and then change the field unreported.
 func TestGuardedWriteCarriesCustomFieldsIntoTheDiff(t *testing.T) {
 	stored := map[string]any{"h1": "stored"}
 	before := &pipedrive.Deal{CustomFields: stored}
@@ -187,7 +186,7 @@ func TestGuardedWriteCarriesCustomFieldsIntoTheDiff(t *testing.T) {
 		DryRun:       true,
 		Get:          func(context.Context) (*pipedrive.Deal, error) { return before, nil },
 		// An overlay that says nothing about custom fields, which is the
-		// point: every xAfterUpdate looks like this now.
+		// point: every xAfterUpdate looks like this.
 		Predict: func(d *pipedrive.Deal) pipedrive.Deal { return *d },
 	}
 
@@ -285,9 +284,9 @@ func TestCustomFieldWithoutANameFallsBackToItsKey(t *testing.T) {
 //
 // The per-field walk matters: TestEverySettableFieldReachesTheDiff sets
 // one request field against a ZERO record, so any non-empty collection
-// registers as a change there whatever the projection drops. The bug
-// that shipped needed same values and a different primary flag — only a
-// per-sub-field comparison sees it.
+// registers as a change there whatever the projection drops. Same
+// values with a different primary flag is a change only a per-sub-field
+// comparison sees.
 func TestCollectionProjectionsRenderEverySubField(t *testing.T) {
 	t.Run("ContactPoint", func(t *testing.T) {
 		assertRendersEverySubField(t,
@@ -375,8 +374,7 @@ func names[T any](spec []fieldSpec[T]) []string {
 
 // Setting any single field on an update request must reach `changed`.
 //
-// This is the assertion that would have caught all three of the bugs
-// this package has had in its guard. It pins the whole chain at once:
+// It pins the whole chain the guard depends on at once:
 // the request field must exist in the overlay (or `predicted` never
 // moves), in the fieldSpec table (or changedFields never looks), and in
 // a projection that renders it (or before and after compare equal).

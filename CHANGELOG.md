@@ -12,23 +12,31 @@ From 1.0.0 onwards, breaking changes require a MAJOR bump. Before it,
 a minor release could break the tool surface, and several did.
 
 **One carve-out, and it is deliberate.** `get_note`, `list_notes`,
-`manage_note` and `whoami` run on Pipedrive API v1, whose 2026-07-31
-sunset has passed, because v2 exposes no `/notes` and no `/users` — so
-there is no equivalent to move them to. Those four sit **outside** the
-compatibility promise: if v1 stops answering they are removed in a
-MINOR release. The alternative is letting a third party decide when
-this project cuts a MAJOR. Every other tool is covered by the promise
-in full.
+`manage_note` and `whoami` run on Pipedrive API v1, because v2 exposes
+no `/notes` and no `/users` — so there is no equivalent to move them to.
+The v1 endpoints they call are not on Pipedrive's
+[deprecation list](https://developers.pipedrive.com/changelog/post/deprecation-of-selected-api-v1-endpoints).
+Those four sit **outside** the compatibility promise: if v1 stops
+answering they are removed in a MINOR release. The alternative is
+letting a third party decide when this project cuts a MAJOR. Every
+other tool is covered by the promise in full.
 
 ## [Unreleased]
 
 ### Changed
 
-- `pipedrive-mcp --dump-schemas` also prints the server's instructions, its five resource templates, and its resources and prompts, of which it has none, read over an in-memory session as a client is served them. The tools it prints are unchanged.
+- `pipedrive-mcp --dump-schemas` also prints the instructions, resource templates, resources and prompts, as a client is served them. The tools it prints are unchanged.
+- Only the latest release receives security fixes. `SECURITY.md` supported the latest two minor lines.
+- The operations run book is `docs/troubleshooting.md`, with an entry per error message, and the development guide is part of `CONTRIBUTING.md`.
+- For contributors: cite a decision by its `D-NN` ID; a verified Pipedrive behavior goes in the comment at its code, citing its integration test.
 
-### Added
+### Removed
 
-- `make leaks-history` runs the leak gate over everything the repository has published: every commit message, every version of every file, every path and every tag's message. It allows `noreply@anthropic.com` and `support@github.com` by the whole address, and accepts the old file versions the maintainer chose to leave, each pinned to its blob hash and never written down.
+- For contributors: the `install-tools`, `verify-tool-versions` and `checklist` make targets are gone; `make check` runs each tool at CI's version with `go run`.
+
+### Fixed
+
+- A `[gone]` error from a notes tool or `whoami` no longer claims a v1 sunset; Pipedrive has not deprecated those endpoints.
 
 ## [1.3.0] - 2026-10-25
 

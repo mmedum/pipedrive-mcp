@@ -64,8 +64,8 @@ func TestClient_WhoAmI_MapsUnauthorized(t *testing.T) {
 
 func TestClient_WhoAmI_IsMemoized(t *testing.T) {
 	// The tool description tells the model the answer does not change
-	// during a session, which invites a call per turn. Each one used to
-	// be a full v1 round trip.
+	// during a session, which invites a call per turn. Unmemoized, each
+	// would be a full v1 round trip.
 	hits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits++

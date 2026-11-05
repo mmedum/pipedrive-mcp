@@ -1,16 +1,22 @@
-# Common dev tasks. CI runs the same gates from .github/workflows/ci.yml;
-# this Makefile is for the same checks locally.
+# Common dev tasks. `make check` runs every gate .github/workflows/ci.yml
+# runs but the pull-request ones; the parity gate holds the two lists equal.
 
 GO       ?= go
-GOFLAGS  ?=
 BIN      ?= ./pipedrive-mcp
 VERSION  ?= dev
 PKG       = github.com/mmedum/pipedrive-mcp
 LDFLAGS   = -s -w -X $(PKG)/internal/version.Version=$(VERSION)
-GOBIN    := $(shell $(GO) env GOPATH)/bin
+# Each tool runs at an exact version, built by the local toolchain: an
+# installed binary can be another version, and a go-licenses built by
+# another Go installation fails on the standard library. CI runs
+# govulncheck and go-licenses through make, at the versions here. It runs
+# golangci-lint and gitleaks through actions, so the pins gate holds those
+# two equal to ci.yml's, and gitleaks's also to the rev in
+# .pre-commit-config.yaml.
 GOVULNCHECK_VERSION ?= v1.8.0
 GO_LICENSES_VERSION ?= v1.6.0
 GOLANGCI_LINT_VERSION ?= v2.14.0
+GITLEAKS_VERSION ?= v8.30.1
 
 .PHONY: all
 all: check
@@ -29,17 +35,22 @@ fmt: ## Verify gofmt cleanliness (no stdout = pass)
 	@out=$$(gofmt -l .); if [ -n "$$out" ]; then echo "gofmt issues:"; echo "$$out"; exit 1; fi
 
 .PHONY: vet
-vet: ## go vet ./... (twice: the integration suite is behind a build tag)
+vet: ## go vet ./..., and again under each build tag so the tagged files keep compiling
 	$(GO) vet ./...
 	$(GO) vet -tags=integration ./...
+	$(GO) vet -tags=live ./...
 
 .PHONY: lint
-lint: ## golangci-lint run
-	golangci-lint run
+lint: ## golangci-lint, at the version CI pins
+	$(GO) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run
 
 .PHONY: test
 test: ## go test -race -coverprofile cov.out ./...
 	$(GO) test -race -coverprofile cov.out ./...
+
+.PHONY: cover
+cover: test ## The statement-coverage floor on the packages it holds
+	@$(GO) run ./scripts/gates coverage cov.out
 
 .PHONY: coverage
 coverage: test ## Open coverage report in browser
@@ -53,32 +64,13 @@ integration: ## Drive the live workspace: reads, resources, guards, dry runs
 integration-writes: ## The above plus the reversible write probes — this MUTATES the workspace
 	PIPEDRIVE_INTEGRATION_WRITES=1 $(MAKE) integration
 
-.PHONY: install-tools
-install-tools: ## Install go-installed tools (govulncheck, go-licenses, golangci-lint) at pinned versions
-	$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
-	$(GO) install github.com/google/go-licenses@$(GO_LICENSES_VERSION)
-	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
-
-.PHONY: verify-tool-versions
-verify-tool-versions: ## Assert locally-installed tool versions match the CI pins
-	@want="$(GOLANGCI_LINT_VERSION)"; \
-	got=$$(golangci-lint --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
-	if [ "v$$got" != "$$want" ]; then \
-		echo "::error::golangci-lint version mismatch: have v$$got, pin is $$want"; \
-		echo "Run: make install-tools"; \
-		exit 1; \
-	fi
-	@echo "tool versions match CI pins"
-
 .PHONY: vuln
-vuln: ## govulncheck ./...
-	@command -v govulncheck >/dev/null 2>&1 || [ -x "$(GOBIN)/govulncheck" ] || $(MAKE) install-tools
-	@PATH="$(GOBIN):$$PATH" govulncheck ./...
+vuln: ## govulncheck, which CI runs through this target
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 .PHONY: licenses
-licenses: ## go-licenses against the allow-list
-	@command -v go-licenses >/dev/null 2>&1 || [ -x "$(GOBIN)/go-licenses" ] || $(MAKE) install-tools
-	@PATH="$(GOBIN):$$PATH" go-licenses check ./... \
+licenses: ## go-licenses against the allow-list, which CI runs through this target
+	$(GO) run github.com/google/go-licenses@$(GO_LICENSES_VERSION) check ./... \
 	  --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 
 .PHONY: staleness
@@ -86,7 +78,27 @@ staleness: ## gates deps
 	go run ./scripts/gates deps
 
 .PHONY: check
-check: verify-tool-versions fmt vet lint test vuln licenses staleness leaks pins mcpb changelog-links checklist descriptions smoke ## Run every per-PR CI gate locally
+check: fmt vet lint test cover vuln licenses gitleaks staleness docs leaks pins mcpb changelog-links descriptions smoke parity ## Run every per-PR CI gate locally
+
+# The branch's commits not on the default branch, as CI scans a pull
+# request's, or every commit on HEAD in a clone without origin/main.
+GITLEAKS_BASE  ?= origin/main
+GITLEAKS_RANGE  = $(if $(shell git rev-parse --verify --quiet $(GITLEAKS_BASE)),$(GITLEAKS_BASE)..HEAD,HEAD)
+
+.PHONY: gitleaks
+gitleaks: ## No secret in the branch's commits or the working tree, at the gitleaks version CI runs
+	$(GO) run github.com/zricethezav/gitleaks/v8@$(GITLEAKS_VERSION) git --log-opts="$(GITLEAKS_RANGE)" --redact --no-banner .
+	$(GO) run github.com/zricethezav/gitleaks/v8@$(GITLEAKS_VERSION) dir . --redact --no-banner
+
+# Not in check: it reads every commit, where the target above reads the
+# branch's own.
+.PHONY: gitleaks-history
+gitleaks-history: ## No secret anywhere in the history (manual)
+	$(GO) run github.com/zricethezav/gitleaks/v8@$(GITLEAKS_VERSION) git --redact --no-banner .
+
+.PHONY: docs
+docs: ## Decision IDs, citations, links, paths, the codemap and cited integration tests resolve
+	@$(GO) run ./scripts/gates docs
 
 .PHONY: leaks
 leaks: ## Nothing from a real Pipedrive account is in the tree
@@ -121,9 +133,9 @@ mcpb-pack: ## Pack the .mcpb from a built dist tree (release; manual)
 smoke: build ## Drive the binary over stdio and read the reply
 	go run ./scripts/gates smoke binary $(BIN)
 
-.PHONY: checklist
-checklist: ## CLAUDE.md's make check list against this Makefile
-	go run ./scripts/gates checklist
+.PHONY: parity
+parity: ## `make check` and CI run the same gates
+	@$(GO) run ./scripts/gates parity
 
 .PHONY: evals
 evals: build ## Drive a model through the tools and score it (needs credentials and the claude CLI)

@@ -538,11 +538,10 @@ func TestFieldCache_CountDoesNotPoisonOnce(t *testing.T) {
 }
 
 func TestFieldCache_ReloadDuringInFlightLoad(t *testing.T) {
-	// Regression: Reload used to overwrite the FieldCache's sync.Once
-	// while a Load was mid-flight, corrupting the once's internal mutex
-	// state and panicking with "unlock of unlocked mutex" on the
-	// in-flight goroutine. The fix swaps the active entry instead so
-	// in-flight callers complete safely on their own once.
+	// Reload swaps the active entry rather than resetting a sync.Once
+	// under a Load in flight, which would panic with "unlock of unlocked
+	// mutex" on that goroutine. In-flight callers complete on their own
+	// entry.
 	started := make(chan struct{})
 	gate := make(chan struct{})
 	released := make(chan struct{})
