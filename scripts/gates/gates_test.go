@@ -85,6 +85,8 @@ func TestTouchesWatchedReadsThePaths(t *testing.T) {
 		{"internal/tools/deals.go", true},
 		{"cmd/pipedrive-mcp/main.go", true},
 		{"internal/pipedrive/client.go", true},
+		{"internal/pipedrive/testdata/v2-response-fields.json", false},
+		{"internal/pipedrive/testdata/v2-response-fields.json\ninternal/pipedrive/client.go", true},
 		{"README.md\ndocs/architecture.md", false},
 		{"", false},
 	} {
