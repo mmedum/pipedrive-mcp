@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"fmt"
 	"go/ast"
-	"go/build/constraint"
 	"go/parser"
 	"go/token"
 	"io"
@@ -32,9 +31,7 @@ import (
 const (
 	architectureDoc = "docs/architecture.md"
 	docsAgentFile   = "CLAUDE.md"
-	docsMakefile    = "Makefile"
 	docsLintConfig  = ".golangci.yml"
-	docsWorkflowDir = ".github/workflows"
 	// docsGoModPinReasons is go.mod, read for its comments: deps reads a
 	// held dependency's reason from its `// pinned:` comment, which may
 	// cite.
@@ -120,8 +117,6 @@ var (
 
 	docsSeparatorRow = regexp.MustCompile(`^\|(\s*:?-+:?\s*\|)+$`)
 	docsGatesCommand = regexp.MustCompile(`(?:^|\s|\./)scripts/gates\s+(\S+)`)
-	// A rule line: targets, a colon, and not the := of an assignment.
-	docsMakeRule = regexp.MustCompile(`(?m)^([^\s:#=]+(?:[ \t]+[^\s:#=]+)*)[ \t]*:(?:[^=]|$)`)
 )
 
 const docsSupersededBy = "superseded by "
@@ -157,11 +152,7 @@ var docsLimits = docsFloors{links: 30, spanPaths: 90, packages: 8, integration: 
 
 // docs runs the gate over the checkout the gates run in.
 func docs(out io.Writer, _ []string) error {
-	root, err := moduleRoot()
-	if err != nil {
-		return couldNotRun{err}
-	}
-	return docsGateAt(root, docsLimits, out)
+	return docsGateAt(".", docsLimits, out)
 }
 
 // docsGateAt runs every check over the checkout at root and reports every
@@ -370,37 +361,47 @@ func (g *docsCheck) lines(rel string) ([]string, bool) {
 // rather than dropping keeps the line numbers.
 func docsProse(doc string) []string {
 	lines := strings.Split(doc, "\n")
-	code := docsCodeLines(lines)
+	var fence docsFence
 	for i, line := range lines {
 		lines[i] = strings.TrimRight(line, " \t\r")
-		if code[i] {
+		if fence.code(lines[i]) {
 			lines[i] = ""
 		}
 	}
 	return lines
 }
 
-// docsCodeLines reports, per line, whether it opens, closes or sits inside
-// a fence. release-notes reads fences with it too, so a line the docs gate
-// reads as code is never lifted into a heading.
-func docsCodeLines(lines []string) []bool {
-	code := make([]bool, len(lines))
-	fence := ""
-	for i, line := range lines {
-		unindented := strings.TrimLeft(strings.TrimRight(line, " \t\r"), " ")
-		marker := docsFenceMarker(unindented)
-		switch {
-		case fence == "" && marker != "":
-			fence = marker
-			code[i] = true
-		case fence != "":
-			if strings.HasPrefix(marker, fence) && strings.TrimLeft(unindented, marker[:1]) == "" {
-				fence = ""
-			}
-			code[i] = true
+// docsFence follows a Markdown document's fenced code a line at a time.
+// Its zero value is outside any fence. release-notes reads fences with it
+// too, so a line the docs gate reads as code is never lifted into a heading.
+type docsFence struct{ open string }
+
+// code reports whether a line opens, sits inside or closes fenced code. A
+// fence closes at a line of only its own character, at least as many
+// (https://spec.commonmark.org/0.31.2/#fenced-code-blocks).
+func (f *docsFence) code(line string) bool {
+	unindented := strings.TrimLeft(strings.TrimRight(line, " \t\r"), " ")
+	marker := docsFenceMarker(unindented)
+	switch {
+	case f.open == "" && marker != "":
+		f.open = marker
+	case f.open != "":
+		if strings.HasPrefix(marker, f.open) && strings.TrimLeft(unindented, marker[:1]) == "" {
+			f.open = ""
 		}
+	default:
+		return false
 	}
-	return code
+	return true
+}
+
+// docsHeadingLevel is the level of an ATX heading line, or 0 for any other
+// line (https://spec.commonmark.org/0.31.2/#atx-headings).
+func docsHeadingLevel(line string) int {
+	if !docsATXHeading.MatchString(line) {
+		return 0
+	}
+	return len(line) - len(strings.TrimLeft(line, "#"))
 }
 
 // docsFenceMarker is the run of three or more backticks or tildes a line
@@ -517,8 +518,11 @@ func (g *docsCheck) readGo() {
 // readTests reads a _test.go file's test and fuzz functions, the names a
 // "Held by" item may give. A file built only with the integration tag
 // holds the integration tests a comment may cite, each with its subtests.
+// Its OS and architecture tags are left free, as parity leaves them:
+// `integration && linux` builds with integration alone.
 func (g *docsCheck) readTests(f *ast.File) {
-	integration := docsBuiltOnlyWith(f, docsIntegrationTag)
+	need, _ := parityRequiredTags(f)
+	integration := slices.Contains(need.lists, docsIntegrationTag)
 	for _, decl := range f.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Recv != nil || !docsRunsUnderGoTest(fn.Name.Name) {
@@ -529,87 +533,6 @@ func (g *docsCheck) readTests(f *ast.File) {
 			g.integration[fn.Name.Name] = docsSubtests(f, fn)
 		}
 	}
-}
-
-// goBuildExpr is a file's //go:build expression, or nil when it has none
-// or the line does not parse.
-// https://pkg.go.dev/cmd/go#hdr-Build_constraints
-func goBuildExpr(f *ast.File) constraint.Expr {
-	for _, group := range f.Comments {
-		if group.Pos() >= f.Package {
-			break
-		}
-		for _, c := range group.List {
-			if !constraint.IsGoBuild(c.Text) {
-				continue
-			}
-			expr, err := constraint.Parse(c.Text)
-			if err != nil {
-				return nil
-			}
-			return expr
-		}
-	}
-	return nil
-}
-
-// docsBuiltOnlyWith reports whether a file's //go:build line admits it
-// with tag set and refuses it without.
-func docsBuiltOnlyWith(f *ast.File, tag string) bool {
-	expr := goBuildExpr(f)
-	return expr != nil && expr.Eval(func(t string) bool { return t == tag }) &&
-		!expr.Eval(func(string) bool { return false })
-}
-
-// requiredTags is each tag a file's //go:build line names that the file
-// builds only with, less the tags the go command sets itself.
-func requiredTags(f *ast.File) []string {
-	expr := goBuildExpr(f)
-	if expr == nil {
-		return nil
-	}
-	var named []string
-	// Eval calls its function for every tag, even past a decided result.
-	expr.Eval(func(tag string) bool {
-		named = append(named, tag)
-		return false
-	})
-	return slices.DeleteFunc(named, func(tag string) bool {
-		return goToolchainTag(tag) || !docsBuiltOnlyWith(f, tag)
-	})
-}
-
-// goKnownOS and goKnownArch are the GOOS and GOARCH values go/build
-// knows, as https://go.dev/src/internal/syslist/syslist.go lists them.
-var (
-	goKnownOS = map[string]bool{
-		"aix": true, "android": true, "darwin": true, "dragonfly": true, "freebsd": true,
-		"hurd": true, "illumos": true, "ios": true, "js": true, "linux": true, "nacl": true,
-		"netbsd": true, "openbsd": true, "plan9": true, "solaris": true, "wasip1": true,
-		"windows": true, "zos": true,
-	}
-	goKnownArch = map[string]bool{
-		"386": true, "amd64": true, "amd64p32": true, "arm": true, "armbe": true, "arm64": true,
-		"arm64be": true, "loong64": true, "mips": true, "mipsle": true, "mips64": true,
-		"mips64le": true, "mips64p32": true, "mips64p32le": true, "ppc": true, "ppc64": true,
-		"ppc64le": true, "riscv": true, "riscv64": true, "s390": true, "s390x": true,
-		"sparc": true, "sparc64": true, "wasm": true,
-	}
-	// goOtherTags are set by the go command for a target and a toolchain,
-	// except ignore, which keeps a file out of every build.
-	goOtherTags = map[string]bool{"unix": true, "cgo": true, "gc": true, "gccgo": true, "ignore": true}
-	// goReleaseTag is a release tag, such as go1.22, set for each release
-	// up to the toolchain's own.
-	goReleaseTag = regexp.MustCompile(`^go1\.\d+$`)
-)
-
-// goToolchainTag reports whether a build tag is one no -tags flag needs
-// to name: an OS, an architecture or one of its features, such as
-// amd64.v2, or a tag the go command sets.
-// https://pkg.go.dev/cmd/go#hdr-Build_constraints
-func goToolchainTag(tag string) bool {
-	arch, _, _ := strings.Cut(tag, ".")
-	return goKnownOS[tag] || goKnownArch[arch] || goOtherTags[tag] || goReleaseTag.MatchString(tag)
 }
 
 // docsSubtests is every subtest name a test gives t.Run that is written
@@ -977,16 +900,14 @@ func docsStringLines(fset *token.FileSet, f *ast.File) []docsSourceLine {
 // "Held by" item may name.
 func (g *docsCheck) readVocabulary() {
 	g.makeTargets = map[string]bool{}
-	if mk, ok := g.readFile(docsMakefile); ok {
-		for _, m := range docsMakeRule.FindAllStringSubmatch(mk, -1) {
-			for _, target := range strings.Fields(m[1]) {
-				if !strings.HasPrefix(target, ".") {
-					g.makeTargets[target] = true
-				}
+	if text, ok := g.readFile(makefilePath); ok {
+		for target := range parseMakefile(text).targets {
+			if !strings.HasPrefix(target, ".") {
+				g.makeTargets[target] = true
 			}
 		}
 		if len(g.makeTargets) == 0 {
-			g.at(docsMakefile, 0, "no targets read: a Held by naming one would never match")
+			g.at(makefilePath, 0, "no targets read: a Held by naming one would never match")
 		}
 	}
 	if cfg, ok := g.readFile(docsLintConfig); ok {
@@ -1005,26 +926,28 @@ func docsEnabledLinters(cfg string) map[string]bool {
 	out := map[string]bool{}
 	inLinters, inEnable, childIndent := false, false, -1
 	for _, raw := range strings.Split(cfg, "\n") {
-		line := withoutComment(raw)
-		if line == "" {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		at := indentOf(raw)
+		key, _ := yamlCutComment(trimmed)
+		at := indent(raw)
 		if at == 0 {
-			inLinters, inEnable, childIndent = line == "linters:", false, -1
+			inLinters, inEnable, childIndent = key == "linters:", false, -1
 			continue
 		}
 		if !inLinters {
 			continue
 		}
-		if item, ok := strings.CutPrefix(line, "- "); ok && inEnable {
-			out[strings.Trim(strings.TrimSpace(item), `"'`)] = true
+		if item, ok := strings.CutPrefix(trimmed, "- "); ok && inEnable {
+			value, _ := workflowValue(item)
+			out[value] = true
 			continue
 		}
 		if childIndent < 0 {
 			childIndent = at
 		}
-		inEnable = at == childIndent && line == "enable:"
+		inEnable = at == childIndent && key == "enable:"
 	}
 	return out
 }
@@ -1301,7 +1224,7 @@ func (g *docsCheck) scanned(file string, lines []string) (from, to int) {
 		return 0, len(lines)
 	}
 	raw, _ := g.readFile(file)
-	return changelogSection(strings.Split(raw, "\n"), "Unreleased")
+	return readChangelog(raw).section("Unreleased")
 }
 
 func (g *docsCheck) checkCitations() {
@@ -1485,9 +1408,17 @@ func (g *docsCheck) checkMarkdown(file string) {
 	// A paragraph can cite a test across a line break, as a comment can,
 	// so the prose is checked in runs of adjacent lines.
 	var prose []docsSourceLine
+	removed := false
 	for i := from; i < to; i++ {
 		line := lines[i]
-		if line != "" {
+		// A code span or a test under [Unreleased]'s Removed heading names
+		// what the release takes away, so it need not exist. The scan ends
+		// at the next level-2 heading, so a level-3 heading sets or ends
+		// Removed, and a deeper one sits inside it.
+		if file == changelogFile && docsHeadingLevel(line) == 3 {
+			removed = docsATXHeading.FindStringSubmatch(line)[1] == "Removed"
+		}
+		if line != "" && !removed {
 			prose = append(prose, docsSourceLine{i + 1, line})
 		}
 		if docsIsTrailer(file, line) {
@@ -1495,7 +1426,7 @@ func (g *docsCheck) checkMarkdown(file string) {
 		}
 		g.checkLine(file, i+1, line)
 		g.checkLinks(file, i+1, line)
-		if strings.Contains(line, "`") {
+		if !removed && strings.Contains(line, "`") {
 			for _, span := range codeSpans(line) {
 				g.checkSpan(file, i+1, span)
 			}
@@ -1715,7 +1646,7 @@ func (g *docsCheck) checkPath(file string, n int, word string) {
 func (g *docsCheck) spanTarget(file, p string) (string, bool) {
 	tries := []string{p}
 	if !strings.Contains(p, "/") {
-		tries = []string{path.Join(path.Dir(file), p), p, path.Join(docsWorkflowDir, p)}
+		tries = []string{path.Join(path.Dir(file), p), p, path.Join(workflowDir, p)}
 	}
 	for _, t := range tries {
 		if g.exists(t) {

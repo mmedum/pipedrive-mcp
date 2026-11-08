@@ -24,11 +24,7 @@ func coverageGate(w io.Writer, args []string) error {
 	if len(args) != 1 {
 		return fmt.Errorf("usage: gates coverage PROFILE")
 	}
-	root, err := moduleRoot()
-	if err != nil {
-		return err
-	}
-	module, err := modulePath(root)
+	module, err := modulePath(".")
 	if err != nil {
 		return err
 	}
@@ -36,7 +32,7 @@ func coverageGate(w io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	below := floorProblems(covered, module, floorPackages, coverageFloor, w)
+	below := coverageFloorProblems(covered, module, floorPackages, coverageFloor, w)
 	if len(below) > 0 {
 		return fmt.Errorf("coverage below %.0f%% in: %s", coverageFloor, strings.Join(below, ", "))
 	}
@@ -44,10 +40,10 @@ func coverageGate(w io.Writer, args []string) error {
 	return err
 }
 
-// floorProblems is each of pkgs whose coverage in s is under floor,
+// coverageFloorProblems is each of pkgs whose coverage in s is under floor,
 // writing every package's figure to w. A package the profile has no
 // blocks for is 0%, not skipped: the run that wrote it did not test it.
-func floorProblems(s statements, module string, pkgs []string, floor float64, w io.Writer) []string {
+func coverageFloorProblems(s statements, module string, pkgs []string, floor float64, w io.Writer) []string {
 	var below []string
 	for _, pkg := range pkgs {
 		pct := s.percent(module + "/" + pkg)

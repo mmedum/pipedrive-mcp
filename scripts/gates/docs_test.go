@@ -282,7 +282,12 @@ func drop(file string) docsEdit              { return docsEdit{file: file} }
 // turn a reject row into a copy of the accepted checkout.
 func docsEdited(t *testing.T, edits ...docsEdit) map[string]string {
 	t.Helper()
-	files := docsFixture()
+	return applyEdits(t, docsFixture(), edits...)
+}
+
+// applyEdits is files with the edits applied, as docsEdited applies them.
+func applyEdits(t *testing.T, files map[string]string, edits ...docsEdit) map[string]string {
+	t.Helper()
 	for _, e := range edits {
 		switch body := files[e.file]; {
 		case e.old == "" && e.new == "":
@@ -312,6 +317,14 @@ func putAll(t *testing.T, root string, files map[string]string) {
 	}
 }
 
+// docsTree writes files to a fresh directory and returns it.
+func docsTree(t *testing.T, files map[string]string) string {
+	t.Helper()
+	root := t.TempDir()
+	putAll(t, root, files)
+	return root
+}
+
 // docsFixtureFloors keeps the floors out of the rows whose subject is not a
 // floor. The fixture is far smaller than the repository, and a pass that
 // reads nothing still fails.
@@ -322,9 +335,7 @@ var docsFixtureFloors = docsFloors{links: 1, spanPaths: 1, packages: 1, integrat
 // git test it.
 func docsRun(t *testing.T, files map[string]string, floors docsFloors) *docsCheck {
 	t.Helper()
-	root := t.TempDir()
-	putAll(t, root, files)
-	g := newDocsCheck(root, slices.Sorted(maps.Keys(files)), floors)
+	g := newDocsCheck(docsTree(t, files), slices.Sorted(maps.Keys(files)), floors)
 	g.run()
 	return g
 }
@@ -737,6 +748,20 @@ func TestDocsGateHoldsIntegrationTestsToTheSuite(t *testing.T) {
 			)),
 			replace(fxClient, "or `TestRead_Deal`;", "or TestEither;"),
 		}, []string{`internal/pipedrive/client.go:13: names the integration test "TestEither"` + notTagged}},
+		// An OS or architecture tag beside the integration tag is free, as
+		// parity leaves it: the file builds with -tags=integration alone.
+		{"a test in a file the integration tag and an OS tag build", []docsEdit{
+			add("internal/integration/linux_test.go", textLines(
+				"//go:build integration && linux",
+				"",
+				"package integration",
+				"",
+				`import "testing"`,
+				"",
+				"func TestLinuxOnly(*testing.T) {}",
+			)),
+			replace(fxClient, "or `TestRead_Deal`;", "or TestLinuxOnly;"),
+		}, nil},
 		{"a Markdown paragraph, across a line break", []docsEdit{
 			replace(fxReadme, cites, cites+" The integration\ntest TestWrite_Retry/thrice checks it."),
 		}, []string{`README.md:5: names the integration test "TestWrite_Retry/thrice", and TestWrite_Retry runs no subtest named "thrice"`}},
@@ -755,6 +780,52 @@ func TestDocsGateHoldsIntegrationTestsToTheSuite(t *testing.T) {
 		}, nil},
 		{"a released changelog section and a fence, which are not read", []docsEdit{
 			replace(fxReadme, "§3, D-99 and", "§3, D-99, the integration test TestGone and"),
+		}, nil},
+	})
+}
+
+// A code span or a test under [Unreleased]'s Removed heading names what
+// the release takes away, so it need not exist. A decision and a link
+// are still held, and the next heading ends Removed.
+func TestDocsGateLetsTheRemovedSectionNameWhatIsGone(t *testing.T) {
+	t.Parallel()
+	unreleased := "#codemap` says.\n"
+	checkDocsCases(t, []docsCase{
+		{"a removed path, target and integration test", []docsEdit{
+			replace(fxChangelog, unreleased, unreleased+"\n### Removed\n\n- `internal/gone`, `make gone` and the integration test TestRawGone.\n"),
+		}, nil},
+		{"a level-4 heading inside Removed keeps it", []docsEdit{
+			replace(fxChangelog, unreleased, unreleased+"\n### Removed\n\n#### Tools\n\n- `internal/gone`.\n"),
+		}, nil},
+		{"a decision and a link under Removed", []docsEdit{
+			replace(fxChangelog, unreleased, unreleased+"\n### Removed\n\n- D-07, and [the page](docs/gone.md).\n"),
+		}, []string{
+			"CHANGELOG.md:9: cites D-07, which is not a decision",
+			"CHANGELOG.md:9: links to docs/gone.md, which does not exist",
+		}},
+		{"the heading after Removed ends it", []docsEdit{
+			replace(fxChangelog, unreleased, unreleased+"\n### Removed\n\n- `internal/gone`.\n\n### Fixed\n\n- `internal/lost` and the integration test TestLost.\n"),
+		}, []string{
+			"CHANGELOG.md:13: names internal/lost, which does not exist",
+			`CHANGELOG.md:13: names the integration test "TestLost"` + notTagged,
+		}},
+		{"a Removed heading outside the changelog", []docsEdit{
+			replace(fxRunbook, "The retry is in", "### Removed\n\n`internal/gone`.\n\nThe retry is in"),
+		}, []string{"docs/runbook.md:8: names internal/gone, which does not exist"}},
+	})
+}
+
+// The scan reads the [Unreleased] lines the release note lifts: a heading
+// in a fence does not end them, and a tab after ## starts a heading.
+func TestDocsGateScansWhatTheReleaseNoteLifts(t *testing.T) {
+	t.Parallel()
+	unreleased := "#codemap` says.\n"
+	checkDocsCases(t, []docsCase{
+		{"a heading in a fence", []docsEdit{
+			replace(fxChangelog, unreleased, unreleased+"\n~~~markdown\n## [1.0.0]\n~~~\n\n- As D-07 says.\n"),
+		}, []string{"CHANGELOG.md:11: cites D-07, which is not a decision"}},
+		{"a heading with a tab", []docsEdit{
+			replace(fxChangelog, unreleased, unreleased+"\n##\tLater\n\n- As D-07 says.\n"),
 		}, nil},
 	})
 }

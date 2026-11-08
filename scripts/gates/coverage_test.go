@@ -106,9 +106,9 @@ func TestFloorProblemsNamesEachPackageBelow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := floorProblems(s, coverModule, []string{"internal/a", "internal/b", "internal/c"}, 80, io.Discard)
+	got := coverageFloorProblems(s, coverModule, []string{"internal/a", "internal/b", "internal/c"}, 80, io.Discard)
 	want := []string{"internal/b (75.0%)", "internal/c (0.0%)"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Errorf("floorProblems = %q, want %q", got, want)
+		t.Errorf("coverageFloorProblems = %q, want %q", got, want)
 	}
 }

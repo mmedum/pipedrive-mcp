@@ -135,7 +135,7 @@ path, the error classes or the package layout.
 - **A linter settings block that fails to load leaves its defaults on**,
   still firing. Check forbidigo's and depguard's message text.
 - **A newer local Go passes what CI fails.** Run the gates on the version
-  `go.mod` names, which CI's `GO_VERSION` matches.
+  `go.mod` names, which CI reads through `go-version-file`.
 - **Never delete a decision or reuse an ID.** Supersede or deprecate it,
   and take the next ID from the file's `Next ID:` line.
 

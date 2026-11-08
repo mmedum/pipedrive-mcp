@@ -81,20 +81,12 @@ func surfaceAt(rev string) (surface, error) {
 }
 
 // releasedBreaks is what head breaks of the last release's surface: the
-// build of the tag git describe finds for the base branch, the nearest
-// it reaches, not the head's, which a branch cut before the last tag
-// would leave behind. Before the first tag nothing is released, so
-// nothing breaks a caller.
+// build of the newest release the base branch reaches, not the head's,
+// which a branch cut before the last tag would leave behind. Before the
+// first release nothing is released, so nothing breaks a caller.
 func releasedBreaks(baseRef string, base, head surface) ([]change, error) {
-	tags, err := git("tag", "--merged", baseRef)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(tags) == "" {
-		return nil, nil
-	}
-	tag, err := gitLine("describe", "--tags", "--abbrev=0", baseRef)
-	if err != nil {
+	tag, err := lastTag(baseRef)
+	if err != nil || tag == "" {
 		return nil, err
 	}
 	release, err := surfaceAt(tag)

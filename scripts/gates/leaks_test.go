@@ -83,6 +83,7 @@ func TestExcusedHoldsAPinToItsBlobRuleAndCount(t *testing.T) {
 // The history scan reads a commit message, an old version of a file, a
 // path and a tag's message, and leaves a tag's header and a binary alone.
 func TestHistoryProblemsReadsWhatWasPublished(t *testing.T) {
+	isolateGit(t)
 	root, home := t.TempDir(), t.TempDir()
 	address := "kim@" + "vexqorlund-freight.dk"
 	git := func(email string, args ...string) {

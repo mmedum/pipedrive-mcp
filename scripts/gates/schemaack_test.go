@@ -374,9 +374,7 @@ type fakeRepo struct {
 
 func newFakeRepo(t *testing.T) *fakeRepo {
 	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not installed")
-	}
+	isolateGit(t)
 	r := &fakeRepo{t: t, root: t.TempDir()}
 	t.Chdir(r.root)
 	r.git("init", "--quiet", "--initial-branch=main")
@@ -391,9 +389,6 @@ func (r *fakeRepo) git(args ...string) {
 	r.t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = r.root
-	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=Fixture", "GIT_AUTHOR_EMAIL=fixture@example.com",
-		"GIT_COMMITTER_NAME=Fixture", "GIT_COMMITTER_EMAIL=fixture@example.com",
-		"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		r.t.Fatalf("git %v: %v\n%s", args, err, out)
 	}

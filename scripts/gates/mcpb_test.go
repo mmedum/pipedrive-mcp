@@ -29,10 +29,7 @@ import (
 // own package directory.
 func repoPath(t *testing.T, path string) string {
 	t.Helper()
-	if _, err := os.Stat("../../" + path); err == nil {
-		return "../../" + path
-	}
-	return path
+	return filepath.Join(parityRepoRoot, filepath.FromSlash(path))
 }
 
 func repoFile(t *testing.T, path string) []byte {
@@ -705,12 +702,12 @@ func TestTheBundleSettingsRefuseEachBreak(t *testing.T) {
 		}, "user_config.api_token is not sensitive; PIPEDRIVE_API_TOKEN is a credential"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if problems := settingProblems(edited(t, tc.edit), bundleLeftOut); !mentions(problems, tc.want) {
+			if problems := settingProblems(edited(t, tc.edit), bundleLeftOut, bundleRefused); !mentions(problems, tc.want) {
 				t.Errorf("problems:\n%s\nwant one containing %q", strings.Join(problems, "\n"), tc.want)
 			}
 		})
 	}
-	if problems := settingProblems(good(t), bundleLeftOut); len(problems) > 0 {
+	if problems := settingProblems(good(t), bundleLeftOut, bundleRefused); len(problems) > 0 {
 		t.Errorf("the committed settings give %q", problems)
 	}
 }
@@ -804,7 +801,7 @@ func TestSettingProblemsRefuseABundleWithNoSecret(t *testing.T) {
 	leftOut := maps.Clone(bundleLeftOut)
 	leftOut[config.EnvAPIToken] = "a reason"
 	const want = "the bundle asks for no variable config.Vars marks secret"
-	if got := settingProblems(good(t), leftOut); !mentions(got, want) {
+	if got := settingProblems(good(t), leftOut, bundleRefused); !mentions(got, want) {
 		t.Errorf("settingProblems = %q, want one containing %q", got, want)
 	}
 }
@@ -816,13 +813,13 @@ func TestSettingProblemsRefuseAStaleExclusion(t *testing.T) {
 	leftOut := maps.Clone(bundleLeftOut)
 	leftOut["PIPEDRIVE_GONE"] = "a reason"
 	want := "bundleLeftOut names PIPEDRIVE_GONE, which the server does not read"
-	if got := settingProblems(good(t), leftOut); !slices.Contains(got, want) {
+	if got := settingProblems(good(t), leftOut, bundleRefused); !slices.Contains(got, want) {
 		t.Errorf("settingProblems = %q, want %q among them", got, want)
 	}
 	leftOut = maps.Clone(bundleLeftOut)
 	delete(leftOut, "PIPEDRIVE_HTTP_TIMEOUT")
 	want = "user_config does not ask for http_timeout, which sets PIPEDRIVE_HTTP_TIMEOUT"
-	if got := settingProblems(good(t), leftOut); !slices.Contains(got, want) {
+	if got := settingProblems(good(t), leftOut, bundleRefused); !slices.Contains(got, want) {
 		t.Errorf("settingProblems = %q, want %q among them", got, want)
 	}
 }
@@ -1026,19 +1023,15 @@ func TestTheRefusalsTurnEachSwitchFromItsDefault(t *testing.T) {
 // asks for, against the server's own start, so a refusal Load adds, or
 // one declared that Load does not make, fails the gate itself.
 func TestSettingProblemsHoldTheRefusals(t *testing.T) {
-	saved := bundleRefused
-	t.Cleanup(func() { bundleRefused = saved })
-	bundleRefused = [][]string{{"dry_run"}}
 	const starts = "bundleRefused declares that the server refuses [dry_run on], and it starts with them"
-	if got := settingProblems(good(t), bundleLeftOut); !slices.Equal(got, []string{starts}) {
+	if got := settingProblems(good(t), bundleLeftOut, [][]string{{"dry_run"}}); !slices.Equal(got, []string{starts}) {
 		t.Errorf("settingProblems = %q, want %q", got, starts)
 	}
-	bundleRefused = saved
 	// Defaults the server refuses start no set, which would each fail
 	// with them: the defaults problem is the one report.
 	got := settingProblems(edited(t, func(d map[string]any) {
 		dig(d, "user_config", "dry_run")["default"] = "maybe"
-	}), bundleLeftOut)
+	}), bundleLeftOut, bundleRefused)
 	if len(got) != 1 || !strings.HasPrefix(got[0], "the environment the bundle's defaults give the server is refused") {
 		t.Errorf("defaults the server refuses give %q, want that one problem", got)
 	}
@@ -1075,7 +1068,7 @@ func vendoredSchema(t *testing.T) []byte {
 // rather than assembling the schema bytes itself and testing only the
 // pure half.
 func TestCommittedManifestSatisfiesItsSchema(t *testing.T) {
-	if err := checkAgainstSchema(repoRoot(t), goodDocument(t)); err != nil {
+	if err := checkAgainstSchema(parityRepoRoot, goodDocument(t)); err != nil {
 		t.Errorf("the committed manifest does not satisfy its own schema: %v", err)
 	}
 }
@@ -1136,7 +1129,7 @@ func TestSchemaConformanceCatchesABrokenDocument(t *testing.T) {
 func TestSchemaConformanceRefusesAnUnvendoredVersion(t *testing.T) {
 	document := goodDocument(t)
 	document["manifest_version"] = "9.9"
-	err := checkAgainstSchema(repoRoot(t), document)
+	err := checkAgainstSchema(parityRepoRoot, document)
 	if err == nil {
 		t.Fatal("a manifest_version with no vendored schema was accepted")
 	}

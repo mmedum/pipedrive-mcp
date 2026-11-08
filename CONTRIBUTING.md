@@ -16,10 +16,10 @@ record by its shape, such as "a deal with a dropdown field". Naming the
 sibling servers, such as google-chat-mcp or favro-mcp, is fine.
 
 `make leaks` scans the tree, and `make leaks-history` everything the
-repository has published. `make gitleaks` scans the branch's commits
-and the tree for credentials, and `make gitleaks-history` every commit.
-If you use pre-commit, `.pre-commit-config.yaml` runs gitleaks, gofmt
-and `go vet` on each commit.
+repository has published. `make gitleaks` scans HEAD's history for
+credentials, and `make gitleaks-history` every ref's history.
+If you use pre-commit, `.pre-commit-config.yaml` runs
+`make gitleaks-staged`, gofmt and `go vet` on each commit.
 
 ## Reporting bugs and requesting features
 
@@ -222,7 +222,8 @@ installs to one exact version; `make pins` holds both (D-86).
 
 ## Changelog
 
-A change to watched source needs an entry under `## [Unreleased]` in
+A change to watched source, what the binary is built from or the
+bundle's manifest, needs an entry under `## [Unreleased]` in
 `CHANGELOG.md`, in the same pull request (D-90). Leave out changes only
 contributors see, unless they must act on them; such a line starts
 `For contributors:`.

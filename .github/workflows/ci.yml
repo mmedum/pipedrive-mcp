@@ -8,10 +8,6 @@ on:
 permissions:
   contents: read
 
-env:
-  GO_VERSION: "1.27.3"
-  GOLANGCI_LINT_VERSION: "v2.14.0"
-
 # bash on every runner, for every `run` step in this file. The Windows
 # runner defaults to PowerShell, which reads a flag like
 # -coverprofile=cov.out as a file called `cov`. The pins gate checks it.
@@ -30,7 +26,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           check-latest: false
           cache: true
 
@@ -62,7 +58,7 @@ jobs:
 
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          version: v2.14.0
 
   govulncheck:
     name: govulncheck
@@ -71,7 +67,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           check-latest: false
           cache: true
       - run: make vuln
@@ -83,7 +79,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           check-latest: false
           cache: true
       - run: make licenses
@@ -95,7 +91,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           check-latest: false
           cache: true
       - run: go run ./scripts/gates deps
@@ -108,6 +104,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: false
+          cache: true
       - name: Compare against the base branch as it is now
         run: |
           set -euo pipefail
@@ -135,7 +136,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           check-latest: false
           cache: true
       - run: go run ./scripts/gates schema-ack "$PR_BASE_REF" "$PR_HEAD"
@@ -147,12 +148,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           check-latest: false
           cache: true
-      - run: go build -o /tmp/pipedrive-mcp ./cmd/pipedrive-mcp
-      - run: go run ./scripts/gates smoke binary /tmp/pipedrive-mcp
-      - run: /tmp/pipedrive-mcp --dump-schemas | go run ./scripts/gates descriptions -
+          # Its own cache: make build compiles with -trimpath and cgo off,
+          # which no other job does, so on go.sum's shared key it builds
+          # cold on every run. One pattern a line, as setup-go reads them:
+          # https://github.com/actions/setup-go/blob/b7ad1dad31e06c5925ef5d2fc7ad053ef454303e/docs/advanced-usage.md#multi-target-builds
+          cache-dependency-path: |
+            go.sum
+            Makefile
+      - run: make build
+      - run: go run ./scripts/gates smoke binary ./pipedrive-mcp
+      - run: ./pipedrive-mcp --dump-schemas | go run ./scripts/gates descriptions -
 
   leaks:
     name: Identifier scan
@@ -161,7 +169,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           check-latest: false
           cache: true
       - run: go run ./scripts/gates leaks
@@ -173,7 +181,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           check-latest: false
           cache: true
       - run: go run ./scripts/gates docs
@@ -185,7 +193,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           check-latest: false
           cache: true
       - run: go run ./scripts/gates pins
@@ -201,7 +209,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           check-latest: false
           cache: true
       - run: go run ./scripts/gates parity
@@ -212,14 +220,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # gitleaks scans HEAD's whole history, so a shallow clone would
+          # hide a credential a branch added and later removed.
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # A SHA pins the action, not the gitleaks the action installs.
-          # Named here so which scanner ran is a line in this file, and
-          # kept equal to the rev in .pre-commit-config.yaml — the pins
-          # gate fails if they drift, because a commit passing the hook
-          # and failing the job teaches the wrong thing about CI. No `v`
-          # prefix: the action's README documents the bare form.
-          GITLEAKS_VERSION: "8.30.1"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: false
+          cache: true
+          # Its own cache, keyed by the Makefile that pins gitleaks. Every
+          # other job shares go.sum's key and saves a cache without
+          # gitleaks, and setup-go saves nothing over a hit on its key, so
+          # on that key gitleaks is built from source on every run.
+          # https://github.com/actions/setup-go/blob/b7ad1dad31e06c5925ef5d2fc7ad053ef454303e/src/cache-save.ts#L75-L80
+          cache-dependency-path: Makefile
+      # The Makefile holds the scanner's command and its version, so
+      # `make check` and the pre-commit hook scan with exactly this.
+      - run: make gitleaks

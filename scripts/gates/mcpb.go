@@ -183,7 +183,7 @@ func mcpbGate(root string) error {
 		manifestPath, len(bundleFiles), len(m.Compatibility.Platforms), len(m.UserConfig),
 		vendoredSchemaPath(m.ManifestVersion))
 	fmt.Printf("  %s: %d archives named <name>_<version>_<os>_<arch>, each one the bundle reaches, the docs name and release.yml attests\n",
-		goreleaserPath, archives)
+		parityGoreleaser, archives)
 	return nil
 }
 
@@ -342,7 +342,7 @@ func manifestProblems(document map[string]any, m manifest, files []staged, root 
 	}
 	problems = append(problems, checkManifestShape(m)...)
 	problems = append(problems, identityProblems(m, files)...)
-	problems = append(problems, settingProblems(m, bundleLeftOut)...)
+	problems = append(problems, settingProblems(m, bundleLeftOut, bundleRefused)...)
 
 	// And against the schema the manifest cites, which the checks above
 	// only name.
@@ -751,8 +751,9 @@ func turnedNames(m manifest, keys []string) string {
 // platform override carries neither env nor args, an empty one included:
 // the reference host replaces the base's with an override's rather than
 // merging, and an argument would configure the server past every check
-// on env. leftOut is bundleLeftOut, or a test's.
-func settingProblems(m manifest, leftOut map[string]string) []string {
+// on env. leftOut is bundleLeftOut and refused bundleRefused, or a
+// test's, so no test writes the tables.
+func settingProblems(m manifest, leftOut map[string]string, refused [][]string) []string {
 	asked, problems := bundleVarsFrom(config.Vars(), leftOut)
 	problems = append(problems, argsProblems(m)...)
 	for _, key := range slices.Sorted(maps.Keys(m.UserConfig)) {
@@ -766,7 +767,7 @@ func settingProblems(m manifest, leftOut map[string]string) []string {
 	problems = append(problems, asking...)
 	defaults, defaultsErr := defaultsProblems(m)
 	problems = append(problems, defaults...)
-	return append(problems, refusalProblems(m, switches, bundleRefused, defaultsErr, startEnv)...)
+	return append(problems, refusalProblems(m, switches, refused, defaultsErr, startEnv)...)
 }
 
 // argsProblems holds mcp_config.args to [] and every platform override
@@ -1471,20 +1472,12 @@ func licenseOf(root string) (string, error) {
 // The two entry points, in this repository's command signature.
 
 func mcpbCmd(_ io.Writer, _ []string) error {
-	root, err := moduleRoot()
-	if err != nil {
-		return err
-	}
-	return mcpbGate(root)
+	return mcpbGate(".")
 }
 
 func mcpbPackCmd(_ io.Writer, args []string) error {
 	if len(args) < 3 {
 		return fmt.Errorf("usage: gates mcpb-pack DIST VERSION OUT")
 	}
-	root, err := moduleRoot()
-	if err != nil {
-		return err
-	}
-	return packMCPB(root, args[0], args[1], args[2])
+	return packMCPB(".", args[0], args[1], args[2])
 }
