@@ -690,6 +690,13 @@ func TestPinsNamesEachProblem(t *testing.T) {
 			"govulncheck is v1.8.0 at .github/workflows/ci.yml:14: go run golang.org/x/vuln/cmd/govulncheck and v1.7.0 at " +
 				".goreleaser.yaml:5: golang.org/x/vuln/cmd/govulncheck: one tool, one version",
 		}},
+		// goreleaser runs the one branch it renders, so a hook whose else
+		// branch fetches an unknown tool at a branch is refused, not read whole.
+		{"a goreleaser hook running a tool at a branch in its else", []docsEdit{
+			replace(parityGoreleaser, "    - go mod tidy\n", "    - go mod tidy\n"+
+				`    - "{{ if .IsSnapshot }}true{{ else }}go run github.com/someone/tool@main dist{{ end }}"`+"\n"),
+		}, []string{".goreleaser.yaml:5: hooks: a template control action; goreleaser runs one branch, and the gates read only " +
+			"a command wrapped whole in one {{ if }}...{{ end }}"}},
 		{"a goreleaser hook at latest, reported once", []docsEdit{
 			replace(parityGoreleaser, "    - go mod tidy\n", "    - go mod tidy\n    - go run golang.org/x/vuln/cmd/govulncheck@latest ./...\n"),
 		}, []string{".goreleaser.yaml:5: @latest installs whatever is newest. Name the version: what builds a release must not float"}},
