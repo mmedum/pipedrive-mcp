@@ -409,18 +409,18 @@ symptom in [troubleshooting.md](troubleshooting.md).
 | D-80 | Evals drive a model through the tools and score the end state and the trace | accepted | evals, TestEveryPromptSubstitutesFully, TestEveryTaskIsAnswerable, TestParseAttributesResultsToTheRightCall |
 | D-81 | The eval census fails a run that created records outside its fixture, and reports edits | accepted | TestUnaccountedSeparatesCreatedFromEdited, TestUnaccountedIgnoresTheFixture, TestUnaccountedIsSilentWhenNothingMoved |
 | D-82 | Coverage is held at 80% on internal/pipedrive, internal/tools, internal/credentials and internal/app | accepted | cover, TestFloorProblemsNamesEachPackageBelow, TestCoverageRefusesAnEmptyProfile |
-| D-83 | A check is watched failing, and a gate refuses to pass on an empty input | accepted | TestParityRefusesToRunOnTooLittle, TestReleaseProblemsRefusesToReadNothing, descriptions |
-| D-84 | make check and CI run the same gates | accepted | parity, TestParityCatchesDivergence, TestParityHoldsThePullRequestGates, TestParityRequiresAVetPassPerBuildTag |
-| D-85 | Every action and tool is pinned, and make check runs each tool at the version CI pins | accepted | pins, lint, licenses, vuln |
-| D-86 | Every action is pinned by commit SHA and every installed tool by exact version | accepted | pins, TestPinsGate, TestEveryActionIsClassified |
+| D-83 | A check is watched failing, and a gate refuses to pass on an empty input | accepted | TestParityRefusesToCompareNothing, TestPinsRefusesToReadTooLittle, TestReleaseProblemsRefusesToReadNothing, descriptions |
+| D-84 | make check and CI run the same gates | accepted | parity, TestParityCatchesDivergence, TestParityHoldsThePullRequestGates, TestParityHoldsMakeCheckToWhatAPushRuns, TestParityHoldsTheTreesTagsToAVetPass, TestParityRefusesACommandWhoseFailureMakeIgnores |
+| D-85 | Every action and tool is pinned, and make check runs each tool at the version CI pins | accepted | pins, lint, licenses, vuln, gitleaks, TestPinsNamesEachProblem |
+| D-86 | Every action is pinned by commit SHA and every installed tool by exact version | accepted | pins, TestPinsGate, TestUnpinnedTools, TestWorkflowReaderRefusesAFlowCollectionOnLinesOfItsOwn, TestReadersRefuseALineBreakTheyDoNotRead |
 | D-87 | A direct dependency more than six months behind fails unless go.mod pins it with a reason | accepted | staleness, TestPinnedWithReasonNeedsTheReason |
 | D-88 | Dependencies are held to a license allow-list | accepted | licenses |
 | D-89 | Nothing from a real Pipedrive account is committed, in the tree or the history | accepted | leaks, leaks-history, TestFindLeaks, TestHistoryProblemsReadsWhatWasPublished |
-| D-90 | A change to watched source needs a CHANGELOG entry under [Unreleased] | accepted | changelog, TestAddedUnderUnreleasedCountsTheCutSectionOnly, TestTouchesWatchedReadsThePaths |
-| D-91 | The release notes are the CHANGELOG section, and every version heading has its link | accepted | changelog-links, TestSectionForTakesOnlyItsOwnVersion |
-| D-92 | One cosign signature over checksums.txt covers every archive, SBOM and the bundle, beside build provenance | accepted | review |
+| D-90 | A change to watched source needs a CHANGELOG entry under [Unreleased] | accepted | changelog, TestAddedUnderUnreleasedCountsTheCutSectionOnly, TestTouchesWatchedReadsThePaths, TestTheChangelogGateReadsWhatTheBinaryIsBuiltFrom |
+| D-91 | The release notes are the CHANGELOG section, and every version heading has its link | accepted | changelog-links, TestSectionForTakesOnlyItsOwnVersion, TestReadChangelog |
+| D-92 | One cosign signature over checksums.txt covers every archive, SBOM and the bundle, beside build provenance | accepted | mcpb, TestAttestationProblems, review |
 | D-93 | Release builds are reproducible | accepted | review |
-| D-94 | A release is six archives named as the sibling servers name theirs, and the bundle carries the Windows amd64 binary alone | accepted | mcpb, TestTheReleaseMatrixIsTheSix, TestTheArchivesAreNamedNameVersionOSArch, TestReleaseDocProblems, TestTheBundleReachesEveryPair |
+| D-94 | A release is six archives named as the sibling servers name theirs, and the bundle carries the Windows amd64 binary alone | accepted | mcpb, pins, TestTheReleaseMatrixIsTheSix, TestGoreleaserMatrixReadsEveryBuild, TestTheArchivesAreNamedNameVersionOSArch, TestReleaseDocProblems, TestTheBundleReachesEveryPair |
 | D-95 | The bundle manifest is validated against a vendored schema pinned by SHA256 | accepted | mcpb, TestCommittedManifestSatisfiesItsSchema, TestVendoredSchemaMatchesItsRecordedHash, TestTheSchemaRefIsATagNotABranch |
 | D-96 | The bundle's settings come from config.Vars, and its defaults are started through config.Load | accepted | mcpb, TestBundleVarsAreDerivedFromTheSettings, TestDefaultsProblemsReportsEveryUnreadableDefaultAndTheRest, TestSettingProblemsRefuseABundleWithNoSecret |
 | D-97 | The registry entry is published by its own workflow, from checksums.txt after cosign verifies it | accepted | TestTheRegistryEntryIsBuiltFromTheRepository, TestTheBundleRowMustBeExactlyOne, TestRegistrySchemaMatchesItsRecordedHash, review |
@@ -2332,8 +2332,8 @@ ships with a test that plants the break it catches, and the rule is
 broken once in the code to watch that test fail. A gate also refuses to
 pass on an empty input: the release checks refuse a configuration they
 read nothing from, `descriptions` fails on an empty dump, and `parity`
-refuses a registry, a `check:` target, a set of recipes or the tree's
-build tags when too few to be the real ones.
+and `pins` hold each count they read to a floor under the real one. A
+reader refuses by name a line it does not read, rather than skip it.
 
 A gate that read nothing reports the same pass as one that read
 everything. A verifier that succeeds prints little: `cosign verify-blob`
@@ -2350,18 +2350,25 @@ corrupted copy before its pass is believed.
 ### D-84 make check and CI run the same gates
 
 `make check` and the CI workflow run the same gates, and the `parity`
-gate holds them to it. It reads the recipe of each `check:` prerequisite
-and finds each command in what `.github/workflows/ci.yml` runs. That is
-its `run:` steps, and the recipe of each target a step runs with `make`.
-CI's golangci-lint and gitleaks actions stand in for those two tools,
-and a target or an action CI runs needs a `check:` prerequisite that
-runs it.
+gate holds them to it. Every command `make check` runs, its variables
+expanded, is one `.github/workflows/ci.yml` runs in the same words, read
+as the shell splits them: a `run:` step, or the recipe of a target a
+step runs with `make`. CI's side is the jobs a push to `main` runs, since
+a check only the pull-request jobs run never runs on `main`. CI's
+golangci-lint action stands in for `make lint`. Every go command CI runs is one `make check` runs, but
+`go build`, which compiles for the host before the tests.
 
-A gate `scripts/gates` declares runs in both. A pull-request gate,
-`changelog` or `schema-ack`, runs in CI and stays out of `make check`.
-Each build tag a `//go:build` line in the tree requires has a tagged
-`go vet` pass on both sides. `CLAUDE.md` names the `check` target as
-the list rather than copying it.
+Each gate runs where its entry in `scripts/gates` says, with the same
+arguments on both sides. A pull-request gate, `changelog` or
+`schema-ack`, runs in ci.yml's pull-request jobs and stays out of
+`make check`. A release gate runs in `.goreleaser.yaml`, `release.yml`
+or a workflow `release.yml` calls. Each `//go:build` line in the files
+git lists has a `go vet` pass on both sides that builds it, its OS and
+architecture tags left free.
+
+A command `make check` runs behind a `-` prefix or `.IGNORE` is refused,
+since make ignores its failure where CI does not. `CLAUDE.md` names the
+`check` target as the list rather than copying it.
 
 Two lists in two files drift silently, since an edit touches one of
 them. A gate CI skips can break on `main` with every pull request green,
@@ -2374,21 +2381,26 @@ unseen.
 Rejected: a hand list of the tools CI runs, which a new prerequisite
 passes by being on no list; a copy of the `check` list in `CLAUDE.md`,
 which needs a gate of its own to stay true.
-Cost: a CI step no prerequisite runs, such as `go mod verify` or CodeQL,
-is outside the comparison. A step disabled by an `if:` that is never
-true is not seen, and a command is matched by its first three words.
+Cost: a step disabled by an `if:` that is never true is not seen, and a
+command matches only in the same words, so a flag added on one side is
+an edit to both. CodeQL runs outside the comparison.
 
 ### D-85 Every action and tool is pinned, and make check runs each tool at the version CI pins
 
 Each tool `make check` runs, golangci-lint, govulncheck, go-licenses and
-gitleaks, runs at an exact version through `go run <module>@<version>`,
-so whatever is installed on the machine does not decide which version
-answers. CI runs govulncheck and go-licenses through `make vuln` and
-`make licenses`, so the Makefile alone names their versions. CI runs
-golangci-lint and gitleaks through actions, and the `pins` gate holds
-the versions `.github/workflows/ci.yml` gives those two equal to the
-Makefile's. It also holds every Makefile version exact, every action to
-a commit and every tool to an exact version (D-86).
+gitleaks, runs at an exact version through `$(GO) run $(TOOL)`, from one
+`TOOL ?= <module>@<version>` variable, so whatever is installed on the
+machine does not decide which version answers. CI runs govulncheck,
+go-licenses and gitleaks through `make vuln`, `make licenses` and
+`make gitleaks`, and the pre-commit hook runs `make gitleaks-staged`, so
+the Makefile alone names their versions. CI runs golangci-lint through
+its action, and the `pins` gate holds the version
+`.github/workflows/ci.yml` gives it equal to the Makefile's.
+
+The gate refuses a known tool named as a word of a recipe or a hook,
+which runs it from the PATH, and a version kept in a variable apart
+from its module. It also holds every action to a commit and every tool
+to an exact version (D-86).
 
 A tool at another version passes what CI rejects or fails what CI
 passes: a linter adds checks, and a vulnerability scanner learns
@@ -2407,12 +2419,25 @@ installs a real Go and is unaffected.
 ### D-86 Every action is pinned by commit SHA and every installed tool by exact version
 
 Every `uses:` in a workflow names a full commit SHA, with the version in
-a trailing comment, and every tool version a workflow names is exact.
-The `pins` gate reads every workflow and refuses a ref that can move, a
-version that can float, an action it has not classified, and an action
-that installs a tool without naming the tool's version. It also holds
-every workflow to a `bash` default shell, and pre-commit, the Makefile
-and CI to one gitleaks.
+a trailing comment. Every tool version a workflow, the Makefile, the
+goreleaser config or a string in the Go under `scripts/` names is
+exact, one version per tool, and a container image is pinned by digest.
+The `pins` gate refuses a ref that can move, a version that can float,
+an action it has not classified, and an action that installs a tool
+without naming the tool's version. A `with:` or `env:` key names a
+version in any case, such as `Tool_Version`. A version given as an
+expression, such as `${{ env.NAME }}`, is no exact version and is
+refused, unless it is one context passed to this repository's own
+reusable workflow, which the gate reads too. Go is pinned by
+`go-version-file: go.mod` alone.
+
+It also holds every workflow, job and step to `bash`. The pre-commit
+config names no version, and its gitleaks hook runs
+`make gitleaks-staged`. The workflow
+reader refuses by name a shape it does not read, so a step written in
+flow style cannot hide an action. Each YAML reader refuses a line break
+YAML reads and it does not, such as a lone CR, so a step cannot hide
+after one either.
 
 A tag can be moved to other code by whoever controls the action, and a
 SHA cannot. A SHA pins the wrapper and not what it installs:
@@ -2471,12 +2496,14 @@ workspace domain, token, record id, name, address or phone number, in a
 file, a path, a commit message or a tag. Fixtures are invented,
 addresses use reserved domains such as `example.com`, and phone numbers
 come from ranges set aside for fiction. `make leaks` scans the tree,
-untracked files included, and `make gitleaks` scans it and the branch's
-commits for secrets.
+untracked files included. `make gitleaks` scans HEAD's history for
+secrets, and the pre-commit hook's `make gitleaks-staged` what a commit
+is about to add.
 `make leaks-history` reads everything the repository has published,
 every commit message, path, blob and annotated tag message; it reads the
 whole object store, so it runs by hand before a tag.
-`make gitleaks-history` scans every commit for secrets, by hand too.
+`make gitleaks-history` scans every ref's history for secrets, by hand
+too.
 
 The repository is public, and a value committed and edited out later is
 still on GitHub. A CRM holds other people's contact details, so a leak
@@ -2491,13 +2518,18 @@ caught, since too much else has its shape.
 
 ### D-90 A change to watched source needs a CHANGELOG entry under [Unreleased]
 
-A pull request that changes `internal/tools/`, `internal/pipedrive/`,
-`internal/app/` or `cmd/` adds at least one line under `## [Unreleased]`
-in `CHANGELOG.md`. The `changelog` gate reads the diff from the
-merge-base and counts the added lines under that heading. A release cut
-renames the heading to the version, so in a diff that removes
-`[Unreleased]`, the version heading that replaced it counts as the
-unreleased section.
+A pull request that changes watched source adds at least one entry under
+`## [Unreleased]` in `CHANGELOG.md`. Watched source is what the binary
+is built from: any file but a test in the directory of a package of this
+module `./cmd/...` imports, a file such a package embeds, the bundle's
+manifest, which a person reads when installing it, and `go.mod` outside
+its require and tool lines. Test data never counts. The `changelog` gate
+reads the diff from the merge-base and counts the bullets at the margin
+it adds under that heading, outside fenced code.
+
+A release cut renames the heading to the version, so in a diff that
+removes `[Unreleased]`, a heading it adds counts as the unreleased
+section.
 
 The release notes are that section (D-91), so a change with no entry
 ships unannounced. An entry added under a released heading is invisible
@@ -2506,11 +2538,12 @@ to anyone reading the release it belongs to, on the page as in the file.
 Rejected: an entry under any heading, which can land under a version
 already released; an entry for every change, docs and workflows
 included, where a reader of the changelog expects what changes the
-server.
-Cost: a change outside the watched trees, such as `internal/config`,
-`internal/server` or `scripts/`, needs no entry, so whether it deserves
-one is left to review. The gate needs a merge-base, so it runs on a pull
-request and not in `make check`.
+server; a hand list of watched trees, which a new package passes by
+being on no list.
+Cost: a change outside the binary, such as `scripts/` or a dependency
+bump, needs no entry, so whether it deserves one is left to review. The
+gate needs a merge-base, so it runs on a pull request and not in
+`make check`.
 
 ### D-91 The release notes are the CHANGELOG section, and every version heading has its link
 
@@ -2519,7 +2552,10 @@ A release's notes are its version's section of `CHANGELOG.md`, lifted by
 `.goreleaser.yaml` has no changelog block. The headings inside the
 section are promoted one level, since the release page's title is the
 version. The `changelog-links` gate holds every version heading to its
-compare-link definition in the footer.
+compare-link definition in the footer, its label written as the heading
+writes it. Every gate reads the file through
+one reader, fenced code as an example, so a heading in a fence ends no
+section.
 
 The CHANGELOG is written for a person deciding whether to upgrade, in
 Keep a Changelog's sections, while a commit list is written for the
@@ -2540,9 +2576,14 @@ A release carries one signature: the release workflow signs
 `checksums.txt` with keyless cosign into `checksums.txt.bundle`, and
 that file holds the SHA256 of every archive, every CycloneDX SBOM and
 the `.mcpb` bundle. Beside it, `actions/attest-build-provenance` attests
-the archives, the bundle and `checksums.txt` with build provenance. The
-documented verification checks the signature first, against
-`release.yml` on a tag ref, and only then the checksums.
+the archives, the bundle and `checksums.txt` with build provenance, and
+the `mcpb` gate holds its subject-path to each of them by its whole path
+under goreleaser's dist. The attest step sits in the job of
+`release.yml` that runs goreleaser, with `id-token: write` and
+`attestations: write`: another job, or a workflow it calls, can be
+skipped while the release ships. The documented verification checks the
+signature first, against `release.yml` on a tag ref, and only then the
+checksums.
 
 A signature per artifact buys a longer asset list rather than more
 assurance, since every artifact is already covered by its hash in a
@@ -2591,15 +2632,20 @@ that matrix both ways, every pair to a binary the bundle runs, and every
 archive name in the Markdown, the workflows and the release footer to
 the names it renders.
 
+The gate reads a build's pairs as its goos by its goarch, less the pairs
+its ignore entries name, and the release's as every build's together.
+
 One set of names across the sibling servers lets a person or a script
 that installs one install the others the same way. A bundle manifest
 names one command per platform, so one Windows binary serves both
 architectures.
 
-Rejected: an ignore list or a second build in the release configuration;
-the old dashed archive names.
-Cost: the gate reads `.goreleaser.yaml` with regular expressions, so it
-refuses a second build and any ignore list rather than read them wrong.
+Rejected: the old dashed archive names.
+Cost: the gate reads `.goreleaser.yaml` through the reader the pins and
+parity gates share, which refuses by name what it does not read, such as
+`builds.targets`, an ignore entry by any key but goos and goarch, or a
+second archive. The reader is checked against the goreleaser release.yml
+runs, and the pins gate holds the two versions equal.
 Nothing cross-compiles every target before a tag, so a change that
 breaks windows/arm64 fails only in the release job; whether to build
 every release target in CI or `make check` is open (#116).

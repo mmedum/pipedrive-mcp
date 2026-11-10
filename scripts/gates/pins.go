@@ -1,445 +1,834 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
+	"io/fs"
+	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 )
 
-// pins is a command rather than a test, so a person reading the
-// Makefile's target list can see that pinning is checked.
+// The pins gate holds every third-party tool to one exact version, the
+// same version everywhere it is named (D-85, D-86).
+//
+// An action is pinned by a full commit SHA, with the version it is in
+// the comment after it. A tag "can be moved or deleted if a bad actor
+// gains access to the repository storing the action", in GitHub's words.
+// https://docs.github.com/en/actions/reference/security/secure-use#using-third-party-actions
+// A container image, a step's, a job's or a service's, is pinned by its
+// sha256 digest for the same reason.
+//
+// Every tool an action installs is pinned beside it. A SHA pins the
+// action, never the tool the action fetches: cosign-installer pinned by
+// SHA with no `cosign-release` installs whatever cosign is newest,
+// whatever its signing format. goreleaser-action reads `~>` as "a max
+// satisfying semver one", so `~> v2.18.1` floats across every 2.18.x and
+// reads like a pin.
+// https://github.com/goreleaser/goreleaser-action/blob/v7.3.0/README.md#inputs
+// Every action is classified as an installer or not, and an unknown one
+// fails: being unclassified is how an unpinned tool slips through.
+//
+// Every version, an input, an env value, a `go run module@version`, a
+// Makefile variable or a string in the gates' own Go, is one exact
+// version, and a tool named in two files is named at one version: a local
+// lint or scan otherwise passes on a version CI never runs. An input given
+// as an expression, such as `${{ env.NAME }}`, is no exact version. A
+// Makefile variable no recipe runs with the go command pins nothing, since
+// the tool then runs from the PATH, and a Makefile tool is one
+// `NAME ?= module@version` variable. A known tool's name as a word of a
+// recipe or a hook is refused for the same reason. A known tool's
+// module@version on any line of a workflow or the Makefile but a comment
+// is a pin too, whatever the readers made of the line: they do not follow
+// bash -c, eval, a make conditional or an env value the Makefile's `?=`
+// takes, and are not grown to. The goreleaser config's hooks, signs and
+// SBOMs run in the release, so a known tool's module@version in one is a
+// pin, and none floats. Its release-note prose
+// runs nothing and is not read. A pre-commit hook runs its tool through a
+// Makefile target, so a version in the hooks' config, a remote hook's rev
+// or a module@version, is one apart from the Makefile's and is refused.
+//
+// And every workflow pins its shell at the workflow level. The Windows
+// runner's default shell is PowerShell, which does not read
+// `-coverprofile=cov.out` the way bash does, and a job-level block fixes
+// the forgetting exactly one level up: a job added later is bare again.
+// The shell is bash, and no job or step sets another.
+// https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#defaultsrunshell
 
-var (
-	// usesLine is a step's `uses:`. Its spaces are [ \t], never \s, which
-	// crosses a newline and would start a match on a blank line above the
-	// step, lending the step the next step's keys.
-	usesLine    = regexp.MustCompile(`(?m)^[ \t]*-?[ \t]*uses:[ \t]*([^\s#]+)`)
-	fullSHA     = regexp.MustCompile(`^[0-9a-f]{40}$`)
-	exactSemver = regexp.MustCompile(`^v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
+// pinsTool is one tool this repository runs, and every way it can be
+// named.
+type pinsTool struct {
+	name string
+	// modules match a `module@version` in the Makefile, a run line or the
+	// goreleaser config.
+	modules []string
+	// envKeys are env names whose value is this tool's version.
+	envKeys []string
+	// actions install this tool, each with the with: input that pins it.
+	actions map[string]string
+}
 
-	// versionLine matches any input that names a tool's version, derived
-	// from the shape of the key rather than from a list of them. A list
-	// names keys an action may not have: gitleaks-action reads
-	// `GITLEAKS_VERSION` from the environment and has no
-	// `gitleaks-version`, and golangci-lint-action takes plain `version`.
-	// A key that can never match reads as coverage and provides none.
-	//
-	// `go-version-file` ends in `file`, so it is not matched, and it is
-	// a pin by reference anyway; a bare `go-version` would be caught,
-	// which is what we would want.
-	// The value is either a bare token or a `${{ ... }}` expression,
-	// which contains spaces and would otherwise be cut at the first one —
-	// leaving the check judging the string "${{" and reporting it as an
-	// unpinned version.
-	versionLine = regexp.MustCompile(`(?mi)^\s*([A-Za-z0-9_-]*(?:version|release)):\s*(\$\{\{[^}]*\}\}|["']?[^"'\s#]+["']?)`)
+// pinsTools is every tool, with the installer actions a workflow uses. A
+// row with installers fails when no workflow step uses one.
+var pinsTools = []pinsTool{
+	// go-version-file names go.mod, which is a pin by reference: go.mod
+	// cannot disagree with itself the way two literals can.
+	{name: "go", actions: map[string]string{"actions/setup-go": "go-version-file"}},
+	{name: "golangci-lint", modules: []string{"github.com/golangci/golangci-lint"},
+		actions: map[string]string{"golangci/golangci-lint-action": "version"}},
+	{name: "goreleaser", modules: []string{"github.com/goreleaser/goreleaser"},
+		actions: map[string]string{"goreleaser/goreleaser-action": "version"}},
+	{name: "cosign", actions: map[string]string{"sigstore/cosign-installer": "cosign-release"}},
+	{name: "syft", actions: map[string]string{"anchore/sbom-action/download-syft": "syft-version"}},
+	{name: "mcp-publisher", envKeys: []string{"PUBLISHER_VERSION"}},
+	{name: "gitleaks", modules: []string{"github.com/zricethezav/gitleaks", "github.com/gitleaks/gitleaks"}},
+	{name: "govulncheck", modules: []string{"golang.org/x/vuln/cmd/govulncheck"}},
+	{name: "go-licenses", modules: []string{"github.com/google/go-licenses"}},
+}
+
+// pinsNotInstallers are the actions that install no tool, each with the
+// reason, so that adding one is a decision rather than an omission.
+var pinsNotInstallers = map[string]string{
+	"actions/checkout":                "checks out the repository",
+	"actions/upload-artifact":         "uploads, installs nothing",
+	"actions/download-artifact":       "downloads, installs nothing",
+	"actions/attest-build-provenance": "calls the attestation API",
+	"github/codeql-action/init":       "CodeQL's bundle is GitHub's to manage",
+	"github/codeql-action/analyze":    "CodeQL's bundle is GitHub's to manage",
+}
+
+const (
+	// pinsPreCommit is the pre-commit framework's configuration.
+	pinsPreCommit = ".pre-commit-config.yaml"
+	// pinsScripts holds the gates and the evals, whose Go may name a tool.
+	pinsScripts = "scripts"
 )
 
-// workflowFile is one file under .github/workflows.
-type workflowFile struct {
-	name string
-	data string
+var (
+	fullSHA     = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	exactSemver = regexp.MustCompile(`^v?` + semverPattern + `$`)
+	// pinsModuleAt is a module@version in text. The version ends where a
+	// shell word or command does.
+	pinsModuleAt = regexp.MustCompile(`([A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)+)@([^\s"'` + "`" + `);&|\\]+)`)
+	// pinsVersionVar is a Makefile variable that holds a version apart
+	// from its module, such as GITLEAKS_VERSION. It is read as written: the
+	// Makefile's own VERSION is the server's, which the build stamps in.
+	pinsVersionVar = regexp.MustCompile(`(?:version|release|_VERSION|_RELEASE)$`)
+	// pinsContextRef is an expression that is one context's property and
+	// nothing else, such as ${{ github.ref_name }}: no literal, operator or
+	// function (https://docs.github.com/en/actions/reference/workflows-and-actions/expressions).
+	pinsContextRef = regexp.MustCompile(`^\$\{\{\s*[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_-]*)+\s*\}\}$`)
+	// pinsImageDigest is a container image pinned by its content digest.
+	pinsImageDigest = regexp.MustCompile(`^[^@\s]+@sha256:[0-9a-f]{64}$`)
+	// pinsGoModToolchain and pinsGoModGo are setup-go's own patterns for
+	// the toolchain directive and the go line.
+	pinsGoModToolchain = regexp.MustCompile(`(?m)^toolchain go(1\.\d+(?:\.\d+|rc\d+)?)`)
+	pinsGoModGo        = regexp.MustCompile(`(?m)^go (\d+(?:\.\d+)*)`)
+)
+
+// floatingDownload matches a tool fetched at whatever version is newest:
+// a GitHub "latest release" download URL, or a Go module at @latest. The
+// MCP registry's own publishing example installs its publisher from
+// `releases/latest/download`. `runs-on: ubuntu-latest` is not one: an
+// image label is not a tool a release artifact comes out of.
+var floatingDownload = regexp.MustCompile(`releases/latest/download|@latest\b`)
+
+// pinsFloors are the fewest workflows, action references and pinned
+// versions the gate may read.
+type pinsFloors struct{ workflows, actions, places int }
+
+// pinsLimits are the repository's floors, each under what it holds.
+var pinsLimits = pinsFloors{workflows: 4, actions: 15, places: 15}
+
+// pinsFound is one place a tool's version is written.
+type pinsFound struct{ version, at string }
+
+// pinsReport is what the gate read and found.
+type pinsReport struct {
+	problems                               []string
+	workflows, actions, installers, places int
+	tools                                  map[string][]pinsFound
+	// installed names each tool a workflow step installs.
+	installed map[string]bool
+	// judged is each tool@version a rule has recorded or refused, which the
+	// text rule does not report again.
+	judged map[string]bool
 }
 
-// readWorkflows reads every workflow once and holds the floor itself
-// rather than leaving each rule to remember one: zero files and zero
-// findings are the same output.
-func readWorkflows(root string) ([]workflowFile, error) {
-	dir := filepath.Join(root, ".github", "workflows")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", dir, err)
-	}
-	var files []workflowFile
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if ext := filepath.Ext(e.Name()); ext != ".yml" && ext != ".yaml" {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", e.Name(), err)
-		}
-		files = append(files, workflowFile{name: e.Name(), data: string(data)})
-	}
-	if len(files) < 3 {
-		return nil, fmt.Errorf("only %d workflows read; the check is not reading %s", len(files), dir)
-	}
-	return files, nil
+func (r *pinsReport) fail(format string, a ...any) {
+	r.problems = append(r.problems, fmt.Sprintf(format, a...))
 }
 
-func pins(w io.Writer, _ []string) error {
-	root, err := moduleRoot()
-	if err != nil {
-		return err
+// add records one pin, refusing anything but one exact version.
+func (r *pinsReport) add(tool, version, at string) {
+	r.tools[tool] = append(r.tools[tool], pinsFound{version, at})
+	r.judged[tool+"@"+version] = true
+	r.places++
+	if !exactSemver.MatchString(version) {
+		r.fail("%s: %s is pinned to %q, which is not one exact version", at, tool, version)
 	}
-	files, err := readWorkflows(root)
-	if err != nil {
-		return err
-	}
-
-	var problems []string
-	actions, versions, installers := 0, 0, 0
-	for _, f := range files {
-		a, v, i, found := inspectWorkflow(f)
-		actions += a
-		versions += v
-		installers += i
-		problems = append(problems, found...)
-	}
-
-	// A checker that finds nothing passes for the wrong reason, and
-	// either count can go to zero on its own.
-	if actions < 5 {
-		return fmt.Errorf("only %d action references found; the check is not reading the workflows", actions)
-	}
-	if installers < 3 {
-		return fmt.Errorf("only %d tool installers found; the classification table has probably "+
-			"drifted from the actions the workflows use", installers)
-	}
-	if versions < 3 {
-		return fmt.Errorf("only %d tool versions found; the input names have probably changed", versions)
-	}
-	if agreeErr := toolPinsAgree(root); agreeErr != nil {
-		problems = append(problems, agreeErr.Error())
-	}
-	if len(problems) > 0 {
-		return fmt.Errorf("%s", strings.Join(problems, "\n"))
-	}
-	_, err = fmt.Fprintf(w, "pins ok: %d actions by SHA, %d tool versions exact, %d installers name their tool's version, %d workflows pin the shell\n",
-		actions, versions, installers, len(files))
-	return err
 }
 
-// toolPinsAgree keeps every local run of a tool on the version CI runs.
-// CI runs govulncheck and go-licenses through make, at the Makefile's
-// version alone. It runs golangci-lint and gitleaks through actions, so
-// the Makefile and ci.yml each name those two, and pre-commit names
-// gitleaks too. Two versions means a commit can pass one and fail
-// another, on rules that exist in one and not the other.
-func toolPinsAgree(root string) error {
-	read := func(rel string) (string, error) {
-		data, err := os.ReadFile(filepath.Join(root, rel)) //nolint:gosec // a repository path from a constant
-		if err != nil {
-			return "", fmt.Errorf("read %s: %w", rel, err)
+// judgeLatest marks each known tool's module@latest in text as refused.
+func (r *pinsReport) judgeLatest(text string) {
+	for _, m := range pinsModuleAt.FindAllStringSubmatch(text, -1) {
+		if tool := pinsToolByModule(m[1]); tool != "" && m[2] == "latest" {
+			r.judged[tool+"@latest"] = true
 		}
-		return string(data), nil
 	}
-	precommit, err := read(".pre-commit-config.yaml")
-	if err != nil {
-		return err
-	}
-	makefile, err := read("Makefile")
-	if err != nil {
-		return err
-	}
-	workflow, err := read(filepath.Join(".github", "workflows", "ci.yml"))
-	if err != nil {
-		return err
-	}
-	return pinsAgree(precommit, makefile, workflow)
 }
 
-// makePin matches a tool version the Makefile pins, such as
-// GITLEAKS_VERSION ?= v8.30.1. Its spaces are [ \t], as usesLine's are:
-// \s would read an empty value's version from the next line.
-var makePin = regexp.MustCompile(`(?m)^([A-Z][A-Z0-9_]*_VERSION)[ \t]*\??=[ \t]*(\S*)`)
+func pins(out io.Writer, _ []string) error {
+	flows, err := readWorkflows()
+	if err != nil {
+		return err
+	}
+	mk, err := readMakefile()
+	if err != nil {
+		return err
+	}
+	raw, err := os.ReadFile("go.mod")
+	if err != nil {
+		return err
+	}
+	gomod := string(raw)
+	goreleaser, err := readGoreleaser(".")
+	if err != nil {
+		return err
+	}
+	hooks, err := readPreCommit()
+	if err != nil {
+		return err
+	}
 
-// actionPins are the Makefile's versions of the tools CI runs through an
-// action, which ci.yml names too.
-var actionPins = []string{"GOLANGCI_LINT_VERSION", "GITLEAKS_VERSION"}
-
-// pinsAgree is toolPinsAgree over the three files' text. Every version
-// the Makefile pins is exact, since `go run` resolves a partial one to the
-// newest match. A version is compared without its `v`, since go wants it
-// and gitleaks-action does not.
-func pinsAgree(precommit, makefile, workflow string) error {
-	ci := map[string]string{}
-	for _, m := range versionLine.FindAllStringSubmatch(workflow, -1) {
-		ci[m[1]] = strings.Trim(m[2], `"'`)
+	r := &pinsReport{tools: map[string][]pinsFound{}, installed: map[string]bool{}, judged: map[string]bool{},
+		workflows: len(flows)}
+	for i := range flows {
+		pinsWorkflow(gomod, flows[i], r)
 	}
-	var problems []string
-	local := map[string]string{}
-	for _, m := range makePin.FindAllStringSubmatch(makefile, -1) {
-		local[m[1]] = m[2]
-		if !exactSemver.MatchString(m[2]) {
-			problems = append(problems, fmt.Sprintf("the Makefile pins %s to %q, which is not exactly one version", m[1], m[2]))
-		}
+	r.problems = append(r.problems, mk.refused...)
+	pinsMakefileRecipes(mk, pinsMakefileVars(mk, r), r)
+	r.add("go", pinsGoVersion(gomod), "go.mod")
+	pinsGoreleaser(goreleaser, r)
+	pinsHooks(hooks, r)
+	if err := pinsGoSource(r); err != nil {
+		return err
 	}
-	bare := func(v string) string { return strings.TrimPrefix(v, "v") }
-	for _, name := range actionPins {
-		version, pinned := local[name]
-		want, inCI := ci[name]
-		switch {
-		case !pinned:
-			problems = append(problems, fmt.Sprintf("the Makefile pins no %s; the check is reading the wrong file", name))
-		case !inCI:
-			problems = append(problems, fmt.Sprintf("the Makefile pins %s and ci.yml does not; "+
-				"make check runs a version CI never does", name))
-		case bare(version) != bare(want):
-			problems = append(problems, fmt.Sprintf("%s is %s in the Makefile and %s in ci.yml; "+
-				"a commit can pass one and fail the other", name, version, want))
-		}
+	// Last, so a version a reader recorded is not reported twice.
+	for i := range flows {
+		pinsTextVersions(flows[i].path, flows[i].text, r)
 	}
-	hook := gitleaksRev(precommit)
-	switch want, ok := ci["GITLEAKS_VERSION"]; {
-	case hook == "":
-		problems = append(problems, "no rev under the gitleaks repo in .pre-commit-config.yaml; the check is reading the wrong file")
-	case !ok:
-		problems = append(problems, "no GITLEAKS_VERSION in ci.yml; the check is reading the wrong file")
-	case bare(hook) != bare(want):
-		problems = append(problems, fmt.Sprintf("gitleaks is %s in pre-commit and %s in ci.yml; "+
-			"a commit can pass the hook and fail the job", hook, want))
+	pinsTextVersions(makefilePath, mk.expand(mk.text), r)
+	r.checkTools()
+	// Zero findings and zero inputs look the same otherwise.
+	r.problems = append(r.problems, floorProblems("workflows", r.workflows, pinsLimits.workflows)...)
+	r.problems = append(r.problems, floorProblems("action references", r.actions, pinsLimits.actions)...)
+	r.problems = append(r.problems, floorProblems("pinned versions", r.places, pinsLimits.places)...)
+	if len(r.problems) > 0 {
+		return fmt.Errorf("%d problem(s):\n  %s", len(r.problems), strings.Join(r.problems, "\n  "))
 	}
-	if len(problems) > 0 {
-		return fmt.Errorf("%s", strings.Join(problems, "\n"))
-	}
+	_, _ = fmt.Fprintf(out, "%d workflows with their shell pinned, %d actions by SHA, %d installers name their tool, "+
+		"%d tools pinned in %d places, each at one version\n", r.workflows, r.actions, r.installers, len(r.tools), r.places)
 	return nil
 }
 
-// pinsShell reports whether a workflow sets bash as the default shell
-// for the whole file: `defaults:` at column zero, `run:` under it, and
-// `shell: bash` nested *under* that.
-//
-// Depth is the whole point. A first draft that only asked whether both
-// keys had been seen said yes to a `shell: bash` sitting *beside*
-// `run:`, which is `defaults.shell` — not a key GitHub has, so it pins
-// nothing while reading to a maintainer as though it does. The only two
-// things read here are "column zero" and "deeper than the `run:` it sits
-// under", so four-space and tab-indented files are not false failures.
-func pinsShell(data string) bool {
-	lines := strings.Split(data, "\n")
-	for i, line := range lines {
-		if indentOf(line) != 0 || withoutComment(line) != "defaults:" {
+// checkTools holds each tool to one version wherever it is named, and to
+// being named at all, goreleaser to the one its config's reader is checked
+// against, and each installer to a step that uses it.
+func (r *pinsReport) checkTools() {
+	for _, t := range pinsTools {
+		found := r.tools[t.name]
+		if len(found) == 0 {
+			r.fail("%s is pinned nowhere: a tool this gate names that no file pins is either gone or unread", t.name)
 			continue
 		}
-		runIndent := -1
-		for _, l := range lines[i+1:] {
-			key := withoutComment(l)
-			if key == "" {
-				continue
+		for _, f := range found[1:] {
+			if pinsNormal(f.version) != pinsNormal(found[0].version) {
+				r.fail("%s is %s at %s and %s at %s: one tool, one version",
+					t.name, found[0].version, found[0].at, f.version, f.at)
 			}
-			if indent := indentOf(l); indent == 0 || indent <= runIndent {
-				break // the defaults block, or the run block inside it, ended
-			} else if key == "run:" {
-				runIndent = indent
-			} else if runIndent >= 0 && isShellBash(key) {
+		}
+	}
+	// A version that is not one exact version is refused already.
+	if found := r.tools["goreleaser"]; len(found) > 0 && exactSemver.MatchString(found[0].version) &&
+		pinsNormal(found[0].version) != pinsNormal(goreleaserChecked) {
+		r.fail("%s runs goreleaser %s, and the %s reader is checked against %s's source; check its key paths "+
+			"and template rule against %s's, then set goreleaserChecked",
+			found[0].at, found[0].version, parityGoreleaser, goreleaserChecked, found[0].version)
+	}
+	// A floor per installer, not a count of steps: one installer used in
+	// every job would meet a count alone.
+	for _, t := range pinsTools {
+		if len(t.actions) > 0 && !r.installed[t.name] {
+			r.fail("no workflow step installs %s through %s; the reader is not seeing the step, "+
+				"or the table names an installer nothing uses", t.name, strings.Join(slices.Sorted(maps.Keys(t.actions)), " or "))
+		}
+	}
+}
+
+// pinsWorkflow applies the workflow rules to one file, with gomod the
+// repository's go.mod.
+func pinsWorkflow(gomod string, w workflowFile, r *pinsReport) {
+	r.problems = append(r.problems, w.refused...)
+	pinsShells(w, r)
+	pinsFloating(w.path, w.text, r)
+	pinsSteps(gomod, w, r)
+	for _, img := range w.images {
+		if !pinsImageDigest.MatchString(img.value) {
+			r.fail("%s:%d: job %s runs %s from %s, which has no sha256 digest, so the image it runs can change",
+				w.path, img.line, img.job, img.what, img.value)
+		}
+	}
+	for _, k := range w.env {
+		if !workflowVersionKey.MatchString(k.key) {
+			continue
+		}
+		if tool := pinsToolByEnv(k.key); tool != "" {
+			r.add(tool, k.value, fmt.Sprintf("%s:%d: %s", w.path, k.line, k.key))
+		} else {
+			r.fail("%s:%d: the env value %s names a version of a tool pinsTools does not know", w.path, k.line, k.key)
+		}
+	}
+	pinsRuns(w.path, w.runs, r)
+}
+
+// pinsShells holds a workflow to a workflow-level shell, and every shell a
+// run step can take to bash.
+func pinsShells(w workflowFile, r *pinsReport) {
+	if w.shell == "" {
+		r.fail("%s: no workflow-level `defaults: run: shell:`. Every run step goes to a shell, "+
+			"so a job-level block only fixes the jobs that exist today", w.path)
+	}
+	for _, sh := range w.shells {
+		// An empty workflow shell is the missing one above.
+		if sh.value != "bash" && (sh.value != "" || sh.job != "") {
+			r.fail("%s:%d: %s sets the shell to %q, and every run step runs under bash: "+
+				"another shell reads the command its own way", w.path, sh.line, sh.what, sh.value)
+		}
+	}
+}
+
+// pinsSteps holds each step and reusable call of a workflow: an action to
+// a SHA and its classification, an image to a digest, and every version
+// input to an exact version.
+func pinsSteps(gomod string, w workflowFile, r *pinsReport) {
+	for _, s := range w.steps {
+		at := fmt.Sprintf("%s:%d", w.path, s.line)
+		switch {
+		case strings.HasPrefix(s.uses, "./"):
+			// A local action or workflow carries no version of its own.
+		case strings.HasPrefix(s.uses, "docker://"):
+			r.actions++
+			if !pinsImageDigest.MatchString(strings.TrimPrefix(s.uses, "docker://")) {
+				r.fail("%s: job %s: %s is a container image with no sha256 digest, so the image it runs can change",
+					at, s.job, s.uses)
+			}
+		default:
+			pinsActionRef(at, s, r)
+			if !s.reusable {
+				pinsStep(gomod, w, s, r)
+			}
+		}
+		pinsInputs(w.path, s, r)
+	}
+}
+
+// pinsRuns records each module@version file's command lines run or install
+// with the go command as a pin of a tool pinsTools knows.
+func pinsRuns(file string, runs []workflowRun, r *pinsReport) {
+	for _, run := range runs {
+		for _, g := range pinsGoRuns(run.text) {
+			module, version, _ := strings.Cut(g.pkg, "@")
+			if tool := pinsToolByModule(module); tool != "" {
+				r.add(tool, version, fmt.Sprintf("%s:%d: go %s %s", file, run.line, g.verb, module))
+			} else {
+				r.fail("%s:%d: go %s %s names a tool pinsTools does not know", file, run.line, g.verb, g.pkg)
+			}
+		}
+	}
+}
+
+// pinsFloating refuses a tool fetched at whatever version is newest on
+// any line of text but a comment line.
+func pinsFloating(file, text string, r *pinsReport) {
+	for i, line := range strings.Split(text, "\n") {
+		if t := strings.TrimSpace(line); !strings.HasPrefix(t, "#") {
+			pinsFloatingAt(file, i+1, t, r)
+		}
+	}
+}
+
+// pinsFloatingAt refuses a tool line n of file fetches at whatever version
+// is newest.
+func pinsFloatingAt(file string, n int, line string, r *pinsReport) {
+	if floating := floatingDownload.FindString(line); floating != "" {
+		r.fail("%s:%d: %s installs whatever is newest. Name the version: what builds a release must not float",
+			file, n, floating)
+		r.judgeLatest(line)
+	}
+}
+
+// pinsFromPath refuses each word of line n of file that names a tool
+// pinsTools knows, by its name or a path ending in it, wherever it sits:
+// a pipeline, a substitution and `env -i tool` run it from the PATH as a
+// first word does, and a word that runs nothing is refused all the same.
+// The go command is go.mod's, and the module a go run names is the run
+// that pins the tool. remedy says how to run the tool instead.
+func pinsFromPath(file string, n int, line, remedy string, r *pinsReport) {
+	words := shellSplit(line)
+	module := map[string]bool{}
+	for _, run := range goRunsOf(words) {
+		module[run.pkg] = true
+	}
+	named := map[string]bool{}
+	for _, w := range words {
+		tool := path.Base(w.text)
+		if tool == "go" || module[w.text] || named[tool] ||
+			!slices.ContainsFunc(pinsTools, func(t pinsTool) bool { return t.name == tool }) {
+			continue
+		}
+		named[tool] = true
+		r.fail("%s:%d: names %s as a word of its own, which runs it from the PATH at whatever version is installed there; %s",
+			file, n, tool, remedy)
+	}
+}
+
+// pinsGoreleaser holds each command the goreleaser config runs in the
+// release as a workflow's run line is held: nothing fetched at whatever
+// version is newest, and each module@version the go command runs a pin of
+// a tool pinsTools knows. A sign's or an SBOM's command is words rather
+// than a line, and a line may hide a run in bash -c, so in either a known
+// tool's module@version is a pin too. An @latest the floating rule refused
+// is not reported again. Release-note prose is not a command.
+func pinsGoreleaser(g goreleaserFile, r *pinsReport) {
+	r.problems = append(r.problems, g.refused...)
+	for _, run := range slices.Concat(g.runs, g.words) {
+		pinsFloatingAt(parityGoreleaser, run.line, run.text, r)
+	}
+	for _, run := range g.runs {
+		for _, gr := range pinsGoRuns(run.text) {
+			module, version, _ := strings.Cut(gr.pkg, "@")
+			switch tool := pinsToolByModule(module); {
+			case tool == "":
+				r.fail("%s:%d: go %s %s names a tool pinsTools does not know", parityGoreleaser, run.line, gr.verb, gr.pkg)
+			case !r.judged[tool+"@"+version]:
+				r.add(tool, version, fmt.Sprintf("%s:%d: go %s %s", parityGoreleaser, run.line, gr.verb, module))
+			}
+		}
+	}
+	for _, word := range slices.Concat(g.runs, g.words) {
+		for _, m := range pinsModuleAt.FindAllStringSubmatch(word.text, -1) {
+			if tool := pinsToolByModule(m[1]); tool != "" && !r.judged[tool+"@"+m[2]] {
+				r.add(tool, m[2], fmt.Sprintf("%s:%d: %s", parityGoreleaser, word.line, m[1]))
+			}
+		}
+	}
+}
+
+// preCommitFile is what the reader takes from the pre-commit config: each
+// hook's entry, the command line the hook runs, and the shapes it refuses.
+type preCommitFile struct {
+	entries []workflowRun
+	refused []string
+}
+
+// preCommitEntryKey is an entry: key anywhere on a line, as a flow mapping
+// writes it.
+var preCommitEntryKey = regexp.MustCompile(`(?:^|[\s{,\[])["']?entry["']?[ \t]*:`)
+
+// readPreCommit parses the repository's pre-commit config.
+func readPreCommit() (preCommitFile, error) {
+	data, err := os.ReadFile(pinsPreCommit)
+	if err != nil {
+		return preCommitFile{}, err
+	}
+	return parsePreCommit(string(data)), nil
+}
+
+// parsePreCommit reads each hook's entry, a plain key with its command on
+// its line, in the workflow reader's grammar. A hook runs its tool through
+// a Makefile target, whose version the pins gate holds, so a version
+// anywhere in the file, a rev or a module@version, is refused, and so is
+// an entry written any other way.
+func parsePreCommit(text string) preCommitFile {
+	var f preCommitFile
+	yamlStrayBreaks(text, f.refuse)
+	// under is the column of the entry above, or -1: a line indented past
+	// it continues the entry's value. reported is whether that value is
+	// refused already.
+	under, reported := -1, false
+	for i, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+		n, trimmed := i+1, strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if under >= 0 && indent(line) > under {
+			if !reported {
+				f.refuse(n, "entry: a value continued on the next line; write it on one line")
+				reported = true
+			}
+			continue
+		}
+		under = -1
+		code, _ := yamlCutComment(trimmed)
+		m := workflowKeyLine.FindStringSubmatch(trimmed)
+		quoted := workflowQuotedKey.FindStringSubmatch(trimmed)
+		switch {
+		case pinsModuleAt.MatchString(code) || len(m) > 2 && m[2] == "rev":
+			f.refuse(n, "a hook names a version; run its tool through a Makefile target, whose version this gate holds")
+		case quoted != nil:
+			f.refuse(n, "%s: a quoted key; write the key plain", quoted[1])
+		case len(m) < 3 || m[2] != "entry":
+			if preCommitEntryKey.MatchString(code) {
+				f.refuse(n, "entry: is not a block key on its own line; write the hook in block style")
+			}
+		default:
+			raw := strings.TrimSpace(m[3])
+			value, _ := workflowValue(raw)
+			shape := preCommitShape(raw, value)
+			under, reported = indent(line)+len(m[1]), shape != ""
+			if shape != "" {
+				f.refuse(n, "entry: %s; write the command on the key's line, unquoted or quoted with no escape", shape)
+			} else {
+				f.entries = append(f.entries, workflowRun{line: n, text: value})
+			}
+		}
+	}
+	return f
+}
+
+// preCommitShape names the shape of an entry the reader cannot take whole,
+// or is "".
+func preCommitShape(raw, value string) string {
+	switch {
+	case value == "":
+		return "the value is on another line"
+	case workflowBlockScalar.MatchString(value):
+		return "a block scalar"
+	case strings.ContainsRune("&*!", rune(raw[0])):
+		return "an anchor, an alias or a tag"
+	case strings.ContainsRune("{[", rune(raw[0])):
+		return "a flow collection"
+	case workflowQuoteEscape(raw):
+		return "a quoted value with an escape in it"
+	}
+	return ""
+}
+
+func (f *preCommitFile) refuse(n int, format string, a ...any) {
+	f.refused = append(f.refused, fmt.Sprintf("%s:%d: %s", pinsPreCommit, n, fmt.Sprintf(format, a...)))
+}
+
+// pinsHooks holds each pre-commit hook's command line: nothing fetched at
+// whatever version is newest, and no known tool run from the PATH.
+func pinsHooks(hooks preCommitFile, r *pinsReport) {
+	r.problems = append(r.problems, hooks.refused...)
+	for _, e := range hooks.entries {
+		pinsFloatingAt(pinsPreCommit, e.line, e.text, r)
+		pinsFromPath(pinsPreCommit, e.line, e.text, "run it through a Makefile target, whose version this gate holds", r)
+	}
+}
+
+// pinsActionRef holds one action reference to a commit SHA, with the
+// version it is in the comment after it.
+func pinsActionRef(at string, s workflowStep, r *pinsReport) {
+	r.actions++
+	action, sha, ok := strings.Cut(s.uses, "@")
+	switch {
+	case !ok:
+		r.fail("%s: %s has no ref at all", at, action)
+	case !fullSHA.MatchString(sha):
+		r.fail("%s: %s is pinned to %q, a tag or branch that can be moved; pin the 40-character commit SHA",
+			at, action, sha)
+	case s.comment == "":
+		r.fail("%s: %s is pinned by SHA with no comment saying which version it is", at, action)
+	}
+}
+
+// pinsStep checks one step that uses an action: an installer sets the
+// key that pins its tool, and any other action is classified.
+func pinsStep(gomod string, w workflowFile, s workflowStep, r *pinsReport) {
+	file, action := w.path, s.action()
+	at := fmt.Sprintf("%s:%d: %s", file, s.line, action)
+	installer := false
+	for _, t := range pinsTools {
+		key, ok := t.actions[action]
+		if !ok {
+			continue
+		}
+		installer = true
+		r.installers++
+		r.installed[t.name] = true
+		v, set := s.input(key)
+		switch {
+		case !set:
+			r.fail("%s is pinned by SHA and does not set %s, so the tool it installs is whatever "+
+				"is current that morning", at, key)
+		case t.name == "go" && path.Clean(v.value) != "go.mod":
+			r.fail("%s sets %s to %q, which is not the repository's go.mod", at, key, v.value)
+		case t.name == "go":
+			r.add(t.name, pinsGoVersion(gomod), at)
+		default:
+			r.add(t.name, v.value, fmt.Sprintf("%s:%d: %s", file, v.line, action))
+		}
+		// setup-go reads go-version before go-version-file
+		// (https://github.com/actions/setup-go/blob/b7ad1dad31e06c5925ef5d2fc7ad053ef454303e/README.md#L44),
+		// so one beside go.mod is the Go the step installs.
+		if v, set := s.input("go-version"); t.name == "go" && set {
+			r.fail("%s:%d: %s sets go-version, which setup-go reads before %s; pin Go by go.mod alone",
+				file, v.line, action, key)
+		}
+	}
+	if _, known := pinsNotInstallers[action]; !installer && !known {
+		r.fail("%s is not classified: add it to pinsTools with the input that pins its tool, "+
+			"or to pinsNotInstallers with the reason", at)
+	}
+}
+
+// pinsInputs holds every version input of a step or a reusable call to
+// one exact version, but the key an installer's tool is pinned by, which
+// pinsStep holds. An action's code, a local action's included, and a
+// reusable workflow from another repository are not read here, so the
+// version each is given is held where it is given. This repository's own
+// reusable workflow is read here, and holds an input where it uses it, so
+// one context passed on to it is no literal; any other value is held, as
+// a run step there may fetch whatever version it is given.
+func pinsInputs(file string, s workflowStep, r *pinsReport) {
+	action := s.action()
+	local := s.reusable && strings.HasPrefix(s.uses, "./")
+	for _, key := range slices.Sorted(maps.Keys(s.with)) {
+		v := s.with[key]
+		installs := slices.ContainsFunc(pinsTools, func(t pinsTool) bool {
+			pin, ok := t.actions[action]
+			return ok && workflowInputName(pin) == workflowInputName(key)
+		})
+		if installs || !workflowVersionKey.MatchString(key) || local && pinsContextRef.MatchString(v.value) {
+			continue
+		}
+		if !exactSemver.MatchString(v.value) {
+			r.fail("%s:%d: %s: %s is %q, which is not one exact version", file, v.line, action, key, v.value)
+		}
+	}
+}
+
+// pinsGoRun is one module@version the go command runs or installs.
+type pinsGoRun struct{ verb, pkg string }
+
+// pinsGoRuns is each module@version a command line runs or installs with
+// the go command, read as the shell splits it, its flags skipped. A
+// package of this module has no version and is not one.
+func pinsGoRuns(line string) []pinsGoRun {
+	var out []pinsGoRun
+	for _, run := range goRunsIn(line) {
+		if strings.Contains(run.pkg, "@") {
+			out = append(out, pinsGoRun{"run", run.pkg})
+		}
+	}
+	for _, c := range goCommands(line) {
+		if c.sub != "install" {
+			continue
+		}
+		for _, pkg := range goAfterFlags(c.args) {
+			if strings.Contains(pkg, "@") {
+				out = append(out, pinsGoRun{"install", pkg})
+			}
+		}
+	}
+	return out
+}
+
+// pinsGoVersion is the Go a go.mod runs: its toolchain directive, or else
+// its go line. setup-go installs that, and the go command switches to it
+// (https://github.com/actions/setup-go/blob/b7ad1dad31e06c5925ef5d2fc7ad053ef454303e/src/installer.ts#L645,
+// setup-go v7.0.0).
+func pinsGoVersion(gomod string) string {
+	if m := pinsGoModToolchain.FindStringSubmatch(gomod); m != nil {
+		return m[1]
+	}
+	if m := pinsGoModGo.FindStringSubmatch(gomod); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// pinsMakefileVars reads every `module@version` variable, and returns each
+// module@version every such variable's value holds, by variable.
+func pinsMakefileVars(mk *makefile, r *pinsReport) map[string][]string {
+	pinnedBy := map[string][]string{}
+	for _, name := range slices.Sorted(maps.Keys(mk.vars)) {
+		// Recipes are read expanded, so a version kept in another
+		// variable is compared as the recipe runs it.
+		value := mk.expand("$(" + name + ")")
+		if pinsVersionVar.MatchString(name) {
+			r.fail("%s: %s holds a version apart from its module; write the tool as one `NAME ?= module@version` variable",
+				makefilePath, name)
+			continue
+		}
+		found := pinsModuleAt.FindAllStringSubmatch(value, -1)
+		for _, m := range found {
+			pinnedBy[name] = append(pinnedBy[name], m[0])
+		}
+		if strings.Contains(value, "@latest") {
+			r.fail("%s: %s is pinned to @latest", makefilePath, name)
+			r.judgeLatest(value)
+			continue
+		}
+		for _, m := range found {
+			if tool := pinsToolByModule(m[1]); tool != "" {
+				r.add(tool, m[2], makefilePath+": "+name)
+			} else {
+				r.fail("%s: %s names %s, which pinsTools does not know", makefilePath, name, m[1])
+			}
+		}
+	}
+	return pinnedBy
+}
+
+// pinsMakefileRecipes holds each recipe line as make runs it, its variables
+// expanded and its continued lines joined: nothing fetched at whatever
+// version is newest, no known tool named outside a go run, and what the go
+// command runs pinned. A module written into a recipe is a pin of its own,
+// and a variable in pinnedBy whose module@version no recipe naming it runs
+// pins nothing: the tool then runs from the PATH.
+func pinsMakefileRecipes(mk *makefile, pinnedBy map[string][]string, r *pinsReport) {
+	// ran is each variable and module@version a recipe naming it runs.
+	ran := map[[2]string]bool{}
+	for _, target := range slices.Sorted(maps.Keys(mk.targets)) {
+		t := mk.targets[target]
+		for i, line := range mk.recipe(target) {
+			pinsFloatingAt(makefilePath, t.lines[i], line, r)
+			pinsFromPath(makefilePath, t.lines[i], line, "run it as `$(GO) run $(NAME)`, NAME a `NAME ?= module@version` variable", r)
+			refs := mk.refs(t.recipe[i])
+			for _, g := range pinsGoRuns(line) {
+				named := false
+				for name := range refs {
+					if slices.Contains(pinnedBy[name], g.pkg) {
+						named = true
+						ran[[2]string{name, g.pkg}] = true
+					}
+				}
+				if named {
+					continue
+				}
+				module, version, _ := strings.Cut(g.pkg, "@")
+				if tool := pinsToolByModule(module); tool != "" {
+					r.add(tool, version, makefilePath+": "+target)
+				} else {
+					r.fail("%s: %s runs go %s %s, a tool pinsTools does not know", makefilePath, target, g.verb, g.pkg)
+				}
+			}
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(pinnedBy)) {
+		for _, pkg := range pinnedBy[name] {
+			if !ran[[2]string{name, pkg}] {
+				r.fail("%s: %s pins %s and no recipe runs it with the go command, so the tool runs from the PATH",
+					makefilePath, name, pkg)
+			}
+		}
+	}
+}
+
+// pinsTextVersions records a known tool's module@version on any line of
+// text but a comment line as a pin, whatever the readers made of the line,
+// so it is held to one exact version and to the tool's one version. A
+// version a rule already recorded or refused is not recorded again.
+func pinsTextVersions(file, text string, r *pinsReport) {
+	for i, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		for _, m := range pinsModuleAt.FindAllStringSubmatch(line, -1) {
+			if tool := pinsToolByModule(m[1]); tool != "" && !r.judged[tool+"@"+m[2]] {
+				r.add(tool, m[2], fmt.Sprintf("%s:%d: %s", file, i+1, m[1]))
+			}
+		}
+	}
+}
+
+// pinsGoSource reads every `module@version` of a known tool out of the
+// string literals in the maintainer tooling's Go source, so a copy of a
+// pin in a gate is held to the Makefile's like any other. A comment pins
+// nothing, so an example in one is not read.
+func pinsGoSource(r *pinsReport) error {
+	if _, err := os.Stat(pinsScripts); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return filepath.WalkDir(pinsScripts, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == "testdata" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+			return nil
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), p, nil, parser.SkipObjectResolution)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
 				return true
 			}
-		}
-		return false // YAML allows one `defaults:` per mapping, so there is no second chance
-	}
-	return false
-}
-
-// indentOf counts the leading whitespace, which is the only measure of
-// depth this file needs. A space and a tab each count as one.
-func indentOf(line string) int {
-	return len(line) - len(strings.TrimLeft(line, " \t"))
-}
-
-// withoutComment trims a trailing `#` comment and the surrounding space,
-// so a block annotated the way this repository annotates things still
-// reads as pinned. A gate that fails a workflow which does carry the
-// block teaches people to distrust the gate.
-func withoutComment(line string) string {
-	if i := strings.Index(line, "#"); i >= 0 {
-		line = line[:i]
-	}
-	return strings.TrimSpace(line)
-}
-
-// isShellBash accepts `shell: bash` however YAML lets it be written,
-// quotes included. Comparing the whole line as a literal made `shell:
-// "bash"` an unpinned workflow.
-func isShellBash(entry string) bool {
-	name, value, ok := strings.Cut(entry, ":")
-	if !ok || strings.TrimSpace(name) != "shell" {
-		return false
-	}
-	return strings.Trim(strings.TrimSpace(value), `"'`) == "bash"
-}
-
-// gitleaksRev returns the tag pre-commit installs gitleaks from, found
-// by walking down from the gitleaks repository rather than by taking the
-// first `rev:` in the file. Anchoring on position would let a second
-// remote hook added above this one silently substitute that tool's tag —
-// a pattern that matches, but not the thing it names, which is the
-// failure this file exists to catch.
-func gitleaksRev(config string) string {
-	lines := strings.Split(config, "\n")
-	for i, line := range lines {
-		if withoutComment(line) != "- repo: https://github.com/gitleaks/gitleaks" {
-			continue
-		}
-		for _, l := range lines[i+1:] {
-			entry := withoutComment(l)
-			if strings.HasPrefix(entry, "- repo:") {
-				break // the next hook began and this one named no rev
+			text, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				return true
 			}
-			if rev, ok := strings.CutPrefix(entry, "rev:"); ok {
-				return strings.TrimSpace(rev)
+			for _, m := range pinsModuleAt.FindAllStringSubmatch(text, -1) {
+				if tool := pinsToolByModule(m[1]); tool != "" {
+					r.add(tool, m[2], filepath.ToSlash(p)+": "+m[1])
+				}
+			}
+			return true
+		})
+		return nil
+	})
+}
+
+// pinsToolByModule is the tool a module path is, or one of its packages
+// is: a path that only starts with the same text is another module.
+func pinsToolByModule(module string) string {
+	for _, t := range pinsTools {
+		for _, m := range t.modules {
+			if module == m || strings.HasPrefix(module, m+"/") {
+				return t.name
 			}
 		}
 	}
 	return ""
 }
 
-// envRef matches a workflow expression naming one of the workflow's own
-// env entries, which is how a version pinned in one place reaches the
-// step that installs it.
-var envRef = regexp.MustCompile(`^\$\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}$`)
-
-// resolveEnv turns `${{ env.NAME }}` into the value the workflow's env
-// block gives it, and returns the input unchanged for anything else. An
-// expression naming an env entry that does not exist stays unresolved,
-// so it fails the check rather than passing on a value nobody set.
-func resolveEnv(value, workflow string) string {
-	m := envRef.FindStringSubmatch(strings.TrimSpace(value))
-	if m == nil {
-		return value
+func pinsToolByEnv(key string) string {
+	for _, t := range pinsTools {
+		if slices.Contains(t.envKeys, key) {
+			return t.name
+		}
 	}
-	decl := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(m[1]) + `:\s*"?([^"\n]+)"?\s*$`)
-	if d := decl.FindStringSubmatch(workflow); d != nil {
-		return strings.Trim(strings.TrimSpace(d[1]), `"'`)
-	}
-	return value
+	return ""
 }
 
-// inspectWorkflow reads one workflow: how many action references and
-// tool versions it names, and what is wrong with them. Split out of pins
-// so that function stays under the cyclomatic limit — the three loops
-// are independent and read better named than nested.
-func inspectWorkflow(f workflowFile) (actions, versions, installers int, problems []string) {
-	for _, m := range usesLine.FindAllStringSubmatch(f.data, -1) {
-		ref := m[1]
-		if strings.HasPrefix(ref, "./") || strings.HasPrefix(ref, "docker://") {
-			continue // a local action carries no version of its own
-		}
-		actions++
-		_, rev, ok := strings.Cut(ref, "@")
-		if !ok || !fullSHA.MatchString(rev) {
-			problems = append(problems, fmt.Sprintf(
-				"%s: %s is not pinned to a full commit SHA (a tag is mutable)", f.name, ref))
-		}
-	}
-	for _, m := range versionLine.FindAllStringSubmatch(f.data, -1) {
-		versions++
-		// `version: ${{ env.X }}` is still one exact version when the
-		// workflow's own env block names one — and it is a better
-		// pattern than repeating a literal, because the two copies
-		// cannot then disagree. Resolve it before judging it.
-		value := resolveEnv(strings.Trim(m[2], `"\'`), f.data)
-		if !exactSemver.MatchString(value) {
-			problems = append(problems, fmt.Sprintf(
-				"%s: %s: %q is not exactly one version — a range, a bare major or `latest` "+
-					"lets the tool change under a pinned action", f.name, m[1], m[2]))
-		}
-	}
-	installers, toolProblems := unpinnedTools(f)
-	problems = append(problems, toolProblems...)
-	if !pinsShell(f.data) {
-		problems = append(problems, fmt.Sprintf(
-			"%s: no workflow-level `defaults: run: shell: bash`; without it the Windows "+
-				"runner parses a `run` line as PowerShell", f.name))
-	}
-	return actions, versions, installers, problems
-}
+func pinsNormal(v string) string { return strings.TrimPrefix(strings.TrimSpace(v), "v") }
 
-// A version check reads only the versions that are written. An action
-// that installs a tool and names no version at all is an absence: a SHA
-// pins the wrapper, not the tool, so `sigstore/cosign-installer` with no
-// `cosign-release` installs whatever cosign is newest, default signing
-// format and all.
-//
-// So every action is classified here, and an unknown one fails the gate
-// rather than passing quietly.
-var (
-	// installerPins maps an action to the input keys that pin the tool
-	// it installs. Any one of them satisfies the rule.
-	installerPins = map[string][]string{
-		"sigstore/cosign-installer":         {"cosign-release"},
-		"anchore/sbom-action/download-syft": {"syft-version"},
-		"goreleaser/goreleaser-action":      {"version"},
-		"golangci/golangci-lint-action":     {"version"},
-		// A file is a pin by reference, and a better one: go.mod cannot
-		// disagree with itself the way two literals can.
-		"actions/setup-go": {"go-version-file", "go-version"},
-		// This wrapper has never had a version input; it reads the
-		// scanner's version from the environment.
-		"gitleaks/gitleaks-action": {"GITLEAKS_VERSION"},
-	}
-
-	// notInstallers are the actions that install no tool, each with the
-	// reason, so that adding one is a decision rather than an omission.
-	notInstallers = map[string]string{
-		"actions/checkout":                "checks out the repository",
-		"actions/upload-artifact":         "uploads, installs nothing",
-		"actions/attest-build-provenance": "calls the attestation API",
-		"github/codeql-action/init":       "CodeQL's bundle is GitHub's to manage",
-		"github/codeql-action/analyze":    "CodeQL's bundle is GitHub's to manage",
-	}
-)
-
-// stepBlock returns the lines belonging to the step whose `uses:` line
-// starts at start, so that a `with:` or `env:` key is read from the step
-// that owns it rather than from the next one down the file.
-func stepBlock(data string, start int) string {
-	lines := strings.Split(data[start:], "\n")
-	base := indentOf(lines[0])
-	var out []string
-	for i, ln := range lines {
-		if i > 0 && strings.TrimSpace(ln) != "" {
-			in := indentOf(ln)
-			if in < base || (in == base && strings.HasPrefix(strings.TrimSpace(ln), "- ")) {
-				break
-			}
-		}
-		out = append(out, ln)
-	}
-	return strings.Join(out, "\n")
-}
-
-// unpinnedTools reports every action whose tool is left to float, and
-// every action nobody has classified.
-func unpinnedTools(f workflowFile) (installers int, problems []string) {
-	for _, loc := range usesLine.FindAllStringSubmatchIndex(f.data, -1) {
-		ref := f.data[loc[2]:loc[3]]
-		if strings.HasPrefix(ref, "./") || strings.HasPrefix(ref, "docker://") {
-			continue
-		}
-		action, _, _ := strings.Cut(ref, "@")
-		keys, isInstaller := installerPins[action]
-		if !isInstaller {
-			if _, known := notInstallers[action]; !known {
-				problems = append(problems, fmt.Sprintf(
-					"%s: %s is not classified in scripts/gates/pins.go — add it to installerPins "+
-						"with the input that pins its tool, or to notInstallers with the reason. "+
-						"A SHA pins the wrapper, not the tool", f.name, action))
-			}
-			continue
-		}
-		installers++
-		block := stepBlock(f.data, loc[0])
-		if !namesAnyKey(block, keys) {
-			problems = append(problems, fmt.Sprintf(
-				"%s: %s is pinned by SHA but the tool it installs is not — set %s. "+
-					"A SHA pins the wrapper, and the tool floats to its newest release", f.name, action, strings.Join(keys, " or ")))
+func indent(line string) int {
+	for i, c := range line {
+		if c != ' ' && c != '\t' {
+			return i
 		}
 	}
-	return installers, problems
-}
-
-// namesAnyKey reports whether the step sets one of the given keys.
-func namesAnyKey(block string, keys []string) bool {
-	for _, k := range keys {
-		if regexp.MustCompile(`(?mi)^\s*` + regexp.QuoteMeta(k) + `:\s*\S`).MatchString(block) {
-			return true
-		}
-	}
-	return false
+	return -1 // a blank line has no indentation of its own
 }

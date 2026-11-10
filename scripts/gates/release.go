@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"os"
@@ -17,9 +18,6 @@ import (
 //
 // `gates mcpb` runs these beside the manifest checks. The packer and the
 // registry entry do not, so a release is packed and published as before.
-
-// goreleaserPath is the release configuration these checks read.
-const goreleaserPath = ".goreleaser.yaml"
 
 // docVersion is the version the docs write an archive name with.
 const docVersion = "X.Y.Z"
@@ -49,22 +47,24 @@ func releasePairs() []string {
 }
 
 // releaseProblems holds .goreleaser.yaml under root to releaseMatrix's
-// archives and the bundle, and every file that names an archive to the
-// names it renders. archives is how many archives the release carries.
+// archives and the bundle, every file that names an archive to the names
+// it renders, and the release's build provenance to every file it
+// publishes. archives is how many archives the release carries.
 func releaseProblems(root string) (problems []string, archives int, err error) {
-	raw, err := os.ReadFile(filepath.Join(root, goreleaserPath)) //nolint:gosec // a repository path from a constant
+	raw, err := os.ReadFile(filepath.Join(root, parityGoreleaser)) //nolint:gosec // a repository path from a constant
 	if err != nil {
 		return nil, 0, err
 	}
-	blocks, err := goreleaserBlocks(withoutCommentLines(string(raw)))
+	flows, err := workflowsUnder(root)
 	if err != nil {
 		return nil, 0, err
 	}
-	built, err := goreleaserMatrix(blocks["builds"])
+	cfg := parseGoreleaser(string(raw))
+	built, err := goreleaserMatrix(cfg)
 	if err != nil {
 		return nil, 0, err
 	}
-	project, names, err := releaseArchives(blocks, built, docVersion)
+	project, names, err := releaseArchives(cfg, built, docVersion)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -73,13 +73,13 @@ func releaseProblems(root string) (problems []string, archives int, err error) {
 		return nil, 0, err
 	}
 
-	problems = releaseArchiveProblems(built)
+	problems = slices.Clone(cfg.refused)
+	problems = append(problems, releaseArchiveProblems(built)...)
 	problems = append(problems, mcpbMatrixProblems(bundleFiles)...)
-	_, universal := blocks["universal_binaries"]
-	problems = append(problems, stagedBuildProblems(bundleFiles, built, universal)...)
+	problems = append(problems, stagedBuildProblems(bundleFiles, built, cfg.has("universal_binaries"))...)
 	problems = append(problems, archiveNameProblems(names, moduleName(module), docVersion)...)
 
-	named, err := archiveNamingFiles(root, raw)
+	named, err := archiveNamingFiles(root, raw, flows)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -95,162 +95,48 @@ func releaseProblems(root string) (problems []string, archives int, err error) {
 	// and would pass every stale one.
 	if mentions < len(names) {
 		return nil, 0, fmt.Errorf("found %d archive names across %d files, fewer than the %d archives "+
-			"docs/release.md must name; the scan is reading nothing", mentions, len(named), len(names))
+			"%s must name; the scan is reading nothing", mentions, len(named), len(names), releaseDoc)
 	}
-	// The two files that must name every archive, each by its own rule.
-	for file, check := range map[string]func(string, map[string]string) []string{
-		"docs/release.md":               releaseDocProblems,
-		".github/workflows/release.yml": attestationProblems,
-	} {
-		i := slices.IndexFunc(named, func(f namedFile) bool { return f.name == file })
-		if i < 0 {
-			problems = append(problems, fmt.Sprintf("%s is missing, and it is what names every archive", file))
-			continue
-		}
-		problems = append(problems, check(named[i].data, names)...)
+	// docs/release.md must name every archive.
+	if i := slices.IndexFunc(named, func(f namedFile) bool { return f.name == releaseDoc }); i < 0 {
+		problems = append(problems, fmt.Sprintf("%s is missing, and it is what names every archive", releaseDoc))
+	} else {
+		problems = append(problems, releaseDocProblems(named[i].data, names)...)
 	}
+	subjects, wiring := releaseSubjects(cfg, names)
+	problems = append(problems, wiring...)
+	problems = append(problems, attestationProblems(flows, subjects)...)
 	slices.Sort(problems)
 	return problems, len(names), nil
 }
 
-// withoutCommentLines drops every line that is only a YAML comment, so a
-// key named in a comment is not read as the key.
-func withoutCommentLines(text string) string {
-	var kept []string
-	for _, l := range strings.Split(text, "\n") {
-		if !strings.HasPrefix(strings.TrimSpace(l), "#") {
-			kept = append(kept, l)
-		}
-	}
-	return strings.Join(kept, "\n")
-}
-
-var (
-	goosKey   = regexp.MustCompile(`(?m)^\s*goos:\s*$`)
-	goarchKey = regexp.MustCompile(`(?m)^\s*goarch:\s*$`)
-	ignoreKey = regexp.MustCompile(`(?m)^\s*ignore:`)
-	listItem  = regexp.MustCompile(`^-\s*([a-z0-9]+)$`)
-)
-
-// goreleaserMatrix is every goos-goarch pair the release builds, read
-// from builds, the builds block of .goreleaser.yaml without its comment
-// lines: the cross product of its two lists, sorted.
-//
-// Regular expressions rather than a YAML parser: a parser is a
-// dependency this program does not otherwise need, and the file it reads
-// is one this repository writes. So it refuses what it does not read
-// rather than read it wrong: a second build, and an ignore list, which
-// releaseMatrix, every pair of its lists, never needs. The floor
-// is what keeps a changed layout from reading as an empty matrix.
-func goreleaserMatrix(builds string) ([]string, error) {
-	if n := len(goosKey.FindAllStringIndex(builds, -1)); n > 1 {
-		return nil, fmt.Errorf("%s has %d builds; this check reads one", goreleaserPath, n)
-	}
-	if ignoreKey.MatchString(builds) {
-		return nil, fmt.Errorf("%s's build has an ignore list; the release builds every pair of its goos "+
-			"and goarch lists, and this check reads no ignore", goreleaserPath)
-	}
-	oses := listAfter(builds, goosKey)
-	arches := listAfter(builds, goarchKey)
-	if len(oses) < 2 || len(arches) < 2 {
-		return nil, fmt.Errorf("%s parsed as %d platforms and %d architectures; the build block's shape "+
-			"has changed and this check is reading nothing", goreleaserPath, len(oses), len(arches))
-	}
-	var out []string
-	for _, o := range oses {
-		for _, a := range arches {
-			out = append(out, o+"-"+a)
-		}
-	}
-	slices.Sort(out)
-	return out, nil
-}
-
-// listAfter is the YAML list right after the first match of key: the
-// run of `- value` items, stopping at the first line that is not one.
-func listAfter(text string, key *regexp.Regexp) []string {
-	loc := key.FindStringIndex(text)
-	if loc == nil {
-		return nil
-	}
-	var out []string
-	for _, line := range strings.Split(text[loc[1]:], "\n") {
-		// withoutComment, because listItem anchors on the end of the
-		// line: a trailing comment on an entry would otherwise end the
-		// list early.
-		entry := withoutComment(line)
-		if entry == "" {
-			continue
-		}
-		m := listItem.FindStringSubmatch(entry)
-		if m == nil {
-			break
-		}
-		out = append(out, m[1])
-	}
-	return out
-}
-
-// topLevelKey matches a top-level block's header.
-var topLevelKey = regexp.MustCompile(`(?m)^([a-z_]+):`)
-
-// goreleaserBlocks splits text, .goreleaser.yaml without its comment
-// lines, into its top-level blocks, each after its key. It refuses a
-// file missing a block these checks read, so a changed layout cannot
-// read as a release with nothing to hold.
-func goreleaserBlocks(text string) (map[string]string, error) {
-	locs := topLevelKey.FindAllStringSubmatchIndex(text, -1)
-	blocks := map[string]string{}
-	for i, loc := range locs {
-		end := len(text)
-		if i+1 < len(locs) {
-			end = locs[i+1][0]
-		}
-		blocks[text[loc[2]:loc[3]]] = text[loc[1]:end]
-	}
-	for _, key := range []string{"project_name", "builds", "archives"} {
-		if _, ok := blocks[key]; !ok {
-			return nil, fmt.Errorf("%s has no top-level %s block; its shape has changed and these "+
-				"checks are reading nothing", goreleaserPath, key)
-		}
-	}
-	return blocks, nil
-}
-
-var (
-	formatOverride = regexp.MustCompile(`-\s*goos:\s*([a-z0-9]+)\s*\n\s*formats:\s*\[\s*([a-z0-9.]+)\s*\]`)
-	formatsList    = regexp.MustCompile(`formats:\s*\[\s*([a-z0-9.]+)\s*\]`)
-)
-
 // releaseArchives is the file name of every archive the release carries
-// for version, keyed by pair: the archives block's name_template,
-// rendered for each built pair, and its format, the default or a goos
-// override. project is the config's project_name.
-func releaseArchives(blocks map[string]string, built []string, version string) (
+// for version, keyed by pair: the one archive's name_template, rendered
+// for each built pair, and its format, the default or a goos override's.
+// project is the config's project_name. It refuses an archive it cannot
+// render one name a pair for: a second archive, a name_template left to
+// goreleaser's default, which adds suffixes, a format list of more than
+// one, and the singular format keys, which it does not read.
+func releaseArchives(cfg goreleaserFile, built []string, version string) (
 	project string, names map[string]string, err error,
 ) {
-	project = strings.Trim(strings.TrimSpace(blocks["project_name"]), `"'`)
-	archives := blocks["archives"]
-	// Joined with a space, as a folded `>-` block renders. A literal `|`
-	// block keeps its newlines in goreleaser's name, so the template is
-	// written as `>-`.
-	name := strings.Join(blockScalar(archives, "name_template"), " ")
-	if name == "" {
-		return "", nil, fmt.Errorf("%s's archives block has no name_template; goreleaser's default adds "+
-			"suffixes this check does not render", goreleaserPath)
+	project = cfg.first("project_name")
+	if project == "" {
+		return "", nil, fmt.Errorf("%s sets no project_name; its shape has changed and these checks are reading nothing",
+			parityGoreleaser)
 	}
-	tmpl, err := template.New("name_template").Parse(name)
+	format, overrides, err := releaseFormats(cfg)
 	if err != nil {
-		return "", nil, fmt.Errorf("%s's archive name_template: %w", goreleaserPath, err)
+		return "", nil, err
 	}
-	overrides := map[string]string{}
-	for _, m := range formatOverride.FindAllStringSubmatch(archives, -1) {
-		overrides[m[1]] = m[2]
+	templates := cfg.at("archives.name_template")
+	if len(templates) != 1 {
+		return "", nil, fmt.Errorf("%s sets %d archive name_templates, not one; goreleaser's default adds "+
+			"suffixes this check does not render", parityGoreleaser, len(templates))
 	}
-	defaults := formatsList.FindAllStringSubmatch(formatOverride.ReplaceAllString(archives, ""), -1)
-	if len(defaults) != 1 {
-		return "", nil, fmt.Errorf("%s's archives block names %d default formats, not one", goreleaserPath,
-			len(defaults))
+	tmpl, err := template.New("name_template").Parse(templates[0].value)
+	if err != nil {
+		return "", nil, fmt.Errorf("%s's archive name_template: %w", parityGoreleaser, err)
 	}
 	names = map[string]string{}
 	for _, pair := range built {
@@ -258,44 +144,72 @@ func releaseArchives(blocks map[string]string, built []string, version string) (
 		var b strings.Builder
 		fields := struct{ ProjectName, Version, Os, Arch string }{project, version, goos, goarch}
 		if err := tmpl.Execute(&b, fields); err != nil {
-			return "", nil, fmt.Errorf("%s's archive name_template: %w", goreleaserPath, err)
+			return "", nil, fmt.Errorf("%s's archive name_template: %w", parityGoreleaser, err)
 		}
-		format := defaults[0][1]
-		if o, ok := overrides[goos]; ok {
-			format = o
-		}
-		names[pair] = b.String() + "." + format
+		names[pair] = b.String() + "." + releaseFormat(goos, format, overrides)
 	}
 	return project, names, nil
 }
 
-// blockScalar is the value of the first `key:` in text: the inline value
-// without its quotes, or the lines of a block scalar (`>-`, `|` and the
-// like) indented under it, trimmed. Nil when the key is absent.
-func blockScalar(text, key string) []string {
-	lines := strings.Split(text, "\n")
-	for i, line := range lines {
-		name, value, ok := strings.Cut(strings.TrimSpace(line), ":")
-		if !ok || strings.TrimPrefix(name, "- ") != key {
-			continue
+// releaseOverride is one format_overrides item: its goos and its format.
+type releaseOverride struct{ goos, format string }
+
+// releaseFormat is the format goreleaser v2.13.1 packs goos in: the first
+// override whose goos goos starts with, or the default
+// (https://github.com/goreleaser/goreleaser/blob/v2.13.1/internal/pipe/archive/archive.go#L321-L337).
+func releaseFormat(goos, format string, overrides []releaseOverride) string {
+	for _, o := range overrides {
+		if strings.HasPrefix(goos, o.goos) {
+			return o.format
 		}
-		value = strings.TrimSpace(value)
-		if value != "" && !strings.ContainsAny(value[:1], ">|") {
-			return []string{strings.Trim(value, `"'`)}
-		}
-		var out []string
-		for _, next := range lines[i+1:] {
-			if strings.TrimSpace(next) == "" {
-				continue
-			}
-			if indentOf(next) <= indentOf(line) {
-				break
-			}
-			out = append(out, strings.TrimSpace(next))
-		}
-		return out
 	}
-	return nil
+	return format
+}
+
+// releaseFormats is the one archive's one default format and its
+// overrides, in order, each with one goos and one format. goreleaser
+// ignores an override with no goos or no formats, so each is refused.
+func releaseFormats(cfg goreleaserFile) (format string, overrides []releaseOverride, err error) {
+	for _, v := range cfg.values {
+		switch {
+		case v.keys == "archives.format" || v.keys == "archives.format_overrides.format":
+			return "", nil, fmt.Errorf("%s:%d: %s is the singular key, which this check does not read; write formats",
+				parityGoreleaser, v.line, v.keys)
+		case strings.HasPrefix(v.keys, "archives.") && len(v.items) > 0 && v.items[0] > 0:
+			return "", nil, fmt.Errorf("%s:%d: a second archive; this check reads one", parityGoreleaser, v.line)
+		}
+	}
+	defaults := cfg.at("archives.formats")
+	if len(defaults) != 1 {
+		return "", nil, fmt.Errorf("%s's archive names %d default formats, not one", parityGoreleaser, len(defaults))
+	}
+	// Each override's goos, formats and first line, by the override's index.
+	goos, formats, lines := map[int]string{}, map[int][]string{}, map[int]int{}
+	for _, v := range cfg.at("archives.format_overrides.goos", "archives.format_overrides.formats") {
+		if len(v.items) < 2 {
+			return "", nil, fmt.Errorf("%s:%d: %s is not an item of a list of overrides", parityGoreleaser, v.line, v.keys)
+		}
+		i := v.items[1]
+		if _, seen := lines[i]; !seen {
+			lines[i] = v.line
+		}
+		if v.keys == "archives.format_overrides.goos" {
+			goos[i] = v.value
+		} else {
+			formats[i] = append(formats[i], v.value)
+		}
+	}
+	for _, i := range slices.Sorted(maps.Keys(lines)) {
+		switch {
+		case goos[i] == "":
+			return "", nil, fmt.Errorf("%s:%d: a format_overrides item sets formats and no goos, which goreleaser ignores; "+
+				"name its goos or drop it", parityGoreleaser, lines[i])
+		case len(formats[i]) != 1:
+			return "", nil, fmt.Errorf("%s's archive overrides %s with %d formats, not one", parityGoreleaser, goos[i], len(formats[i]))
+		}
+		overrides = append(overrides, releaseOverride{goos[i], formats[i][0]})
+	}
+	return defaults[0].value, overrides, nil
 }
 
 // archiveNameProblems holds the archive names to
@@ -313,7 +227,7 @@ func archiveNameProblems(names map[string]string, name, version string) []string
 		want := fmt.Sprintf("%s_%s_%s_%s.%s", name, version, goos, goarch, format)
 		if names[pair] != want {
 			problems = append(problems, fmt.Sprintf("%s names the %s archive %s; archives are named <name>_<version>_<os>_<arch>, so this one is %s",
-				goreleaserPath, pair, names[pair], want))
+				parityGoreleaser, pair, names[pair], want))
 		}
 	}
 	return problems
@@ -338,14 +252,14 @@ func releaseArchiveProblems(built []string) []string {
 	for _, pair := range matrix {
 		if !slices.Contains(built, pair) {
 			problems = append(problems, fmt.Sprintf("%s does not build %s, so the release carries no %s "+
-				"archive; a release carries %s", goreleaserPath, pair, strings.ReplaceAll(pair, "-", "_"),
+				"archive; a release carries %s", parityGoreleaser, pair, strings.ReplaceAll(pair, "-", "_"),
 				strings.Join(matrix, ", ")))
 		}
 	}
 	for _, pair := range built {
 		if !slices.Contains(matrix, pair) {
 			problems = append(problems, fmt.Sprintf("%s builds %s, which is not one of the archives "+
-				"a release carries, %s", goreleaserPath, pair, strings.Join(matrix, ", ")))
+				"a release carries, %s", parityGoreleaser, pair, strings.Join(matrix, ", ")))
 		}
 	}
 	return problems
@@ -413,11 +327,11 @@ func stagedBuildProblems(files []staged, built []string, universal bool) []strin
 		case b == universalBuild:
 			if !universal {
 				problems = append(problems, fmt.Sprintf("the bundle stages %s from the universal binary, and "+
-					"%s has no universal_binaries block", f.path, goreleaserPath))
+					"%s has no universal_binaries block", f.path, parityGoreleaser))
 			}
 		case !slices.Contains(built, b):
 			problems = append(problems, fmt.Sprintf("the bundle stages %s from %s, which %s does not build",
-				f.path, b, goreleaserPath))
+				f.path, b, parityGoreleaser))
 		}
 	}
 	return problems
@@ -436,7 +350,7 @@ var versionTemplate = regexp.MustCompile(`\{\{\s*\.Version\s*\}\}`)
 // .goreleaser.yaml itself, raw, with its version template written as
 // docVersion. CHANGELOG.md is left out: it records the names releases
 // shipped with.
-func archiveNamingFiles(root string, goreleaser []byte) ([]namedFile, error) {
+func archiveNamingFiles(root string, goreleaser []byte, flows []workflowFile) ([]namedFile, error) {
 	var docs []string
 	for _, pattern := range []string{"*.md", "docs/*.md", ".github/*.md"} {
 		found, err := filepath.Glob(filepath.Join(root, pattern))
@@ -451,7 +365,7 @@ func archiveNamingFiles(root string, goreleaser []byte) ([]namedFile, error) {
 		if err != nil {
 			return nil, err
 		}
-		if rel == "CHANGELOG.md" {
+		if rel == changelogFile {
 			continue
 		}
 		data, err := os.ReadFile(doc) //nolint:gosec // a path under the repository, from a glob
@@ -460,15 +374,11 @@ func archiveNamingFiles(root string, goreleaser []byte) ([]namedFile, error) {
 		}
 		out = append(out, namedFile{name: filepath.ToSlash(rel), data: string(data)})
 	}
-	workflows, err := readWorkflows(root)
-	if err != nil {
-		return nil, err
-	}
-	for _, w := range workflows {
-		out = append(out, namedFile{name: ".github/workflows/" + w.name, data: w.data})
+	for i := range flows {
+		out = append(out, namedFile{name: flows[i].path, data: flows[i].text})
 	}
 	return append(out, namedFile{
-		name: goreleaserPath,
+		name: parityGoreleaser,
 		data: versionTemplate.ReplaceAllString(string(goreleaser), docVersion),
 	}), nil
 }
@@ -485,7 +395,7 @@ func archiveMentions(text, project string) []string {
 // version after the project's name, the version written as one, as
 // X.Y.Z or as <version>, with or without an extension.
 func oldForm(project string) *regexp.Regexp {
-	return regexp.MustCompile(regexp.QuoteMeta(project) + `-(?:X\.Y\.Z|<version>|v?\d+\.\d+\.\d+)[A-Za-z0-9._<>-]*`)
+	return regexp.MustCompile(regexp.QuoteMeta(project) + `-(?:X\.Y\.Z|<version>|v?` + semverPattern + `)[A-Za-z0-9._<>-]*`)
 }
 
 // oldFormProblems is each name in text, file's contents, written in
@@ -531,31 +441,176 @@ func releaseDocProblems(text string, names map[string]string) []string {
 	var problems []string
 	for _, name := range slices.Sorted(maps.Values(names)) {
 		if !strings.Contains(text, name) {
-			problems = append(problems, fmt.Sprintf("docs/release.md does not name %s, so the release check "+
-				"never looks for it", name))
+			problems = append(problems, fmt.Sprintf("%s does not name %s, so the release check "+
+				"never looks for it", releaseDoc, name))
 		}
 	}
 	return problems
 }
 
-// attestationProblems holds release.yml's text to attesting every
-// archive: each name matches a subject-path glob, so a renamed archive
-// cannot ship with no build provenance.
-func attestationProblems(text string, names map[string]string) []string {
-	globs := blockScalar(text, "subject-path")
-	if len(globs) == 0 {
-		return []string{"release.yml has no subject-path, so no archive is attested"}
-	}
-	var problems []string
+// releaseDoc is the release checklist, which names every archive.
+const releaseDoc = "docs/release.md"
+
+// releaseSubjects is every file the release publishes that its build
+// provenance names, under goreleaser's dist directory: each archive, the
+// checksum file, and the bundle the mcpb-pack hook writes. The SBOMs and
+// the checksum file's signature are published and not held. problems are
+// the config's, where it names no such file, does not upload the bundle,
+// or uploads by a release.extra_files glob that matches none of them.
+func releaseSubjects(cfg goreleaserFile, names map[string]string) (subjects, problems []string) {
+	dist := cmp.Or(cfg.first("dist"), "dist")
 	for _, name := range slices.Sorted(maps.Values(names)) {
-		attested := slices.ContainsFunc(globs, func(g string) bool {
-			ok, _ := path.Match(strings.TrimPrefix(g, "dist/"), name)
-			return ok
+		subjects = append(subjects, path.Join(dist, name))
+	}
+	if sums := cfg.first("checksum.name_template"); sums != "" {
+		subjects = append(subjects, path.Join(dist, sums))
+	} else {
+		problems = append(problems, parityGoreleaser+" names no checksum.name_template, so the checksum file "+
+			"the provenance names is unknown")
+	}
+	// The bundle is the file the hook's OUT names, not release.extra_files'
+	// glob: release.yml attests dist/pipedrive-mcp_*.mcpb, narrower than
+	// ./dist/*.mcpb, and a subject is matched by its whole name.
+	bundle, uploads := releaseBundle(cfg), cfg.at("release.extra_files.glob")
+	switch {
+	case bundle == "":
+		problems = append(problems, parityGoreleaser+" runs no `gates mcpb-pack DIST VERSION OUT`, so the bundle the "+
+			"release publishes is unknown")
+	case !slices.ContainsFunc(uploads, func(g goreleaserValue) bool { return releaseGlobMatches(g.value, bundle) }):
+		problems = append(problems, fmt.Sprintf("%s's release.extra_files uploads no %s, the bundle mcpb-pack writes",
+			parityGoreleaser, bundle))
+	default:
+		subjects = append(subjects, bundle)
+	}
+	for _, g := range uploads {
+		if !slices.ContainsFunc(subjects, func(s string) bool { return releaseGlobMatches(g.value, s) }) {
+			problems = append(problems, fmt.Sprintf("%s:%d: release.extra_files uploads %s, which matches no file "+
+				"the release writes: an archive, the checksum file or the bundle", parityGoreleaser, g.line, g.value))
+		}
+	}
+	return subjects, problems
+}
+
+// releaseBundle is the file a release command running mcpb-pack writes,
+// its OUT with the version template written as docVersion, or "". It
+// reads the command as written, not a run: a run renders the version
+// inside a word as nothing, and a subject-path glob may need its shape.
+func releaseBundle(cfg goreleaserFile) string {
+	bundle := ""
+	for _, v := range cfg.values {
+		if goreleaserKeys[v.keys] != goreleaserLine {
+			continue
+		}
+		command := goreleaserCommand(versionTemplate.ReplaceAllString(strings.ReplaceAll(v.value, "\n", " "), docVersion))
+		for _, c := range parityGateCalls(shellSplit(command)) {
+			if c.name == "mcpb-pack" && len(c.args) == 3 {
+				bundle = path.Clean(c.args[2])
+			}
+		}
+	}
+	return bundle
+}
+
+// releaseGlobMatches reports whether a goreleaser file glob, such as
+// ./dist/*.mcpb, matches file, a slash-separated path.
+func releaseGlobMatches(glob, file string) bool {
+	ok, _ := path.Match(path.Clean(glob), file)
+	return ok
+}
+
+// attestationProblems holds release.yml's build provenance to naming every
+// subject. The attest step sits in the job that runs goreleaser release,
+// whose dist/ holds the files: another job, or a workflow it calls, can be
+// skipped while the release ships, as publish-mcp.yml is on a prerelease.
+// That job's token needs id-token: write and attestations: write to sign
+// and store the provenance
+// (https://github.com/actions/attest/blob/508db95dd578ae2727ebd6217d5ba78e4fbda05d/README.md#L64-L76).
+// A subject-path entry is a glob matched against the whole path, so
+// dist/unused/*.mcpb names no bundle in dist. actions/attest v4.2.1, which
+// attest-build-provenance v4.2.2 runs, splits subject-path at commas and
+// newlines and trims each glob
+// (https://github.com/actions/attest/blob/508db95dd578ae2727ebd6217d5ba78e4fbda05d/src/subject.ts#L303),
+// and fails only when no glob matches at all, so an entry that matches
+// nothing is silent there
+// (https://github.com/actions/attest/blob/508db95dd578ae2727ebd6217d5ba78e4fbda05d/src/subject.ts#L150).
+func attestationProblems(flows []workflowFile, subjects []string) []string {
+	w, ok := workflowNamed(flows, releaseWorkflow)
+	if !ok {
+		return []string{"no " + releaseWorkflow + ", so nothing attests what the release publishes"}
+	}
+	jobs := releaseJobs(w)
+	if len(jobs) == 0 {
+		return []string{"no job of " + releaseWorkflow + " runs goreleaser-action with args starting `release`, " +
+			"so no attest step is held to the files the release publishes"}
+	}
+	var entries, problems []string
+	attested := false
+	for _, job := range jobs {
+		steps := slices.DeleteFunc(slices.Clone(w.steps), func(s workflowStep) bool {
+			return s.job != job || s.action() != "actions/attest-build-provenance"
 		})
-		if !attested {
-			problems = append(problems, fmt.Sprintf("release.yml's subject-path matches no %s, so that "+
-				"archive ships with no build provenance", name))
+		if len(steps) == 0 {
+			problems = append(problems, fmt.Sprintf("%s: job %s runs goreleaser release and has no attest step, "+
+				"so no file the release publishes carries build provenance", w.path, job))
+			continue
+		}
+		attested = true
+		for _, scope := range []string{"id-token", "attestations"} {
+			if !w.grantsWrite(job, scope) {
+				problems = append(problems, fmt.Sprintf("%s: job %s attests without %s: write, which actions/attest needs "+
+					"to sign and store the provenance; grant it in the job's permissions, or the workflow's when the job sets none",
+					w.path, job, scope))
+			}
+		}
+		for _, s := range steps {
+			found, wrong := attestEntries(w.path, s)
+			entries, problems = append(entries, found...), append(problems, wrong...)
+		}
+	}
+	if !attested {
+		return problems
+	}
+	for _, subject := range subjects {
+		if !slices.ContainsFunc(entries, func(e string) bool { ok, _ := path.Match(e, subject); return ok }) {
+			problems = append(problems, fmt.Sprintf("%s's subject-path matches no %s, so it ships with no build provenance",
+				releaseWorkflow, subject))
 		}
 	}
 	return problems
+}
+
+// releaseJobs are the jobs of w that publish the release, in file order:
+// each runs goreleaser-action with args starting `release`.
+func releaseJobs(w workflowFile) []string {
+	var jobs []string
+	for _, s := range w.steps {
+		args, _ := s.input("args")
+		words := strings.Fields(args.value)
+		if s.action() == "goreleaser/goreleaser-action" && len(words) > 0 && words[0] == "release" && !slices.Contains(jobs, s.job) {
+			jobs = append(jobs, s.job)
+		}
+	}
+	return jobs
+}
+
+// attestEntries is each subject-path entry of the attest step s in file,
+// and the entries it cannot take: a step with no subject-path, and an
+// entry holding a space.
+func attestEntries(file string, s workflowStep) (entries, problems []string) {
+	v, ok := s.input("subject-path")
+	if !ok {
+		return nil, []string{fmt.Sprintf("%s:%d: attests no subject-path", file, s.line)}
+	}
+	for _, entry := range strings.FieldsFunc(v.value, func(r rune) bool { return r == '\n' || r == ',' }) {
+		entry = strings.TrimSpace(entry)
+		switch {
+		case entry == "":
+		case strings.ContainsAny(entry, " \t"):
+			problems = append(problems, fmt.Sprintf("%s:%d: subject-path entry %q holds a space, which the "+
+				"action reads as part of one path; write one path a line", file, v.line, entry))
+		default:
+			entries = append(entries, entry)
+		}
+	}
+	return entries, problems
 }

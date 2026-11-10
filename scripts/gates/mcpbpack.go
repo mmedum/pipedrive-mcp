@@ -241,14 +241,20 @@ func sourceFor(root, dist string, f staged) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// A message names a path with slashes, as the staged names are, on
+	// every host.
+	slashed := make([]string, len(matches))
+	for i, m := range matches {
+		slashed[i] = filepath.ToSlash(m)
+	}
 	switch len(matches) {
 	case 0:
-		return "", fmt.Errorf("%s: nothing matches %s", f.path, pattern)
+		return "", fmt.Errorf("%s: nothing matches %s", f.path, filepath.ToSlash(pattern))
 	case 1:
 		return matches[0], nil
 	default:
 		return "", fmt.Errorf("%s: %s matches %d files (%v); a bundle packed from the wrong binary "+
-			"is not something a checksum catches", f.path, pattern, len(matches), matches)
+			"is not something a checksum catches", f.path, filepath.ToSlash(pattern), len(matches), slashed)
 	}
 }
 

@@ -266,9 +266,5 @@ func registryPublishCmd(out io.Writer, args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("usage: gates registry-publish VERSION CHECKSUMS")
 	}
-	root, err := moduleRoot()
-	if err != nil {
-		return err
-	}
-	return serverJSON(root, args[0], args[1], out)
+	return serverJSON(".", args[0], args[1], out)
 }

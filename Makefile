@@ -9,14 +9,15 @@ LDFLAGS   = -s -w -X $(PKG)/internal/version.Version=$(VERSION)
 # Each tool runs at an exact version, built by the local toolchain: an
 # installed binary can be another version, and a go-licenses built by
 # another Go installation fails on the standard library. CI runs
-# govulncheck and go-licenses through make, at the versions here. It runs
-# golangci-lint and gitleaks through actions, so the pins gate holds those
-# two equal to ci.yml's, and gitleaks's also to the rev in
-# .pre-commit-config.yaml.
-GOVULNCHECK_VERSION ?= v1.8.0
-GO_LICENSES_VERSION ?= v1.6.0
-GOLANGCI_LINT_VERSION ?= v2.14.0
-GITLEAKS_VERSION ?= v8.30.1
+# govulncheck, go-licenses and gitleaks through make, at the versions
+# here, and the pre-commit hook runs gitleaks through make too. CI runs
+# golangci-lint through its action, which the pins gate holds to the
+# version here.
+GOLANGCI_LINT ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+GOVULNCHECK   ?= golang.org/x/vuln/cmd/govulncheck@v1.8.0
+GO_LICENSES   ?= github.com/google/go-licenses@v1.6.0
+GITLEAKS      ?= github.com/zricethezav/gitleaks/v8@v8.30.1
+GITLEAKS_FLAGS = --redact --no-banner
 
 .PHONY: all
 all: check
@@ -42,11 +43,11 @@ vet: ## go vet ./..., and again under each build tag so the tagged files keep co
 
 .PHONY: lint
 lint: ## golangci-lint, at the version CI pins
-	$(GO) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run
+	$(GO) run $(GOLANGCI_LINT) run
 
 .PHONY: test
-test: ## go test -race -coverprofile cov.out ./...
-	$(GO) test -race -coverprofile cov.out ./...
+test: ## go test with the race detector, shuffled, uncached, into cov.out
+	$(GO) test -race -shuffle=on -count=1 -coverprofile=cov.out ./...
 
 .PHONY: cover
 cover: test ## The statement-coverage floor on the packages it holds
@@ -66,35 +67,42 @@ integration-writes: ## The above plus the reversible write probes — this MUTAT
 
 .PHONY: vuln
 vuln: ## govulncheck, which CI runs through this target
-	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+	$(GO) run $(GOVULNCHECK) ./...
 
 .PHONY: licenses
 licenses: ## go-licenses against the allow-list, which CI runs through this target
-	$(GO) run github.com/google/go-licenses@$(GO_LICENSES_VERSION) check ./... \
+	$(GO) run $(GO_LICENSES) check ./... \
 	  --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
+
+.PHONY: verify
+verify: ## go mod verify: the module cache holds what go.sum names
+	$(GO) mod verify
 
 .PHONY: staleness
 staleness: ## gates deps
 	go run ./scripts/gates deps
 
 .PHONY: check
-check: fmt vet lint test cover vuln licenses gitleaks staleness docs leaks pins mcpb changelog-links descriptions smoke parity ## Run every per-PR CI gate locally
+check: fmt vet lint test cover vuln licenses verify gitleaks staleness docs leaks pins mcpb changelog-links descriptions smoke parity ## Run every per-PR CI gate locally
 
-# The branch's commits not on the default branch, as CI scans a pull
-# request's, or every commit on HEAD in a clone without origin/main.
-GITLEAKS_BASE  ?= origin/main
-GITLEAKS_RANGE  = $(if $(shell git rev-parse --verify --quiet $(GITLEAKS_BASE)),$(GITLEAKS_BASE)..HEAD,HEAD)
-
+# HEAD's history, which is every commit CI's full checkout of a pull
+# request holds. With no --log-opts gitleaks walks every ref, a branch
+# never pushed included
+# (https://github.com/gitleaks/gitleaks/blob/v8.30.1/sources/git.go#L90-L94).
 .PHONY: gitleaks
-gitleaks: ## No secret in the branch's commits or the working tree, at the gitleaks version CI runs
-	$(GO) run github.com/zricethezav/gitleaks/v8@$(GITLEAKS_VERSION) git --log-opts="$(GITLEAKS_RANGE)" --redact --no-banner .
-	$(GO) run github.com/zricethezav/gitleaks/v8@$(GITLEAKS_VERSION) dir . --redact --no-banner
+gitleaks: ## No secret in HEAD's history, at the gitleaks version CI runs
+	$(GO) run $(GITLEAKS) git --log-opts=HEAD $(GITLEAKS_FLAGS) .
 
-# Not in check: it reads every commit, where the target above reads the
-# branch's own.
+# The pre-commit hook: what a commit is about to add.
+.PHONY: gitleaks-staged
+gitleaks-staged: ## No secret in the staged changes (pre-commit)
+	$(GO) run $(GITLEAKS) git --staged $(GITLEAKS_FLAGS) .
+
+# Not in check: it reads every ref's history, where the target above reads
+# HEAD's.
 .PHONY: gitleaks-history
-gitleaks-history: ## No secret anywhere in the history (manual)
-	$(GO) run github.com/zricethezav/gitleaks/v8@$(GITLEAKS_VERSION) git --redact --no-banner .
+gitleaks-history: ## No secret in any ref's history (manual)
+	$(GO) run $(GITLEAKS) git $(GITLEAKS_FLAGS) .
 
 .PHONY: docs
 docs: ## Decision IDs, citations, links, paths, the codemap and cited integration tests resolve

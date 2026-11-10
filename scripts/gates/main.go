@@ -31,15 +31,27 @@ type command struct {
 	run  func(io.Writer, []string) error
 	args string
 	doc  string
-	// gate marks a command that runs in BOTH `make check` and ci.yml.
-	// The parity gate reads it, which ties the Makefile and the workflow
-	// to this one list.
-	gate bool
-	// pr marks a command only a pull request can run, because it measures
-	// from the merge-base. Parity holds it to a `run:` step in ci.yml and
-	// keeps it out of `make check`.
-	pr bool
+	// runs says where the command has to run, and is what parity reads:
+	// it ties the Makefile and the workflows to one list.
+	runs where
 }
+
+// where is the pipeline a command has to run in, which parity holds.
+type where int
+
+const (
+	// manual is a maintainer's command, run by a Makefile target or a
+	// pre-commit hook and never by `make check`.
+	manual where = iota
+	// inCheck has to run in BOTH `make check` and the CI workflow.
+	inCheck
+	// inPR has to run in CI on a pull request and NOT in `make check`:
+	// it measures from the merge-base, which only a pull request has.
+	inPR
+	// inRelease runs in the release workflows or the goreleaser config,
+	// and never in `make check`.
+	inRelease
+)
 
 // commands is the one list of what this program does: the usage text,
 // the dispatch and the parity gate all read it, so they cannot drift
@@ -52,64 +64,64 @@ var commands map[string]command
 func init() {
 	commands = map[string]command{
 		"changelog": {
-			run: changelogGate, args: "BASE HEAD", pr: true,
+			run: changelogGate, args: "BASE HEAD", runs: inPR,
 			doc: "a change to watched source needs an entry under [Unreleased]",
 		},
 		"changelog-links": {
 			run:  func(out io.Writer, _ []string) error { return changelogLinksGate(out) },
-			gate: true,
+			runs: inCheck,
 			doc:  "every CHANGELOG version heading has its link definition",
 		},
 		"mcpb": {
-			run: mcpbCmd, args: "", gate: true,
+			run: mcpbCmd, args: "", runs: inCheck,
 			doc: "the bundle manifest describes the bundle the packer stages, and the release its six archives",
 		},
 		"mcpb-pack": {
-			run: mcpbPackCmd, args: "DIST VERSION OUT",
+			run: mcpbPackCmd, args: "DIST VERSION OUT", runs: inRelease,
 			doc: "pack the .mcpb from a built dist tree; runs at release time",
 		},
 		"registry-publish": {
-			run: registryPublishCmd, args: "VERSION CHECKSUMS",
+			run: registryPublishCmd, args: "VERSION CHECKSUMS", runs: inRelease,
 			doc: "the MCP registry entry, with the bundle's hash from the published checksums",
 		},
 		"leaks": {
-			run: leaks, args: "[history]", gate: true,
+			run: leaks, args: "[history]", runs: inCheck,
 			doc: "nothing from a real Pipedrive account is in the tree, or with history anywhere in the history",
 		},
 		"pins": {
-			run: pins, args: "", gate: true,
+			run: pins, args: "", runs: inCheck,
 			doc: "every action is a commit and every tool version is exact",
 		},
 		"deps": {
-			run: depsGate, args: "", gate: true,
+			run: depsGate, args: "", runs: inCheck,
 			doc: "no direct dependency is more than six months behind without a reason",
 		},
 		"release-notes": {
-			run: releaseNotes, args: "VERSION [CHANGELOG]",
+			run: releaseNotes, args: "VERSION [CHANGELOG]", runs: inRelease,
 			doc: "one version's CHANGELOG section, which is the release note",
 		},
 		"schema-ack": {
-			run: schemaAck, args: "BASE HEAD", pr: true,
+			run: schemaAck, args: "BASE HEAD", runs: inPR,
 			doc: "a commit footer names each item of the tool surface a pull request changes",
 		},
 		"smoke": {
-			run: smokeGate, args: "binary TARGET", gate: true,
+			run: smokeGate, args: "binary TARGET", runs: inCheck,
 			doc: "drive an MCP handshake over stdio and read the reply",
 		},
 		"descriptions": {
-			run: descriptionsGate, args: "SCHEMA_DUMP|-", gate: true,
+			run: descriptionsGate, args: "SCHEMA_DUMP|-", runs: inCheck,
 			doc: "hold the tool descriptions against the mechanical house-style rules",
 		},
 		"coverage": {
-			run: coverageGate, args: "PROFILE", gate: true,
+			run: coverageGate, args: "PROFILE", runs: inCheck,
 			doc: "the statement-coverage floor on the packages it holds",
 		},
 		"parity": {
-			run: parity, args: "", gate: true,
+			run: parity, args: "", runs: inCheck,
 			doc: "`make check` and CI run the same gates",
 		},
 		"docs": {
-			run: docs, args: "", gate: true,
+			run: docs, args: "", runs: inCheck,
 			doc: "decision IDs, citations, links, paths, the codemap and the integration tests the docs and code name all resolve",
 		},
 	}
@@ -126,6 +138,16 @@ func main() {
 		usage(os.Stderr)
 		os.Exit(2)
 	}
+	// Every command reads the repository from its root, so it runs the same
+	// from any directory under it.
+	root, err := moduleRoot()
+	if err == nil {
+		err = os.Chdir(root)
+	}
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "gates: "+couldNotRun{err}.Error())
+		os.Exit(2)
+	}
 	if err := c.run(os.Stdout, os.Args[2:]); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, "gates: "+err.Error())
 		os.Exit(exitCode(err))
@@ -138,6 +160,15 @@ type couldNotRun struct{ err error }
 
 func (e couldNotRun) Error() string { return "could not run: " + e.err.Error() }
 func (e couldNotRun) Unwrap() error { return e.err }
+
+// floorProblems is a problem when a gate read fewer of what than least:
+// found nothing and looked at nothing print the same sentence otherwise.
+func floorProblems(what string, read, least int) []string {
+	if read >= least {
+		return nil
+	}
+	return []string{fmt.Sprintf("read %d %s, want at least %d: the reader is not seeing its input", read, what, least)}
+}
 
 // exitCode is the status a gate's error exits with.
 func exitCode(err error) int {
@@ -153,12 +184,13 @@ func usage(w io.Writer) {
 	for _, name := range commandNames(commands) {
 		c := commands[name]
 		mark := " "
-		if c.gate {
+		if c.runs == inCheck {
 			mark = "*"
 		}
 		_, _ = fmt.Fprintf(&b, "  %s %-16s %-24s %s\n", mark, name, c.args, c.doc)
 	}
 	b.WriteString("\n  * runs in both `make check` and CI; the parity gate checks that.\n")
+	b.WriteString("  Every command runs from the module root, and reads a path argument from there.\n")
 	_, _ = io.WriteString(w, b.String())
 }
 
@@ -167,21 +199,19 @@ func commandNames(registry map[string]command) []string {
 	return slices.Sorted(maps.Keys(registry))
 }
 
-// moduleRoot finds the directory holding go.mod, so a gate reads the
-// repository rather than whatever directory it was invoked from.
+// moduleRoot walks up from the working directory to the directory
+// holding go.mod, which main runs every command from.
 func moduleRoot() (string, error) {
-	dir, err := os.Getwd()
+	cwd, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
-	for {
+	for dir := cwd; ; dir = filepath.Dir(dir) {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir, nil
 		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", fmt.Errorf("no go.mod above %s", dir)
+		if filepath.Dir(dir) == dir {
+			return "", fmt.Errorf("no go.mod in %s or above it", cwd)
 		}
-		dir = parent
 	}
 }

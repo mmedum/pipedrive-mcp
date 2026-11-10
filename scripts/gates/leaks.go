@@ -27,11 +27,7 @@ func leaks(w io.Writer, args []string) error {
 	if len(args) == 1 && args[0] == "history" {
 		return leakHistory(w)
 	}
-	root, err := moduleRoot()
-	if err != nil {
-		return err
-	}
-	files, err := lsFiles(root)
+	files, err := lsFiles(".")
 	if err != nil {
 		// Outside a git checkout there is nothing to enumerate and
 		// nothing to be wrong: a module-cache copy or a source tarball
@@ -54,7 +50,7 @@ func leaks(w io.Writer, args []string) error {
 		if skipFiles[filepath.Base(name)] {
 			continue
 		}
-		data, readErr := os.ReadFile(filepath.Join(root, name))
+		data, readErr := os.ReadFile(name)
 		if readErr != nil {
 			continue // deleted or unreadable is not this gate's business
 		}
@@ -278,11 +274,7 @@ func artifact(data []byte) string {
 // edited out later is still on GitHub. It reads the whole object store,
 // so it is run by hand, `make leaks-history`, not in `make check`.
 func leakHistory(w io.Writer) error {
-	root, err := moduleRoot()
-	if err != nil {
-		return err
-	}
-	problems, commits, blobs, err := historyProblems(root)
+	problems, commits, blobs, err := historyProblems(".")
 	if err != nil {
 		return err
 	}

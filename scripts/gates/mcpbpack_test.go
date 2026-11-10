@@ -75,24 +75,14 @@ func packed(t *testing.T, path string) map[string]entry {
 func packHere(t *testing.T) map[string]entry {
 	t.Helper()
 	out := filepath.Join(t.TempDir(), "out.mcpb")
-	if err := packMCPB(repoRoot(t), fakeDist(t), "1.2.3", out); err != nil {
+	if err := packMCPB(parityRepoRoot, fakeDist(t), "1.2.3", out); err != nil {
 		t.Fatalf("pack: %v", err)
 	}
 	return packed(t, out)
 }
 
-// repoRoot is the repository the gates read. The test runs in its own
-// package directory.
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	if _, err := os.Stat("../../" + manifestPath); err == nil {
-		return "../.."
-	}
-	return "."
-}
-
 func TestPackRefusesThePlaceholderAsAVersion(t *testing.T) {
-	err := packMCPB(repoRoot(t), fakeDist(t), placeholderVersion, filepath.Join(t.TempDir(), "out.mcpb"))
+	err := packMCPB(parityRepoRoot, fakeDist(t), placeholderVersion, filepath.Join(t.TempDir(), "out.mcpb"))
 	if err == nil || !strings.Contains(err.Error(), "placeholder") {
 		t.Fatalf("packing with the placeholder version gave %v", err)
 	}
@@ -185,7 +175,7 @@ func (*failingClose) Close() error { return errClose }
 // reaches the disk only there. The partial file is removed and nothing
 // is renamed into place.
 func TestAFailedCloseFailsThePack(t *testing.T) {
-	root := repoRoot(t)
+	root := parityRepoRoot
 	stamped, err := stampedManifest(root, "1.2.3")
 	if err != nil {
 		t.Fatal(err)
@@ -228,7 +218,7 @@ func TestAFailedPackLeavesNoBundle(t *testing.T) {
 		if earlier != "" {
 			put(t, dir, filepath.Base(out), earlier)
 		}
-		if err := packMCPB(repoRoot(t), dist, "1.2.3", out); err == nil {
+		if err := packMCPB(parityRepoRoot, dist, "1.2.3", out); err == nil {
 			t.Fatal("a pack whose copy failed succeeded")
 		}
 		left, err := os.ReadDir(dir)
@@ -303,7 +293,7 @@ func TestEveryEntryCarriesTheFixedTimestamp(t *testing.T) {
 	want := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 	out := filepath.Join(t.TempDir(), "out.mcpb")
-	if err := packMCPB(repoRoot(t), fakeDist(t), "1.2.3", out); err != nil {
+	if err := packMCPB(parityRepoRoot, fakeDist(t), "1.2.3", out); err != nil {
 		t.Fatalf("pack: %v", err)
 	}
 	r, err := zip.OpenReader(out)
@@ -337,7 +327,7 @@ func TestTwoPacksOfTheSameInputsAgree(t *testing.T) {
 	first := filepath.Join(dir, "first.mcpb")
 	second := filepath.Join(dir, "second.mcpb")
 	for _, out := range []string{first, second} {
-		if err := packMCPB(repoRoot(t), dist, "1.2.3", out); err != nil {
+		if err := packMCPB(parityRepoRoot, dist, "1.2.3", out); err != nil {
 			t.Fatalf("pack: %v", err)
 		}
 	}
@@ -358,8 +348,25 @@ func TestTwoPacksOfTheSameInputsAgree(t *testing.T) {
 // the pack. A bundle short one platform's binary installs fine and fails
 // only for the people on that platform.
 func TestPackRefusesADistMissingABinary(t *testing.T) {
-	err := packMCPB(repoRoot(t), t.TempDir(), "1.2.3", filepath.Join(t.TempDir(), "out.mcpb"))
+	err := packMCPB(parityRepoRoot, t.TempDir(), "1.2.3", filepath.Join(t.TempDir(), "out.mcpb"))
 	if err == nil {
 		t.Fatal("packing from an empty dist was allowed")
+	}
+}
+
+// A glob that matches two binaries is refused, naming each with slashes as
+// the staged names are, on every host.
+func TestAGlobMatchingTwoBinariesIsRefusedByName(t *testing.T) {
+	dist := t.TempDir()
+	for _, dir := range []string{"pipedrive-mcp_linux_amd64_v1", "pipedrive-mcp_linux_amd64_v3"} {
+		put(t, dist, dir+"/pipedrive-mcp", "binary")
+	}
+	_, err := sourceFor(t.TempDir(), dist, staged{path: "server/linux-amd64", glob: "dist/*linux_amd64*/pipedrive-mcp"})
+	slash := filepath.ToSlash(dist)
+	want := "server/linux-amd64: " + slash + "/*linux_amd64*/pipedrive-mcp matches 2 files ([" +
+		slash + "/pipedrive-mcp_linux_amd64_v1/pipedrive-mcp " + slash + "/pipedrive-mcp_linux_amd64_v3/pipedrive-mcp]); " +
+		"a bundle packed from the wrong binary is not something a checksum catches"
+	if err == nil || err.Error() != want {
+		t.Errorf("got %v, want %q", err, want)
 	}
 }

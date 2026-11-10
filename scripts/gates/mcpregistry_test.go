@@ -116,7 +116,7 @@ func TestTheBundleRowMustBeExactlyOne(t *testing.T) {
 // so the entry cannot disagree with what shipped.
 func TestTheRegistryEntryIsBuiltFromTheRepository(t *testing.T) {
 	var out bytes.Buffer
-	if err := serverJSON(repoRoot(t), "1.2.0", sums(t, oneBundle), &out); err != nil {
+	if err := serverJSON(parityRepoRoot, "1.2.0", sums(t, oneBundle), &out); err != nil {
 		t.Fatalf("serverJSON: %v", err)
 	}
 
@@ -198,10 +198,10 @@ func TestTheRegistryEntryIsBuiltFromTheRepository(t *testing.T) {
 // person passes what they remember.
 func TestTheVersionMayCarryItsVOrNot(t *testing.T) {
 	var withV, without bytes.Buffer
-	if err := serverJSON(repoRoot(t), "v1.2.0", sums(t, oneBundle), &withV); err != nil {
+	if err := serverJSON(parityRepoRoot, "v1.2.0", sums(t, oneBundle), &withV); err != nil {
 		t.Fatalf("v-prefixed: %v", err)
 	}
-	if err := serverJSON(repoRoot(t), "1.2.0", sums(t, oneBundle), &without); err != nil {
+	if err := serverJSON(parityRepoRoot, "1.2.0", sums(t, oneBundle), &without); err != nil {
 		t.Fatalf("bare: %v", err)
 	}
 	if withV.String() != without.String() {
@@ -221,7 +221,7 @@ func TestAReleaseBeforeTheRenameStillGivesAnEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := serverJSON(repoRoot(t), "v1.1.3", path, &out); err != nil {
+	if err := serverJSON(parityRepoRoot, "v1.1.3", path, &out); err != nil {
 		t.Fatalf("serverJSON: %v", err)
 	}
 	const want = `"identifier": "https://github.com/mmedum/pipedrive-mcp/releases/download/v1.1.3/pipedrive-mcp-1.1.3.mcpb"`
