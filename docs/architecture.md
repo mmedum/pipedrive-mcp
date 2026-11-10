@@ -2437,7 +2437,9 @@ config names no version, and its gitleaks hook runs
 reader refuses by name a shape it does not read, so a step written in
 flow style cannot hide an action. Each YAML reader refuses a line break
 YAML reads and it does not, such as a lone CR, so a step cannot hide
-after one either.
+after one either. goreleaser runs one branch of a template, so the
+`.goreleaser.yaml` reader refuses a command holding a control action
+other than one `{{ if }}` or `{{ with }}` wrapping it whole.
 
 A tag can be moved to other code by whoever controls the action, and a
 SHA cannot. A SHA pins the wrapper and not what it installs:
