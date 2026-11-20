@@ -106,7 +106,7 @@ tool needs. `list_deals` filters; it does not match names.
 | `get_goal` | One goal and its progress over a period inside its own (v1) |
 | `manage_goal` | Create, edit or delete a goal — a delete is permanent and needs `confirm: true` (v1) |
 | `get_file` | One file's details and the record it hangs off; not its content (v1) |
-| `list_files` | The workspace's files, newest first (v1) |
+| `list_files` | The workspace's files, most recently updated first (v1) |
 | `manage_file` | Upload a file from `PIPEDRIVE_UPLOAD_DIR` to a record, rename or describe one, or delete one softly (v1) |
 | `get_person` | One contact: names, every email and phone with its label, the company they belong to, and custom fields |
 | `list_persons` | People by owner, linked organization or update window, cursor-paginated |

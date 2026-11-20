@@ -93,7 +93,7 @@ func TestWrite_FileRoundTrip(t *testing.T) {
 		listed = listed || f.ID == id
 	}
 	if !listed {
-		t.Errorf("list_files' first page, newest first, lacks file %d", id)
+		t.Errorf("list_files' first page, most recently updated first, lacks file %d", id)
 	}
 
 	mustCall(t, "manage_file", map[string]any{"action": "delete", "file_id": id}, nil)

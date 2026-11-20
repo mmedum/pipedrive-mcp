@@ -128,10 +128,9 @@ func (c *Client) do(ctx context.Context, path string, out any) error {
 	return c.exec(ctx, http.MethodGet, apiV2, path, nil, out)
 }
 
-// doV1 is `do` on /api/v1. Only notes and WhoAmI use v1, because v2 has
-// no /notes and no /users. A new v1 caller needs the same reason, said
-// at its call site and in a CHANGELOG entry under ### Changed, and the
-// owner's go-ahead.
+// doV1 is `do` on /api/v1, for the resources v2 does not expose: those
+// D-105 names. A new v1 caller needs the same reason, a decision naming
+// it, and the owner's go-ahead.
 func (c *Client) doV1(ctx context.Context, path string, out any) error {
 	return c.exec(ctx, http.MethodGet, apiV1, path, nil, out)
 }
@@ -291,16 +290,16 @@ func shouldRetry(method string, status int) bool {
 	return false
 }
 
-// rawBody is a request body sent as it is, under its own content type:
+// encodedBody is a request body sent as it is, under its own content type:
 // a multipart upload or a form. Each attempt reads it afresh from data,
 // so a retried write sends the same bytes.
-type rawBody struct {
+type encodedBody struct {
 	contentType string
 	data        []byte
 }
 
 func newRequest(ctx context.Context, method, requestURL string, body any, token string) (*http.Request, error) {
-	if raw, ok := body.(rawBody); ok {
+	if raw, ok := body.(encodedBody); ok {
 		req, err := http.NewRequestWithContext(ctx, method, requestURL, bytes.NewReader(raw.data))
 		if err != nil {
 			return nil, fmt.Errorf("pipedrive: build request: %w", err)

@@ -46,6 +46,8 @@ type FileAnchor struct {
 
 // GetFile reads one file's details. A deleted file still reads, with
 // active_flag false, for the 30 days Pipedrive keeps it.
+// https://developers.pipedrive.com/docs/api/v1/Files#getFile
+// Checked by the integration test TestWrite_FileRoundTrip.
 func (c *Client) GetFile(ctx context.Context, id int64) (*File, error) {
 	var resp itemEnvelope[File]
 	if err := c.doV1(ctx, "/files/"+strconv.FormatInt(id, 10), &resp); err != nil {
@@ -55,7 +57,10 @@ func (c *Client) GetFile(ctx context.Context, id int64) (*File, error) {
 	return &f, nil
 }
 
-// ListFiles lists the workspace's files a page at a time.
+// ListFiles lists the workspace's files a page at a time. sort is v1's
+// "field DIRECTION", such as "update_time DESC".
+// https://developers.pipedrive.com/docs/api/v1/Files#getFiles
+// Checked by the integration test TestWrite_FileRoundTrip.
 func (c *Client) ListFiles(ctx context.Context, sort string, start, limit int) ([]File, *V1Pagination, error) {
 	q := url.Values{}
 	if sort != "" {
@@ -75,8 +80,10 @@ func (c *Client) ListFiles(ctx context.Context, sort string, start, limit int) (
 }
 
 // UploadFile uploads content under name and attaches it to the anchor's
-// record, as multipart/form-data, the one body the endpoint takes.
+// record, as multipart/form-data, the one body the endpoint takes; the
+// reference lists project_id beside the other anchors.
 // https://developers.pipedrive.com/docs/api/v1/Files#addFile
+// Checked by the integration test TestWrite_FileRoundTrip.
 func (c *Client) UploadFile(ctx context.Context, name string, content io.Reader, at FileAnchor) (*File, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
@@ -87,32 +94,40 @@ func (c *Client) UploadFile(ctx context.Context, name string, content io.Reader,
 	if _, err = io.Copy(part, content); err != nil {
 		return nil, fmt.Errorf("pipedrive: read upload: %w", err)
 	}
-	for field, id := range map[string]int64{"deal_id": at.DealID, "person_id": at.PersonID, "org_id": at.OrgID,
-		"product_id": at.ProductID, "activity_id": at.ActivityID, "project_id": at.ProjectID} {
-		if id > 0 {
-			if err = w.WriteField(field, strconv.FormatInt(id, 10)); err != nil {
+	for _, f := range []struct{ name, value string }{
+		{"deal_id", formID(at.DealID)}, {"person_id", formID(at.PersonID)}, {"org_id", formID(at.OrgID)},
+		{"product_id", formID(at.ProductID)}, {"activity_id", formID(at.ActivityID)},
+		{"project_id", formID(at.ProjectID)}, {"lead_id", at.LeadID},
+	} {
+		if f.value != "" {
+			if err = w.WriteField(f.name, f.value); err != nil {
 				return nil, fmt.Errorf("pipedrive: encode upload: %w", err)
 			}
-		}
-	}
-	if at.LeadID != "" {
-		if err = w.WriteField("lead_id", at.LeadID); err != nil {
-			return nil, fmt.Errorf("pipedrive: encode upload: %w", err)
 		}
 	}
 	if err = w.Close(); err != nil {
 		return nil, fmt.Errorf("pipedrive: encode upload: %w", err)
 	}
 	var resp itemEnvelope[File]
-	if err := c.postV1(ctx, "/files", rawBody{contentType: w.FormDataContentType(), data: buf.Bytes()}, &resp); err != nil {
+	if err := c.postV1(ctx, "/files", encodedBody{contentType: w.FormDataContentType(), data: buf.Bytes()}, &resp); err != nil {
 		return nil, err
 	}
 	f := resp.Data
 	return &f, nil
 }
 
+// formID is an id as a form value, empty for an unset one.
+func formID(id int64) string {
+	if id <= 0 {
+		return ""
+	}
+	return strconv.FormatInt(id, 10)
+}
+
 // UpdateFile changes a file's name and description, the two fields the
-// endpoint takes, as a form. An empty value is left out.
+// endpoint takes, as a form. A nil value is left out.
+// https://developers.pipedrive.com/docs/api/v1/Files#updateFile
+// Checked by the integration test TestWrite_FileRoundTrip.
 func (c *Client) UpdateFile(ctx context.Context, id int64, name, description *string) (*File, error) {
 	form := url.Values{}
 	if name != nil {
@@ -122,7 +137,7 @@ func (c *Client) UpdateFile(ctx context.Context, id int64, name, description *st
 		form.Set("description", *description)
 	}
 	var resp itemEnvelope[File]
-	body := rawBody{contentType: "application/x-www-form-urlencoded", data: []byte(form.Encode())}
+	body := encodedBody{contentType: "application/x-www-form-urlencoded", data: []byte(form.Encode())}
 	if err := c.putV1(ctx, "/files/"+strconv.FormatInt(id, 10), body, &resp); err != nil {
 		return nil, err
 	}

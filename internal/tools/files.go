@@ -229,25 +229,33 @@ func readUpload(dir, path string) ([]byte, error) {
 	}
 	root, err := os.OpenRoot(dir)
 	if err != nil {
-		return nil, fmt.Errorf("opening the upload folder: %w", err)
+		return nil, fmt.Errorf("%w: the upload folder cannot be opened: %w", pipedrive.ErrForbiddenBusinessRule, err)
 	}
 	defer func() { _ = root.Close() }()
-	f, err := root.Open(path)
+	// Stat before Open: opening a named pipe blocks until a writer comes.
+	info, err := root.Stat(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, fmt.Errorf("%w: no file %q in the upload folder", pipedrive.ErrNotFound, path)
 		}
 		return nil, fmt.Errorf("%w: %q cannot be read from the upload folder: it is outside it, or unreadable", pipedrive.ErrValidation, path)
 	}
-	defer func() { _ = f.Close() }()
-	info, err := f.Stat()
-	if err != nil || !info.Mode().IsRegular() {
+	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%w: %q is not a file", pipedrive.ErrValidation, path)
 	}
 	if info.Size() > maxUploadBytes {
 		return nil, fmt.Errorf("%w: %q is %d bytes; this server uploads at most %d", pipedrive.ErrValidation, path, info.Size(), maxUploadBytes)
 	}
-	return io.ReadAll(io.LimitReader(f, maxUploadBytes+1))
+	f, err := root.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %q cannot be read from the upload folder: %w", pipedrive.ErrValidation, path, err)
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxUploadBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("%w: reading %q: %w", pipedrive.ErrValidation, path, err)
+	}
+	return data, nil
 }
 
 func uploadFileAction(ctx context.Context, c filesClient, dir string, in manageFileInput) (*mcp.CallToolResult, manageFileOutput) {
@@ -278,8 +286,11 @@ func updateFileAction(ctx context.Context, c filesClient, in manageFileInput) (*
 	if in.Name == nil && in.Description == nil {
 		return errorResult(fmt.Errorf("%w: update needs name or description", pipedrive.ErrValidation)), manageFileOutput{}
 	}
-	if in.Name != nil && strings.TrimSpace(*in.Name) == "" {
-		return errorResult(fmt.Errorf("%w: name must not be blank", pipedrive.ErrValidation)), manageFileOutput{}
+	// A blank value would empty the field, which no tool here does (D-42).
+	for field, v := range map[string]*string{"name": in.Name, "description": in.Description} {
+		if v != nil && strings.TrimSpace(*v) == "" {
+			return errorResult(fmt.Errorf("%w: %s must not be blank; omit it to leave it as it is", pipedrive.ErrValidation, field)), manageFileOutput{}
+		}
 	}
 	f, changed, res := guardedWrite[pipedrive.File]{
 		Spec:          fileFields,
