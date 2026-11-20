@@ -122,6 +122,8 @@ func TestUpstreamTypesMatchTheSpec(t *testing.T) {
 		{"Pipeline", reflect.TypeOf(Pipeline{})},
 		{"Stage", reflect.TypeOf(Stage{})},
 		{"Field", reflect.TypeOf(Field{})},
+		{"Installment", reflect.TypeOf(Installment{})},
+		{"DealProduct", reflect.TypeOf(DealProduct{})},
 	}
 
 	for _, tc := range cases {

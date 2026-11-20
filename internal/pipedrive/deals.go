@@ -28,6 +28,11 @@ type ListDealsOptions struct {
 	Limit         int
 	Cursor        string // opaque pagination token from a previous response
 
+	// IDs narrows the list to these deals, at most 100. A deal that is
+	// absent or not visible is left out rather than refused, per the
+	// reference for `ids`.
+	IDs []int64
+
 	// Archived reads /deals/archived instead of /deals. Pipedrive's
 	// /deals returns "all not archived deals", so no filter on it reaches
 	// an archived one. No integration test reads /deals/archived.
@@ -190,6 +195,9 @@ func (c *Client) ListDeals(ctx context.Context, opts ListDealsOptions) ([]Deal, 
 	}
 	if opts.SortDirection != "" {
 		q.Set("sort_direction", opts.SortDirection)
+	}
+	if len(opts.IDs) > 0 {
+		q.Set("ids", joinInt64s(opts.IDs))
 	}
 	setLimitCursor(q, opts.Limit, opts.Cursor)
 

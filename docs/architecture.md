@@ -424,6 +424,8 @@ symptom in [troubleshooting.md](troubleshooting.md).
 | D-95 | The bundle manifest is validated against a vendored schema pinned by SHA256 | accepted | mcpb, TestCommittedManifestSatisfiesItsSchema, TestVendoredSchemaMatchesItsRecordedHash, TestTheSchemaRefIsATagNotABranch |
 | D-96 | The bundle's settings come from config.Vars, and its defaults are started through config.Load | accepted | mcpb, TestBundleVarsAreDerivedFromTheSettings, TestDefaultsProblemsReportsEveryUnreadableDefaultAndTheRest, TestSettingProblemsRefuseABundleWithNoSecret |
 | D-97 | The registry entry is published by its own workflow, from checksums.txt after cosign verifies it | accepted | TestTheRegistryEntryIsBuiltFromTheRepository, TestTheBundleRowMustBeExactlyOne, TestRegistrySchemaMatchesItsRecordedHash, review |
+| D-98 | Installments are part of the deal surface: get_deal reports a deal's schedule, list_installments reads many, manage_installment writes one | accepted | TestGetDeal_ReportsTheScheduleAndWarnsWhenItIsStale, TestListInstallments_OneSchedulePerDealInTheOrderAsked, TestInstallments_ReadAcrossDeals |
+| D-99 | A permanent delete takes confirm, beside dry_run and expect_version | accepted | TestManageInstallment_DeleteIsPermanentSoItNeedsConfirm, TestWrite_InstallmentRoundTrip |
 
 ### D-01 One Go binary serves one Pipedrive workspace over stdio; nothing is hosted
 
@@ -1033,7 +1035,8 @@ that record. The integration test
 tree the suite creates and finds the deals, persons, activities and
 notes under it still there. A soft delete that reaches nothing else is
 the reversible case (D-47), and every other write's blast radius is on
-screen after the read (D-27).
+screen after the read (D-27). A permanent delete is the exception, and
+takes `confirm` (D-99).
 
 Rejected: `force` on an operation whose whole blast radius is on screen;
 a `force` guard on parent deletes.
@@ -2729,4 +2732,50 @@ Cost: the signature's identity accepts `release.yml` on any tag of this
 repository, and the bundle's row is not checked against the tag being
 published; whether to hold both to that tag is open (#118).
 
-Next ID: D-98
+### D-98 Installments are part of the deal surface: get_deal reports a deal's schedule, list_installments reads many, manage_installment writes one
+
+A deal's installments are its payment schedule: amounts billed on dates,
+in the deal's currency. `get_deal` reports the schedule beside the deal,
+with its sum next to the deal value. `list_installments` reads the
+schedules of up to 100 deals in two calls, and `manage_installment`
+creates, edits and deletes one installment through the guarded-write
+contract (D-27). Each schedule warns where its sum differs from the deal
+value, and on a won deal, whose installments may already be invoices in
+the system that bills from Pipedrive.
+
+Installments are not one of D-07's resources. Pipedrive keeps them under
+`/deals/{id}/installments`, they have no meaning without their deal, and
+a schedule that disagrees with its deal's value is a fact about the deal.
+An installment has no `update_time`, so its `version` is a fingerprint of
+the three writable fields, and `expect_version` compares that.
+[The reference](https://developers.pipedrive.com/docs/api/v1/DealInstallments)
+gives the plan and product rules a create is checked against.
+
+Rejected: installment actions on `manage_deal`, whose action enum and
+inputs are about the deal's own fields; leaving the schedule out of
+`get_deal`, which hides the sum a forecast reads.
+Cost: `get_deal` makes a second call, and on a plan without installments
+it reports why the schedule is missing rather than failing.
+
+### D-99 A permanent delete takes confirm, beside dry_run and expect_version
+
+A delete Pipedrive does not keep takes `confirm: true`, and refuses
+without it, saying the delete is permanent. A dry run needs no confirm,
+because it is how the caller sees what would go. The first such delete is
+an installment's: the reference says it "Removes an installment from a
+deal" and offers no restore, and the integration test
+`TestWrite_InstallmentRoundTrip` finds the id gone.
+
+D-28 adds a confirmation only where the caller cannot see what it loses,
+and D-47 leaves a soft delete without one, as the reversible case. A
+permanent delete is neither: the read before it shows the caller what
+goes, but nothing can bring it back, so the caller states they mean it.
+This follows the guidance most MCP servers give for an irreversible
+delete.
+
+Rejected: dry_run and expect_version alone, as for a soft delete;
+registering the delete only behind a setting, which D-46 rejects.
+Cost: a model can set `confirm` as easily as anything else. It records
+that the call meant the delete; it does not stop a model that means it.
+
+Next ID: D-100

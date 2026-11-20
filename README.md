@@ -83,9 +83,11 @@ tool needs. `list_deals` filters; it does not match names.
 |---|---|
 | `search` | Free text across deals, people, organizations, products, files and leads — the way to turn a name into an id |
 | `whoami` | Which account the token acts as, the workspace it points at, and the account's timezone |
-| `get_deal` | One deal: value, currency, status, stage, the people and company on it, and custom fields under their workspace names, dropdowns as labels |
+| `get_deal` | One deal: value, currency, status, stage, the people and company on it, custom fields under their workspace names, dropdowns as labels, and its installments with their sum beside the deal value |
 | `list_deals` | Deals by status, pipeline, stage, owner, person, organization or update window, cursor-paginated. Archived deals live in their own collection — pass `archived` |
 | `manage_deal` | Create or edit a deal, move it between stages, close it, archive it, or delete it — `create`, `update`, `move_stage`, `mark_won`, `mark_lost`, `reopen`, `archive`, `unarchive`, `delete`. Custom fields by name, dropdowns by label |
+| `list_installments` | The installment schedules of up to 100 deals: amounts, billing dates and currency, each schedule's sum beside its deal value, and warnings where they differ |
+| `manage_installment` | Add, change or remove one installment on a deal — `create`, `update`, `delete`. Needs Pipedrive's Growth plan and a deal with a one-time product |
 | `get_person` | One contact: names, every email and phone with its label, the company they belong to, and custom fields |
 | `list_persons` | People by owner, linked organization or update window, cursor-paginated |
 | `manage_person` | Create, edit or delete a contact — `create`, `update`, `delete`. Name it with `name` or with `first_name`/`last_name`, never both. Custom fields by name, dropdowns by label |
@@ -115,7 +117,7 @@ fields it is protecting and the argument that would permit the write.
   than it listed is still refused over the rest. Filling an empty field
   destroys nothing and needs no permission.
 - **`expect_version`** carries the `update_time` from the read that
-  informed the write, and refuses if the record moved since. Pipedrive
+  informed the write, or an installment's `version`, and refuses if the record moved since. Pipedrive
   has no compare-and-set, so it catches a concurrent edit, not a
   determined race.
 
@@ -129,7 +131,8 @@ deal, so the last loss's text stays until the deal is lost again.
 A delete is soft. Pipedrive removes a deleted deal, person,
 organization or activity for good after 30 days, and nothing here puts
 one back. A deleted note keeps its text, and nothing here restores it
-either.
+either. An installment's delete is the exception: Pipedrive keeps no
+copy, so `manage_installment` deletes only with `confirm: true`.
 
 A guarded write that stops returns `[refused]`, a class of its own, so a
 model can tell it from a validation failure and from an upstream error.
@@ -147,7 +150,8 @@ pipedrive://notes/{id}
 
 They share the tools' code, so the two cannot describe a record
 differently. A URI carries no options, so `include_attendees` and
-`include_notes` still need the tool.
+`include_notes` still need the tool. A deal's resource carries the deal
+alone; its installments come from `get_deal` or `list_installments`.
 
 ### What is not here
 
