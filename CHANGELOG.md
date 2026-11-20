@@ -23,6 +23,10 @@ other tool is covered by the promise in full.
 
 ## [Unreleased]
 
+### Security
+
+- Built with Go 1.27.4, fixing [GO-2026-6859](https://pkg.go.dev/vuln/GO-2026-6859) (CVE-2026-97054), an HTTP server crash. This program runs no server, but the advisory lists client functions.
+
 ## [1.3.1] - 2026-11-05
 
 ### Changed
