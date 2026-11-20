@@ -337,3 +337,12 @@ func TestRegistryEntrySchemaCatchesABrokenEntry(t *testing.T) {
 		})
 	}
 }
+
+// The bundle row is held to the tag being published, so checksums from
+// another release cannot put their hash under this version.
+func TestTheBundleRowMustBeThisTagsBundle(t *testing.T) {
+	err := serverJSON(parityRepoRoot, "v1.3.0", sums(t, oneBundle), io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "pipedrive-mcp_1.2.0.mcpb, which is not v1.3.0's bundle") {
+		t.Errorf("serverJSON for v1.3.0 over 1.2.0's checksums = %v; want a refusal naming both", err)
+	}
+}

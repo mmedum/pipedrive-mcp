@@ -2733,9 +2733,10 @@ signature is what does not move with them. An entry cannot be withdrawn.
 
 Rejected: publishing from inside `release.yml`; reading the checksums
 before verifying them.
-Cost: the signature's identity accepts `release.yml` on any tag of this
-repository, and the bundle's row is not checked against the tag being
-published; whether to hold both to that tag is open (#118).
+Cost: an entry is published only for a tag whose `checksums.txt` was
+signed by `release.yml` on that same tag, and whose bundle row names
+that tag's version; a release whose signing failed cannot be published
+without a new tag.
 
 ### D-98 Installments are part of the deal surface: get_deal reports a deal's schedule, list_installments reads many, manage_installment writes one
 
