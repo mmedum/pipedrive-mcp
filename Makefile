@@ -83,7 +83,7 @@ staleness: ## gates deps
 	go run ./scripts/gates deps
 
 .PHONY: check
-check: fmt vet lint test cover vuln licenses verify gitleaks staleness docs leaks pins mcpb changelog-links descriptions smoke parity ## Run every per-PR CI gate locally
+check: fmt vet lint test cover vuln licenses verify gitleaks staleness docs leaks pins mcpb cross changelog-links descriptions smoke parity ## Run every per-PR CI gate locally
 
 # HEAD's history, which is every commit CI's full checkout of a pull
 # request holds. With no --log-opts gitleaks walks every ref, a branch
@@ -124,6 +124,10 @@ pins: ## Every action is a commit and every tool version is exact
 .PHONY: changelog-links
 changelog-links: ## Every CHANGELOG version heading has its link definition
 	@$(GO) run ./scripts/gates changelog-links
+
+.PHONY: cross
+cross: ## Build the server for every target the release ships
+	@$(GO) run ./scripts/gates cross
 
 .PHONY: mcpb
 mcpb: ## The bundle manifest describes the bundle the packer stages, and the release its six archives

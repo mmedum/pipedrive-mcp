@@ -198,6 +198,7 @@ jobs:
           cache: true
       - run: go run ./scripts/gates pins
       - run: go run ./scripts/gates mcpb
+      - run: go run ./scripts/gates cross
       - run: go run ./scripts/gates changelog-links
 
   # make check and this workflow run the same gates, and parity holds the

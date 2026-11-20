@@ -116,6 +116,10 @@ func init() {
 			run: coverageGate, args: "PROFILE", runs: inCheck,
 			doc: "the statement-coverage floor on the packages it holds",
 		},
+		"cross": {
+			run: crossGate, args: "", runs: inCheck,
+			doc: "the server builds for every target .goreleaser.yaml releases",
+		},
 		"parity": {
 			run: parity, args: "", runs: inCheck,
 			doc: "`make check` and CI run the same gates",
