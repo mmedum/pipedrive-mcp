@@ -359,6 +359,16 @@ func historyProblems(root string) (problems []string, commits, blobs int, err er
 	return append(problems, found...), commits, blobs, nil
 }
 
+// attribution matches the trailer lines that credit a person with a
+// commit, which are git's and GitHub's record of who made it, as public
+// as the author header: Signed-off-by, which `git commit --signoff` adds
+// and Dependabot signs with, and Co-authored-by, which GitHub writes into
+// a squash merge for each author. Only a line that starts with one; the
+// words anywhere else are prose, and an address there is still a leak.
+// https://git-scm.com/docs/git-commit#Documentation/git-commit.txt---signoff
+// https://docs.github.com/en/pull-requests/committing-changes-to-your-project/creating-and-editing-commits/creating-a-commit-with-multiple-authors
+var attribution = regexp.MustCompile(`(?im)^(?:signed-off-by|co-authored-by):.*$`)
+
 // messageProblems is every finding in root's commit messages, each read
 // on its own, with how many it read.
 func messageProblems(root string) (problems []string, commits int, err error) {
@@ -369,7 +379,7 @@ func messageProblems(root string) (problems []string, commits int, err error) {
 	for entry := range strings.SplitSeq(strings.TrimSuffix(string(messages), "\x00"), "\x00") {
 		hash, message, _ := strings.Cut(entry, "\n")
 		commits++
-		for _, found := range findLeaks(allowed(message)) {
+		for _, found := range findLeaks(allowed(attribution.ReplaceAllString(message, ""))) {
 			problems = append(problems, "commit "+short(hash)+" message: "+found)
 		}
 	}
