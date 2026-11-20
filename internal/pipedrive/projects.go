@@ -64,8 +64,8 @@ type ListProjectsOptions struct {
 
 // ProjectRequest is the body for creating or editing a project. Only
 // title is required on a create; Pipedrive files a project with no board
-// or phase on its first board's first phase. Checked by the integration
-// test TestWrite_ProjectRoundTrip.
+// or phase on a board and a phase of its choosing. Checked by the
+// integration test TestWrite_ProjectRoundTrip.
 type ProjectRequest struct {
 	Title       *string `json:"title,omitempty"`
 	Description *string `json:"description,omitempty"`
@@ -133,7 +133,8 @@ func (c *Client) CreateProject(ctx context.Context, req ProjectRequest) (*Projec
 }
 
 // UpdateProject edits a project and returns it as stored. An archived
-// project still takes edits.
+// project still takes edits. Checked by the integration test
+// TestWrite_ProjectRoundTrip.
 func (c *Client) UpdateProject(ctx context.Context, id int64, req ProjectRequest) (*Project, error) {
 	var resp itemEnvelope[Project]
 	if err := c.patchV2(ctx, "/projects/"+strconv.FormatInt(id, 10), req, &resp); err != nil {

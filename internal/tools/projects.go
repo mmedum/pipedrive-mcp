@@ -58,7 +58,7 @@ type getProjectOutput struct {
 }
 
 type listProjectsInput struct {
-	Status   string `json:"status,omitempty" jsonschema:"open | completed | canceled | deleted. Omit for every status but deleted"`
+	Status   string `json:"status,omitempty" jsonschema:"open | completed | canceled | deleted. Omit for every status but deleted, which Pipedrive leaves out unless asked"`
 	PhaseID  int64  `json:"phase_id,omitempty" jsonschema:"return only projects in this phase; 0 = no filter"`
 	DealID   int64  `json:"deal_id,omitempty" jsonschema:"return only projects linked to this deal; 0 = no filter. Not available with archived"`
 	PersonID int64  `json:"person_id,omitempty" jsonschema:"return only projects linked to this person; 0 = no filter. Not available with archived"`
@@ -95,9 +95,9 @@ type manageProjectInput struct {
 	Description   *string  `json:"description,omitempty" jsonschema:"the project's description. Omit to leave it as it is"`
 	Status        *string  `json:"status,omitempty" jsonschema:"open | completed | canceled. Omit to leave it as it is; delete is its own action"`
 	OwnerID       *int64   `json:"owner_id,omitempty" jsonschema:"the user who owns the project; omit on create to take the API token's own user"`
-	BoardID       *int64   `json:"board_id,omitempty" jsonschema:"the board; list_project_boards reports the ids. Omit on create to take the workspace's first board"`
-	PhaseID       *int64   `json:"phase_id,omitempty" jsonschema:"the phase of the board; list_project_boards reports the ids. Omit on create to take the board's first phase"`
-	DealIDs       []int64  `json:"deal_ids,omitempty" jsonschema:"the deals to link. A write REPLACES the whole list, so send every deal the project keeps; omit to leave the links as they are"`
+	BoardID       *int64   `json:"board_id,omitempty" jsonschema:"the board; list_project_boards reports the ids. Omit on create to let Pipedrive pick one; moving a project to another board needs phase_id too"`
+	PhaseID       *int64   `json:"phase_id,omitempty" jsonschema:"the phase of the board; list_project_boards reports the ids. Omit on create to let Pipedrive pick one"`
+	DealIDs       []int64  `json:"deal_ids,omitempty" jsonschema:"the deals to link. A write REPLACES the whole list, so send every deal the project keeps; omit to leave the links as they are. A list cannot be emptied"`
 	PersonIDs     []int64  `json:"person_ids,omitempty" jsonschema:"the persons to link. A write REPLACES the whole list; omit to leave it as it is"`
 	OrgIDs        []int64  `json:"org_ids,omitempty" jsonschema:"the organizations to link. A write REPLACES the whole list; omit to leave it as it is"`
 	StartDate     *string  `json:"start_date,omitempty" jsonschema:"YYYY-MM-DD the project starts. Omit to leave it as it is"`
@@ -159,26 +159,7 @@ func RegisterProjects(s *mcp.Server, c projectsClient, opts RegisterOptions) {
 		Name:        "list_projects",
 		Description: "List projects filtered by status, phase, or the deal, person or organization they are linked to. Default limit is 25, max 100. IMPORTANT: a page holding fewer rows than the limit is NOT the end — keep paging while next_cursor comes back non-empty. Archived projects are NOT in this collection; pass archived to read them, which takes status and phase_id alone. list_project_boards names the boards and phases.",
 		Annotations: readOnlyAnnotations(),
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listProjectsInput) (*mcp.CallToolResult, listProjectsOutput, error) {
-		if err := validateEnum(in.Status, "status", allowedProjectStatuses); err != nil {
-			return errorResult(err), listProjectsOutput{}, nil
-		}
-		if in.Archived && (in.DealID > 0 || in.PersonID > 0 || in.OrgID > 0) {
-			return errorResult(fmt.Errorf("%w: the archive takes status and phase_id alone; Pipedrive ignores a deal, person or organization filter there", pipedrive.ErrValidation)), listProjectsOutput{}, nil
-		}
-		projects, next, err := c.ListProjects(ctx, pipedrive.ListProjectsOptions{
-			Status: in.Status, PhaseID: in.PhaseID, DealID: in.DealID, PersonID: in.PersonID, OrgID: in.OrgID,
-			Archived: in.Archived, Limit: clampLimit(in.Limit), Cursor: in.Cursor,
-		})
-		if err != nil {
-			return errorResult(err), listProjectsOutput{}, nil
-		}
-		out := listProjectsOutput{Projects: make([]projectSummary, 0, len(projects)), NextCursor: next}
-		for i := range projects {
-			out.Projects = append(out.Projects, summarizeProject(&projects[i]))
-		}
-		return nil, out, nil
-	})
+	}, listProjectsHandler(c))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_project_boards",
@@ -208,9 +189,37 @@ func RegisterProjects(s *mcp.Server, c projectsClient, opts RegisterOptions) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "manage_project",
-		Description: "Create a project, edit one, archive one, or delete one. create takes title; Pipedrive files a project with no board_id or phase_id on its first board's first phase. update, archive and delete take project_id and read the project first. An update refuses to replace ANY field that already holds a value unless you name it in overwrite, and the refusal names each one. IMPORTANT: deal_ids, person_ids and org_ids are whole lists, and a write REPLACES each one sent, so send every link the project keeps. archive takes no overwrite: it moves the project to the archive, where list_projects reaches it only with archived, and NOTHING HERE UNARCHIVES IT — Pipedrive's API has no call for that. Deleting is soft: the project still reads, with status deleted, so delete takes dry_run and expect_version and nothing more, but nothing here restores it.",
+		Description: "Create a project, edit one, archive one, or delete one. create takes title; Pipedrive files a project with no board_id or phase_id on a board and phase of its choosing. update, archive and delete take project_id and read the project first. An update refuses to replace ANY field that already holds a value unless you name it in overwrite, and the refusal names each one. IMPORTANT: deal_ids, person_ids and org_ids are whole lists, and a write REPLACES each one sent, so send every link the project keeps. archive takes no overwrite: it moves the project to the archive, where list_projects reaches it only with archived, and NOTHING HERE UNARCHIVES IT — Pipedrive's API has no call for that. Deleting is soft: the project still reads, with status deleted, so delete takes dry_run and expect_version and nothing more, but nothing here restores it.",
 		Annotations: mutatingAnnotations(),
 	}, manageProjectHandler(c, opts.DryRun))
+}
+
+func listProjectsHandler(c projectsClient) mcp.ToolHandlerFor[listProjectsInput, listProjectsOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in listProjectsInput) (*mcp.CallToolResult, listProjectsOutput, error) {
+		if err := validateEnum(in.Status, "status", allowedProjectStatuses); err != nil {
+			return errorResult(err), listProjectsOutput{}, nil
+		}
+		for name, id := range map[string]int64{"phase_id": in.PhaseID, "deal_id": in.DealID, "person_id": in.PersonID, "org_id": in.OrgID} {
+			if id < 0 {
+				return errorResult(fmt.Errorf("%w: %s must be a positive id, or 0 for no filter", pipedrive.ErrValidation, name)), listProjectsOutput{}, nil
+			}
+		}
+		if in.Archived && (in.DealID > 0 || in.PersonID > 0 || in.OrgID > 0) {
+			return errorResult(fmt.Errorf("%w: the archive takes status and phase_id alone; Pipedrive ignores a deal, person or organization filter there", pipedrive.ErrValidation)), listProjectsOutput{}, nil
+		}
+		projects, next, err := c.ListProjects(ctx, pipedrive.ListProjectsOptions{
+			Status: in.Status, PhaseID: in.PhaseID, DealID: in.DealID, PersonID: in.PersonID, OrgID: in.OrgID,
+			Archived: in.Archived, Limit: clampLimit(in.Limit), Cursor: in.Cursor,
+		})
+		if err != nil {
+			return errorResult(err), listProjectsOutput{}, nil
+		}
+		out := listProjectsOutput{Projects: make([]projectSummary, 0, len(projects)), NextCursor: next}
+		for i := range projects {
+			out.Projects = append(out.Projects, summarizeProject(&projects[i]))
+		}
+		return nil, out, nil
+	}
 }
 
 func summarizeProject(p *pipedrive.Project) projectSummary {
@@ -257,6 +266,9 @@ func manageProjectHandler(c projectsClient, dryRun bool) mcp.ToolHandlerFor[mana
 }
 
 func validateProjectInput(in manageProjectInput) error {
+	if err := validateProjectIDs(in); err != nil {
+		return err
+	}
 	if in.Status != nil {
 		if err := validateEnum(*in.Status, "status", allowedProjectWriteStatuses); err != nil {
 			return err
@@ -268,6 +280,34 @@ func validateProjectInput(in manageProjectInput) error {
 				return fmt.Errorf("%w: %s %q is not a YYYY-MM-DD date", pipedrive.ErrValidation, name, *d)
 			}
 		}
+	}
+	return nil
+}
+
+// validateProjectIDs checks every id the input carries: a zero would read
+// to the guard as emptying the field, which no write can do.
+func validateProjectIDs(in manageProjectInput) error {
+	for name, id := range map[string]*int64{"owner_id": in.OwnerID, "board_id": in.BoardID, "phase_id": in.PhaseID} {
+		if id != nil {
+			if err := validatePositiveID(*id, name); err != nil {
+				return err
+			}
+		}
+	}
+	for name, ids := range map[string][]int64{"deal_ids": in.DealIDs, "person_ids": in.PersonIDs, "org_ids": in.OrgIDs} {
+		if ids != nil && len(ids) == 0 {
+			return fmt.Errorf("%w: %s cannot be emptied: Pipedrive keeps a list a write leaves out, so omit it to leave the links as they are", pipedrive.ErrValidation, name)
+		}
+		for _, id := range ids {
+			if err := validatePositiveID(id, "every "+name+" entry"); err != nil {
+				return err
+			}
+		}
+	}
+	// A phase belongs to one board, so a project moved to another board
+	// needs a phase of that board.
+	if in.Action == "update" && in.BoardID != nil && in.PhaseID == nil {
+		return fmt.Errorf("%w: moving a project to another board needs phase_id, a phase of that board; list_project_boards reports them", pipedrive.ErrValidation)
 	}
 	return nil
 }
@@ -330,9 +370,15 @@ func updateProjectAction(ctx context.Context, c projectsClient, in manageProject
 		Version:       func(p *pipedrive.Project) string { return p.UpdateTime },
 		Overwrite:     in.Overwrite,
 		DryRun:        in.DryRun,
-		Get:           func(ctx context.Context) (*pipedrive.Project, error) { return c.GetProject(ctx, in.ProjectID) },
-		Predict:       func(p *pipedrive.Project) pipedrive.Project { return projectAfter(*p, req) },
-		Put:           func(ctx context.Context) (*pipedrive.Project, error) { return c.UpdateProject(ctx, in.ProjectID, req) },
+		Get: func(ctx context.Context) (*pipedrive.Project, error) {
+			p, err := c.GetProject(ctx, in.ProjectID)
+			if err != nil {
+				return nil, err
+			}
+			return p, refuseDeletedProject(p)
+		},
+		Predict: func(p *pipedrive.Project) pipedrive.Project { return projectAfter(*p, req) },
+		Put:     func(ctx context.Context) (*pipedrive.Project, error) { return c.UpdateProject(ctx, in.ProjectID, req) },
 	}.run(ctx)
 	if res != nil {
 		return res, manageProjectOutput{}
@@ -365,6 +411,9 @@ func archiveProjectAction(ctx context.Context, c projectsClient, in manageProjec
 	if res != nil {
 		return res, manageProjectOutput{}
 	}
+	if err := refuseDeletedProject(before); err != nil {
+		return errorResult(err), manageProjectOutput{}
+	}
 	if before.ArchiveTime != "" {
 		return nil, manageProjectOutput{Project: summarizeProject(before)}
 	}
@@ -376,6 +425,16 @@ func archiveProjectAction(ctx context.Context, c projectsClient, in manageProjec
 		}
 	}
 	return nil, manageProjectOutput{Project: summarizeProject(after), Changed: []string{"archive_time"}}
+}
+
+// refuseDeletedProject stops an edit or an archive of a deleted project:
+// a status write could bring it back, which the tool says nothing here
+// does, and what Pipedrive does with either is unchecked.
+func refuseDeletedProject(p *pipedrive.Project) error {
+	if p.Status == "deleted" {
+		return fmt.Errorf("%w: project %d is deleted, and nothing here edits, archives or restores a deleted project", pipedrive.ErrForbiddenBusinessRule, p.ID)
+	}
+	return nil
 }
 
 // deleteProjectAction marks a project deleted: soft, so dry_run and

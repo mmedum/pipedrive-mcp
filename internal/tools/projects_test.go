@@ -149,6 +149,10 @@ func TestManageProject_RefusesBadInputAndHonorsTheFloor(t *testing.T) {
 		{"action": "create", "title": " "},
 		{"action": "update", "project_id": 9, "status": "deleted"},
 		{"action": "update", "project_id": 9, "end_date": "31/12/2026"},
+		{"action": "update", "project_id": 9, "deal_ids": []int64{}},
+		{"action": "update", "project_id": 9, "deal_ids": []int64{3, 0}},
+		{"action": "update", "project_id": 9, "owner_id": 0},
+		{"action": "update", "project_id": 9, "board_id": 2},
 	} {
 		fake := newProjectsFake()
 		if res := callProjects(t, fake, tools.RegisterOptions{}, "manage_project", args, nil); !strings.HasPrefix(contentText(res), "[validation]") || fake.writes() != 0 {
@@ -168,5 +172,28 @@ func TestManageProject_RefusesBadInputAndHonorsTheFloor(t *testing.T) {
 	}
 	if fake.writes() != 0 {
 		t.Errorf("the floor let %d writes through", fake.writes())
+	}
+}
+
+func TestManageProject_ADeletedProjectIsNotEditedOrArchived(t *testing.T) {
+	fake := newProjectsFake()
+	fake.project.Status = "deleted"
+	for _, args := range []map[string]any{
+		{"action": "update", "project_id": 9, "status": "open", "overwrite": []string{"status"}},
+		{"action": "archive", "project_id": 9},
+	} {
+		if res := callProjects(t, fake, tools.RegisterOptions{}, "manage_project", args, nil); !strings.HasPrefix(contentText(res), "[business_rule]") {
+			t.Errorf("%s of a deleted project = %q; want [business_rule]", args["action"], contentText(res))
+		}
+	}
+	if fake.writes() != 0 {
+		t.Errorf("%d writes reached a deleted project", fake.writes())
+	}
+}
+
+func TestListProjects_RefusesANegativeFilter(t *testing.T) {
+	res := callProjects(t, newProjectsFake(), tools.RegisterOptions{}, "list_projects", map[string]any{"deal_id": -5}, nil)
+	if !strings.HasPrefix(contentText(res), "[validation]") {
+		t.Errorf("deal_id -5 = %q; want [validation]", contentText(res))
 	}
 }
