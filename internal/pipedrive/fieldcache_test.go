@@ -603,3 +603,37 @@ func TestFieldCache_Reload(t *testing.T) {
 		t.Errorf("fetch invocation count = %d; want 2 (one before Reload, one after)", calls)
 	}
 }
+
+// TestFieldCache_EncodeTellsLabelsApartByCase holds #121: a dropdown whose
+// labels differ only in case, or not at all, must not resolve a label to
+// whichever option the map kept last.
+func TestFieldCache_EncodeTellsLabelsApartByCase(t *testing.T) {
+	fc := fieldCacheFrom(t, `[
+  {"field_code":"tier","field_name":"Tier","field_type":"enum","is_custom_field":true,"is_writable":true,
+   "options":[{"id":1,"label":"Gold"},{"id":2,"label":"GOLD"},{"id":3,"label":"Silver"},{"id":4,"label":"Bronze"},{"id":5,"label":"Bronze"}]}
+]`)
+
+	for _, tc := range []struct {
+		label string
+		want  float64
+	}{
+		{"Gold", 1},   // exact wins over its case twin
+		{"GOLD", 2},   // and the other way round
+		{"silver", 3}, // case is ignored where only one option could be meant
+	} {
+		got, err := fc.Encode(context.Background(), map[string]any{"Tier": tc.label})
+		if err != nil || got.Values["tier"] != tc.want {
+			t.Errorf("Encode(%q) = %v, %v; want option %v", tc.label, got.Values, err, tc.want)
+		}
+	}
+
+	for _, tc := range []struct{ label, names string }{
+		{"gold", `"Gold" (id 1), "GOLD" (id 2)`},
+		{"Bronze", `"Bronze" (id 4), "Bronze" (id 5)`},
+	} {
+		_, err := fc.Encode(context.Background(), map[string]any{"Tier": tc.label})
+		if !errors.Is(err, ErrValidation) || !strings.Contains(err.Error(), tc.names) || !strings.Contains(err.Error(), "or the option id") {
+			t.Errorf("Encode(%q) error = %v; want [validation] naming %s and offering the id", tc.label, err, tc.names)
+		}
+	}
+}

@@ -29,6 +29,10 @@ other tool is covered by the promise in full.
 - `list_installments` reads the installment schedules of up to 100 deals in two API calls.
 - `manage_installment` creates, edits and deletes installments, guarded like the other writes; a delete is permanent and needs `confirm: true`.
 
+### Fixed
+
+- A dropdown label matching two options that differ only in case is refused, naming both; it wrote whichever option Pipedrive listed last.
+
 ### Security
 
 - Built with Go 1.27.4, fixing [GO-2026-6859](https://pkg.go.dev/vuln/GO-2026-6859) (CVE-2026-97054), an HTTP server crash. This program runs no server, but the advisory lists client functions.

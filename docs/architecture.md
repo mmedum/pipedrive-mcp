@@ -426,6 +426,7 @@ symptom in [troubleshooting.md](troubleshooting.md).
 | D-97 | The registry entry is published by its own workflow, from checksums.txt after cosign verifies it | accepted | TestTheRegistryEntryIsBuiltFromTheRepository, TestTheBundleRowMustBeExactlyOne, TestRegistrySchemaMatchesItsRecordedHash, review |
 | D-98 | Installments are part of the deal surface: get_deal reports a deal's schedule, list_installments reads many, manage_installment writes one | accepted | TestGetDeal_ReportsTheScheduleAndWarnsWhenItIsStale, TestListInstallments_OneSchedulePerDealInTheOrderAsked, TestInstallments_ReadAcrossDeals |
 | D-99 | A permanent delete takes confirm, beside dry_run and expect_version | accepted | TestManageInstallment_DeleteIsPermanentSoItNeedsConfirm, TestWrite_InstallmentRoundTrip |
+| D-100 | A dropdown label matches as written first, ignoring case only when one option could be meant, and an ambiguous label is refused | accepted | TestFieldCache_EncodeTellsLabelsApartByCase |
 
 ### D-01 One Go binary serves one Pipedrive workspace over stdio; nothing is hosted
 
@@ -915,9 +916,7 @@ cannot disagree. The integration test
 reads it back.
 
 Rejected: writing custom fields by hash key and option id.
-Cost: two open questions. Labels match case-insensitively, so two
-options that differ only in case resolve to the same one; whether to
-refuse an ambiguous label or match case exactly is undecided (#121). And
+Cost: labels that differ only in case are told apart as D-100 says. And
 the field-definition listings read one page of Pipedrive's default size
 without following `next_cursor`, so a workspace with more custom fields
 of one kind than that page holds cannot name the rest (#126).
@@ -2778,4 +2777,24 @@ registering the delete only behind a setting, which D-46 rejects.
 Cost: a model can set `confirm` as easily as anything else. It records
 that the call meant the delete; it does not stop a model that means it.
 
-Next ID: D-100
+### D-100 A dropdown label matches as written first, ignoring case only when one option could be meant, and an ambiguous label is refused
+
+A dropdown or multi-select value written by label resolves to the option
+whose label is exactly the one given. Failing that, it resolves to the
+one option whose label matches when case is ignored. When two options
+share the label as written, or two match only when case is ignored, the
+write is refused with `[validation]`, naming each option with its id,
+which the encoder also accepts.
+
+A person says "enterprise" for the option the workspace writes
+"Enterprise", so ignoring case is what makes a label usable. A workspace
+can still hold "Gold" and "GOLD" as separate options, and a lookup keyed
+by the lowercased label kept whichever came last: a write named one
+choice and stored the other, with nothing reported.
+
+Rejected: matching case exactly, which refuses what a person says;
+taking the first match, which is the silent wrong write.
+Cost: a label written in another case than the workspace's is refused
+on such a field, where it resolved before.
+
+Next ID: D-101

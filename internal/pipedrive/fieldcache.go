@@ -69,11 +69,11 @@ type cachedField struct {
 	// workspace shows for it. Nil for a field that has no options, which
 	// is what tells label there is nothing to look up.
 	labels map[string]string
-	// ids is the same table inverted for the write direction: a
-	// lowercased label to the option id as Pipedrive stores it, kept in
-	// its decoded form so it goes back out as the number or string the
-	// workspace uses.
-	ids map[string]any
+	// options is the write direction: every option, under its lowercased
+	// label, with its id in the decoded form Pipedrive stores, so it goes
+	// back out as the number or string the workspace uses. A key can hold
+	// several options, whose labels differ only in case or not at all.
+	options map[string][]FieldOption
 }
 
 // NewFieldCache wraps fetch; fetch is invoked at most once per Reload
@@ -106,14 +106,14 @@ func (e *cacheEntry) load(ctx context.Context, fetch func(context.Context) ([]Fi
 		e.byKey = make(map[string]cachedField, len(fields))
 		e.byName = make(map[string][]string, len(fields))
 		for _, f := range fields {
-			labels, ids := optionTables(f.Options)
+			labels, options := optionTables(f.Options)
 			cf := cachedField{
 				key:      f.Key,
 				name:     f.Name,
 				custom:   f.IsCustom,
 				writable: f.IsWritable,
 				labels:   labels,
-				ids:      ids,
+				options:  options,
 			}
 			e.byKey[f.Key] = cf
 			lower := strings.ToLower(f.Name)
@@ -161,26 +161,25 @@ func (fc *FieldCache) Resolve(ctx context.Context, raw map[string]any) map[strin
 }
 
 // optionTables flattens a field's options into the two lookups the two
-// directions need: id → label for a read, lowercased label → id for a
-// write. One pass, and one nil guard, because "this field has options"
-// is a single fact — label tests labels and encode tests ids, and two
-// separately-written guards could come to disagree about it.
+// directions need: id → label for a read, lowercased label → options for
+// a write. One pass, and one nil guard, because "this field has options"
+// is a single fact — label tests labels and encode tests options, and
+// two separately-written guards could come to disagree about it.
 //
 // Lowercased on the write side only: the caller is an LLM relaying what
 // a person said, and "enterprise" is the same choice as "Enterprise".
-// The id keeps its decoded type so it goes back on the wire as the
-// number or string Pipedrive stores.
-func optionTables(opts []FieldOption) (labels map[string]string, ids map[string]any) {
+func optionTables(opts []FieldOption) (labels map[string]string, options map[string][]FieldOption) {
 	if len(opts) == 0 {
 		return nil, nil
 	}
 	labels = make(map[string]string, len(opts))
-	ids = make(map[string]any, len(opts))
+	options = make(map[string][]FieldOption, len(opts))
 	for _, o := range opts {
 		labels[OptionKey(o.ID)] = o.Label
-		ids[strings.ToLower(o.Label)] = o.ID
+		key := strings.ToLower(o.Label)
+		options[key] = append(options[key], o)
 	}
-	return labels, ids
+	return labels, options
 }
 
 // label replaces the option ids in one stored value with the labels the
@@ -400,7 +399,7 @@ func (f cachedField) encode(v any) (any, error) {
 	if v == nil {
 		return nil, fmt.Errorf("a custom field cannot be cleared, so %q cannot be set to null; omit it to leave it as it is", f.name)
 	}
-	if len(f.ids) == 0 {
+	if len(f.options) == 0 {
 		return v, nil
 	}
 	if vs, ok := v.([]any); ok {
@@ -423,8 +422,8 @@ func (f cachedField) encode(v any) (any, error) {
 // again would make that output unusable.
 func (f cachedField) optionID(v any) (any, error) {
 	if s, ok := v.(string); ok {
-		if id, ok := f.ids[strings.ToLower(s)]; ok {
-			return id, nil
+		if id, found, err := f.labelID(s); found {
+			return id, err
 		}
 	}
 	if _, ok := f.labels[OptionKey(v)]; ok {
@@ -432,6 +431,39 @@ func (f cachedField) optionID(v any) (any, error) {
 	}
 	return nil, fmt.Errorf("%q is not one of the choices on the custom field %q; it takes one of: %s",
 		v, f.name, strings.Join(f.labelList(), ", "))
+}
+
+// labelID resolves a label to one option. The label as written wins; a
+// match that ignores case is taken only when it is the one option it
+// could mean. Two options whose labels differ only in case, or not at
+// all, are refused rather than guessed between, naming each with its id,
+// which optionID also accepts.
+func (f cachedField) labelID(s string) (id any, found bool, err error) {
+	near := f.options[strings.ToLower(s)]
+	var exact []FieldOption
+	for _, o := range near {
+		if o.Label == s {
+			exact = append(exact, o)
+		}
+	}
+	switch {
+	case len(exact) == 1:
+		return exact[0].ID, true, nil
+	case len(exact) == 0 && len(near) == 1:
+		return near[0].ID, true, nil
+	case len(near) == 0:
+		return nil, false, nil
+	}
+	same := near
+	if len(exact) > 1 {
+		same = exact
+	}
+	names := make([]string, 0, len(same))
+	for _, o := range same {
+		names = append(names, fmt.Sprintf("%q (id %s)", o.Label, OptionKey(o.ID)))
+	}
+	return nil, true, fmt.Errorf("%q could mean %d choices on the custom field %q: %s. Give the label exactly as the workspace writes it, or the option id",
+		s, len(same), f.name, strings.Join(names, ", "))
 }
 
 // labelList names a dropdown's choices for a refusal, in a stable order.
