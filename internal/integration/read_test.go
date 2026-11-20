@@ -363,8 +363,8 @@ func TestRefreshFieldCache_ReadsEveryResource(t *testing.T) {
 	if out.Errors != 0 {
 		t.Errorf("refresh reported %d errors", out.Errors)
 	}
-	if len(out.Refreshed) != 3 {
-		t.Errorf("refreshed %d resources; want deals, persons and organizations", len(out.Refreshed))
+	if len(out.Refreshed) != 4 {
+		t.Errorf("refreshed %d resources; want deals, persons, organizations and products", len(out.Refreshed))
 	}
 	for _, r := range out.Refreshed {
 		if r.Error != "" {
