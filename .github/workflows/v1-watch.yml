@@ -1,0 +1,32 @@
+name: v1-watch
+
+# Notes and users come from Pipedrive v1, which v2 does not replace yet
+# (D-04). Between releases this asks Pipedrive's own pages whether that
+# has changed, and fails the run when it has.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  watch:
+    name: v1 carve-out
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: false
+          cache: true
+      - run: go run ./scripts/gates v1-watch

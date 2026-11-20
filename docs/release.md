@@ -21,8 +21,9 @@ cannot be withdrawn (D-97).
 - Refresh `internal/pipedrive/testdata/v2-response-fields.json` from
   <https://developers.pipedrive.com/docs/api/v1/openapi-v2.yaml>, with
   the spec's SHA256 and the capture date (D-72). A field that appears or
-  goes is a finding. Check there whether v2 has gained notes or users
-  (D-04).
+  goes is a finding. `make v1-watch` says whether v2 has gained notes
+  or users, or a deprecation post names their v1 paths (D-04); it also
+  runs weekly in `.github/workflows/v1-watch.yml`.
 - Re-fetch the vendored schemas: a pinned hash proves the bytes are the
   ones reviewed, not that the URL still serves them (D-95). The bundle
   manifest's ref and hash are in `scripts/gates/mcpb.go`:
