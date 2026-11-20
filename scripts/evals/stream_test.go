@@ -117,3 +117,25 @@ func TestUnaccountedIsSilentWhenNothingMoved(t *testing.T) {
 		t.Errorf("an empty run reported drift: %v / %v", created, edited)
 	}
 }
+
+func TestTraceAnswer_PrintsAServerErrorsClassAlone(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"[refused] deal 48 already has title set, and this write would replace what is there", "[refused]"},
+		{"[not_found] Deal not found", "[not_found]"},
+		{"Claude requested permissions to use mcp__pipedrive__manage_note,\nbut you haven't granted it yet.", "Claude requested permissions to use mcp__pipedrive__manage_note, but you haven't granted it yet."},
+		{`[{"id":1}]`, `[{"id":1}]`},
+	}
+	for _, tc := range cases {
+		if got := traceAnswer(tc.in); got != tc.want {
+			t.Errorf("traceAnswer(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestClip_CutsOnARuneBoundary(t *testing.T) {
+	in := strings.Repeat("a", 159) + "—tail"
+	got := clip(in)
+	if got != strings.Repeat("a", 159)+"…" {
+		t.Errorf("clip cut inside a rune or kept too much: %q", got)
+	}
+}

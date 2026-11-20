@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/mmedum/pipedrive-mcp/internal/config"
 )
 
 // connect starts the built binary and speaks MCP to it over stdio.
@@ -21,7 +23,12 @@ import (
 // ships.
 func connect(ctx context.Context, bin string) (*mcp.ClientSession, func(), error) {
 	cmd := exec.CommandContext(ctx, bin)
+	// Warnings only, unless the runner asked for more: the startup lines
+	// name the workspace, and this transcript gets pasted into issues.
 	cmd.Env = os.Environ()
+	if config.Lookup(os.Getenv, config.EnvLogLevel) == "" {
+		cmd.Env = append(cmd.Env, config.EnvLogLevel+"=warn")
+	}
 	cmd.Stderr = os.Stderr
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "pipedrive-evals", Version: "0"}, nil)
