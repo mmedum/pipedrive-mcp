@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -206,6 +207,13 @@ func serverJSON(root, version, checksums string, stdout io.Writer) error {
 	name, sum, err := bundleRow(checksums)
 	if err != nil {
 		return err
+	}
+	// The row has to be this tag's bundle, so a checksum file from
+	// another release cannot publish its hash under this version. The
+	// hyphenated name is the one releases before 1.2 carried.
+	if want := []string{repo + "_" + semver + ".mcpb", repo + "-" + semver + ".mcpb"}; !slices.Contains(want, name) {
+		return fmt.Errorf("%s's bundle row is %s, which is not %s's bundle (%s); the checksums are another release's",
+			checksums, name, tag, strings.Join(want, " or "))
 	}
 
 	// The registry refuses a package URL that is not a release asset on

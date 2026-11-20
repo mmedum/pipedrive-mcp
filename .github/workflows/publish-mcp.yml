@@ -95,17 +95,19 @@ jobs:
       # match, and the signature is the only thing that does not move
       # with them.
       #
-      # This has to happen BEFORE registry-publish reads the file. An
-      # entry cannot be withdrawn.
-      # Before registry-publish reads them (D-97): an unsigned checksum
-      # file is only what the release assets say.
+      # So it runs before registry-publish reads the file (D-97), since
+      # an entry cannot be withdrawn.
       - name: Verify those checksums are the ones that were signed
         run: |
           set -euo pipefail
           cosign verify-blob "${SUMS}" \
             --bundle "${SUMS}.bundle" \
-            --certificate-identity-regexp '^https://github\.com/mmedum/pipedrive-mcp/\.github/workflows/release\.yml@refs/tags/' \
+            --certificate-identity "https://github.com/mmedum/pipedrive-mcp/.github/workflows/release.yml@refs/tags/${TAG}" \
             --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+        env:
+          # The exact tag, so another release's signed checksums do not
+          # pass for this one's.
+          TAG: ${{ inputs.tag }}
 
       - name: Write the entry, and show it before anybody sees it
         run: |
