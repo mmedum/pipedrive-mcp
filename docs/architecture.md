@@ -423,7 +423,7 @@ symptom in [troubleshooting.md](troubleshooting.md).
 | D-94 | A release is six archives named as the sibling servers name theirs, and the bundle carries the Windows amd64 binary alone | accepted | mcpb, pins, TestTheReleaseMatrixIsTheSix, TestGoreleaserMatrixReadsEveryBuild, TestTheArchivesAreNamedNameVersionOSArch, TestReleaseDocProblems, TestTheBundleReachesEveryPair |
 | D-95 | The bundle manifest is validated against a vendored schema pinned by SHA256 | accepted | mcpb, TestCommittedManifestSatisfiesItsSchema, TestVendoredSchemaMatchesItsRecordedHash, TestTheSchemaRefIsATagNotABranch |
 | D-96 | The bundle's settings come from config.Vars, and its defaults are started through config.Load | accepted | mcpb, TestBundleVarsAreDerivedFromTheSettings, TestDefaultsProblemsReportsEveryUnreadableDefaultAndTheRest, TestSettingProblemsRefuseABundleWithNoSecret |
-| D-97 | The registry entry is published by its own workflow, from checksums.txt after cosign verifies it | accepted | TestTheRegistryEntryIsBuiltFromTheRepository, TestTheBundleRowMustBeExactlyOne, TestRegistrySchemaMatchesItsRecordedHash, review |
+| D-97 | The registry entry is published by its own workflow, from checksums.txt after cosign verifies it | accepted | TestTheRegistryEntryIsBuiltFromTheRepository, TestTheBundleRowMustBeExactlyOne, TestTheBundleRowMustBeThisTagsBundle, TestRegistrySchemaMatchesItsRecordedHash, review |
 | D-98 | Installments are part of the deal surface: get_deal reports a deal's schedule, list_installments reads many, manage_installment writes one | accepted | TestGetDeal_ReportsTheScheduleAndWarnsWhenItIsStale, TestListInstallments_OneSchedulePerDealInTheOrderAsked, TestInstallments_ReadAcrossDeals |
 | D-99 | A permanent delete takes confirm, beside dry_run and expect_version | accepted | TestManageInstallment_DeleteIsPermanentSoItNeedsConfirm, TestWrite_InstallmentRoundTrip |
 | D-100 | A dropdown label matches as written first, ignoring case only when one option could be meant, and an ambiguous label is refused | accepted | TestFieldCache_EncodeTellsLabelsApartByCase |
@@ -2717,7 +2717,7 @@ The MCP registry entry is published by
 `.github/workflows/publish-mcp.yml`, which `release.yml` calls once the
 release exists and which can be dispatched by hand against a tag that
 already shipped. It downloads the published `checksums.txt`, verifies
-its cosign signature against `release.yml` on a tag ref, and only then
+its cosign signature against `release.yml` on that tag, and only then
 lets `gates registry-publish` lift the bundle's row into the entry's
 `fileSha256`. It verifies `mcp-publisher` with cosign before unpacking
 it, and holds no more privilege than publishing needs. A prerelease
@@ -2733,8 +2733,9 @@ signature is what does not move with them. An entry cannot be withdrawn.
 
 Rejected: publishing from inside `release.yml`; reading the checksums
 before verifying them.
-Cost: an entry is published only for a tag whose `checksums.txt` was
-signed by `release.yml` on that same tag, and whose bundle row names
+Cost: an entry is published only for a tag whose checksum file
+(`checksums.txt`, or `SHA256SUMS` before the rename) was signed by
+`release.yml` on that same tag, and whose bundle row names
 that tag's version; a release whose signing failed cannot be published
 without a new tag.
 
