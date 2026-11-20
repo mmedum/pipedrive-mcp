@@ -19,13 +19,28 @@ const (
 	v1WatchChangelog = "https://developers.pipedrive.com/changelog"
 )
 
-// v1WatchCarveOut is each v1 path a tool calls, and the v2 path that
-// would replace it. /users/me is whoami's: v2's description has
-// /users/{id}/followers, which replaces nothing here.
-var v1WatchCarveOut = []struct{ v1, v2 string }{
-	{"/v1/notes", "/notes"},
-	{"/v1/users/me", "/users/me"},
+// v1WatchCarveOut is each v1 resource a tool calls: the v2 prefix whose
+// paths would replace it, and the v1 paths the tools call, matched with
+// a boundary so a sub-resource such as /v1/notes/{id}/comments is not one.
+var v1WatchCarveOut = []struct {
+	v2Prefix string
+	v1       *regexp.Regexp
+	v1Name   string
+}{
+	{"/notes", regexp.MustCompile(`/v1/notes(/\{id\})?([^/A-Za-z0-9_{]|$)`), "/v1/notes"},
+	{"/users", regexp.MustCompile(`/v1/users/me([^/A-Za-z0-9_]|$)`), "/v1/users/me"},
 }
+
+// v1WatchKnownV2 are v2 paths under a carve-out prefix that were read and
+// replace nothing here. A new one fails the gate until someone reads it
+// and adds it, with the reason.
+var v1WatchKnownV2 = map[string]string{
+	"/users/{id}/followers": "a user's followers, not the signed-in user whoami reads",
+}
+
+// v1WatchKnownPosts are changelog posts that name a carve-out path and
+// were read and found harmless, with the reason. None yet.
+var v1WatchKnownPosts = map[string]string{}
 
 // v1WatchGate checks the carve-out against Pipedrive's own pages: the v2
 // description gaining /notes or /users means the v1 tools can move, and
@@ -53,61 +68,84 @@ func v1WatchGate(out io.Writer, _ []string) error {
 	return v1Watch(out, fetch)
 }
 
-// v1Watch is the gate with its fetch injected, so a test drives it.
+// v1Watch is the gate with its fetch injected, so a test drives it. A
+// fetch that fails or a page it cannot read is no verdict, and exits 2.
 func v1Watch(out io.Writer, fetch func(string) (string, error)) error {
 	spec, err := fetch(v1WatchSpec)
 	if err != nil {
-		return err
+		return couldNotRun{err}
 	}
 	paths := v2SpecPaths(spec)
-	// A floor stated literally: the description has well over this many
-	// paths, and a parser reading the wrong shape finds none.
-	const minPaths = 50
-	if len(paths) < minPaths {
-		return fmt.Errorf("v1-watch: read %d paths from the v2 description, fewer than %d; it is reading the wrong shape", len(paths), minPaths)
+	// Floors stated literally: the description has well over 50 paths
+	// and the changelog index links about a dozen posts.
+	if p := floorProblems("paths in the v2 description", len(paths), 50); p != nil {
+		return couldNotRun{fmt.Errorf("v1-watch: %s", p[0])}
 	}
-	var problems []string
-	for _, c := range v1WatchCarveOut {
-		if slices.Contains(paths, c.v2) {
-			problems = append(problems, fmt.Sprintf("Pipedrive's v2 description has %s, so the %s tools can move off v1 (D-04)", c.v2, c.v1))
-		}
-	}
+	problems := v2Problems(paths)
 
 	index, err := fetch(v1WatchChangelog)
 	if err != nil {
-		return err
+		return couldNotRun{err}
 	}
 	posts := changelogPosts(index)
-	const minPosts = 3
-	if len(posts) < minPosts {
-		return fmt.Errorf("v1-watch: read %d posts from the changelog, fewer than %d; it is reading the wrong shape", len(posts), minPosts)
+	if p := floorProblems("posts on the changelog index", len(posts), 3); p != nil {
+		return couldNotRun{fmt.Errorf("v1-watch: %s", p[0])}
 	}
-	read := 0
-	for _, post := range posts {
-		if !strings.Contains(post, "deprecat") && !strings.Contains(post, "v1") {
-			continue
-		}
-		body, fetchErr := fetch(v1WatchChangelog + strings.TrimPrefix(post, "/changelog"))
-		if fetchErr != nil {
-			return fetchErr
-		}
-		read++
-		for _, c := range v1WatchCarveOut {
-			if strings.Contains(body, c.v1) {
-				problems = append(problems, fmt.Sprintf("the changelog post %s names %s, which a tool here calls (D-04)", post, c.v1))
-			}
-		}
+	postProblems, err := changelogProblems(posts, fetch)
+	if err != nil {
+		return err
 	}
+	problems = append(problems, postProblems...)
 	if len(problems) > 0 {
 		return fmt.Errorf("v1-watch:\n  %s", strings.Join(problems, "\n  "))
 	}
-	_, err = fmt.Fprintf(out, "v1-watch ok: v2 has no /notes or /users/me in %d paths, and %d deprecation posts of %d name neither v1 path\n", len(paths), read, len(posts))
+	_, err = fmt.Fprintf(out, "v1-watch ok: no new v2 path under /notes or /users in %d paths, and none of %d changelog posts names /v1/notes or /v1/users/me\n", len(paths), len(posts))
 	return err
+}
+
+// v2Problems is each v2 path under a carve-out prefix nobody has read.
+func v2Problems(paths []string) []string {
+	var problems []string
+	for _, c := range v1WatchCarveOut {
+		for _, p := range paths {
+			if p != c.v2Prefix && !strings.HasPrefix(p, c.v2Prefix+"/") {
+				continue
+			}
+			if _, known := v1WatchKnownV2[p]; !known {
+				problems = append(problems, fmt.Sprintf("Pipedrive's v2 description has %s; read it, and move the %s tools off v1 if it replaces them, or add it to v1WatchKnownV2 (D-04)", p, c.v1Name))
+			}
+		}
+	}
+	return problems
+}
+
+// changelogProblems reads every post and names each that names a path a
+// tool calls, unless it was read before.
+func changelogProblems(posts []string, fetch func(string) (string, error)) ([]string, error) {
+	var problems []string
+	for _, post := range posts {
+		body, err := fetch(v1WatchChangelog + strings.TrimPrefix(post, "/changelog"))
+		if err != nil {
+			return nil, couldNotRun{err}
+		}
+		if _, known := v1WatchKnownPosts[post]; known {
+			continue
+		}
+		for _, c := range v1WatchCarveOut {
+			if c.v1.MatchString(body) {
+				problems = append(problems, fmt.Sprintf("the changelog post %s names %s, which a tool here calls; read it, and add it to v1WatchKnownPosts if it is harmless (D-04)", post, c.v1Name))
+			}
+		}
+	}
+	return problems, nil
 }
 
 var (
 	v2PathLine = regexp.MustCompile(`(?m)^ {2}'?(/[^':]*)'?:\s*$`)
-	postLink   = regexp.MustCompile(`/changelog/post/[a-z0-9-]+`)
+	// A slug runs to the end of its attribute or JSON string: Pipedrive's
+	// carry underscores, as in introducing-deal_id-parameter-…, and the
+	// page also holds them escaped inside JSON.
+	postLink = regexp.MustCompile(`/changelog/post/[^"'#?\s<>\\]+`)
 )
 
 // v2SpecPaths is the path keys of the description's paths: map, which

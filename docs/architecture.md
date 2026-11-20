@@ -520,7 +520,9 @@ Cost: the live carve-out check runs only when someone runs `make
 integration`, since CI holds no token. Between releases `v1-watch` reads
 Pipedrive's v2 description and changelog weekly, so a retirement
 announced there is caught, and one Pipedrive does not announce reaches a
-user first.
+user first. GitHub disables a public repository's schedule after 60 days
+without activity, and mails only the last person to edit it, so the
+release runbook runs `make v1-watch` as well.
 
 ### D-05 A 410 is [gone], never retried, and on a v1 path says the endpoint has no v2 equivalent
 
