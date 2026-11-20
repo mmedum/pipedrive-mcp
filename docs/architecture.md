@@ -2784,21 +2784,21 @@ that the call meant the delete; it does not stop a model that means it.
 ### D-100 A dropdown label matches as written first, ignoring case only when one option could be meant, and an ambiguous label is refused
 
 A dropdown or multi-select value written by label resolves to the option
-whose label is exactly the one given. Failing that, it resolves to the
-one option whose label matches when case is ignored. When two options
-share the label as written, or two match only when case is ignored, the
-write is refused with `[validation]`, naming each option with its id,
-which the encoder also accepts.
+whose label is exactly the one given, and otherwise to the one option
+whose label matches when case is ignored. Where two options could be
+meant, the write is refused with `[validation]`, naming each.
 
-A person says "enterprise" for the option the workspace writes
-"Enterprise", so ignoring case is what makes a label usable. A workspace
-can still hold "Gold" and "GOLD" as separate options, and a lookup keyed
-by the lowercased label kept whichever came last: a write named one
-choice and stored the other, with nothing reported.
+Pipedrive's reference sets no uniqueness on option labels, so a field
+can hold "Gold" and "GOLD", or two "Bronze". Such an option reads as its
+label followed by ` (id N)`, and a write takes that form back exactly,
+so a value read can always be written again. A label that is one
+option's label and another's id is refused too.
+[Add a deal field](https://developers.pipedrive.com/docs/api/v1/DealFields#addDealField)
+shows options as a list of labels with no constraint between them.
 
 Rejected: matching case exactly, which refuses what a person says;
-taking the first match, which is the silent wrong write.
-Cost: a label written in another case than the workspace's is refused
-on such a field, where it resolved before.
+taking the first match, which writes a choice nobody named.
+Cost: on a field with such twins, a read shows an id beside the label,
+and a label in another case than any option's is refused.
 
 Next ID: D-101

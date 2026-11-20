@@ -40,7 +40,7 @@ type personSummary struct {
 	OwnerID      int64                    `json:"owner_id" jsonschema:"id of the user who owns this record"`
 	AddTime      string                   `json:"add_time,omitempty" jsonschema:"timestamp the person was created"`
 	UpdateTime   string                   `json:"update_time,omitempty" jsonschema:"timestamp the person was last updated"`
-	CustomFields map[string]any           `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label; an unrecognized field or option falls through under its stored key"`
+	CustomFields map[string]any           `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label, followed by (id N) where another option's label differs only in case; an unrecognized field or option falls through under its stored key"`
 	URL          string                   `json:"url" jsonschema:"link to the person in the Pipedrive web UI; empty on a dry-run create, which has no record to link to"`
 }
 
@@ -163,7 +163,7 @@ type managePersonInput struct {
 	Phones        []pipedrive.ContactPoint `json:"phones,omitempty" jsonschema:"phone numbers, same shape as emails, and replaced wholesale on update for the same reason"`
 	OrgID         *int64                   `json:"org_id,omitempty" jsonschema:"the organization the person belongs to. Use search to turn a company name into the id. Omit to leave it as it is; unlinking is not supported here"`
 	OwnerID       *int64                   `json:"owner_id,omitempty" jsonschema:"the user who owns the record; omit on create to take the API token's own user"`
-	CustomFields  map[string]any           `json:"custom_fields,omitempty" jsonschema:"this workspace's own fields, keyed by the name get_person reports — a dropdown takes its label, a multi-select a list of labels, everything else the plain value. Omit a field to leave it as it is; a field cannot be cleared"`
+	CustomFields  map[string]any           `json:"custom_fields,omitempty" jsonschema:"this workspace's own fields, keyed by the name get_person reports — a dropdown takes its label as get_person reports it, a multi-select a list of them, everything else the plain value. Omit a field to leave it as it is; a field cannot be cleared"`
 	DryRun        bool                     `json:"dry_run,omitempty" jsonschema:"report what the write would find and change, and send nothing"`
 	Overwrite     []string                 `json:"overwrite,omitempty" jsonschema:"the fields this write may replace, named exactly as the refusal listed them, e.g. [\"title\", \"value\"]. Omit it and a write that would replace a populated field is refused, naming each one. A refusal is NOT a retry signal: name a field only when the user asked for what is already there to be replaced, never to get past a refusal they have not seen. Naming fewer fields than the refusal listed is still refused, over the ones you left out"`
 	ExpectVersion string                   `json:"expect_version,omitempty" jsonschema:"the update_time from the read that informed this write; the write is refused if the person changed since"`
