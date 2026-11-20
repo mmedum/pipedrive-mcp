@@ -18,8 +18,8 @@ path, the error classes or the package layout.
 
 ## Hard rules
 
-1. **Keep everything internal out of the repository, because it is
-   public**: company domains, record or account ids, email addresses,
+1. **Keep everything internal out of the repository and all it
+   publishes, because both are public**: company domains, record or account ids, email addresses,
    company or person names, tokens, and content from a real Pipedrive
    account, in code, fixtures, docs, commits, pull requests or logs
    (D-89). Naming a sibling server, such as google-chat-mcp or
@@ -29,9 +29,9 @@ path, the error classes or the package layout.
    the stream. Stdout carries only MCP JSON-RPC frames; logs go to
    stderr through `slog` (D-58). forbidigo, `make smoke` and
    `TestTheGeneratedLauncherRefusesToStdout` hold it.
-3. **Log a request's path, method, status, attempt and duration, not a
-   payload, a query string or the token**, and leave tool handlers
-   silent (D-59, D-60, D-61).
+3. **Log a request's path, method, status, attempt and duration, and a
+   transport failure's error, not a payload, a query string or the
+   token**, and leave tool handlers silent (D-59, D-60, D-61).
    `TestClient_NoLogOrErrorCarriesTheSearchTerm` and
    `TestSettings_LogValue_RedactsTheToken` hold it.
 4. **Call Pipedrive v2, and v1 for notes and `whoami` alone** (D-03).
@@ -77,9 +77,10 @@ path, the error classes or the package layout.
 12. **Keep `internal/pipedrive` on the standard library alone, rather
     than the MCP SDK or another import, and write its client by hand
     rather than generating one** (D-70, D-71); depguard holds both.
-    Define each LLM-facing type as a parallel shadow with its own
-    `jsonschema:` tags, rather than embedding a `pipedrive` type or
-    tagging a type in `internal/pipedrive` (D-17); review holds that.
+    Define each LLM-facing summary type as a parallel shadow with its
+    own `jsonschema:` tags, rather than embedding a `pipedrive` type or
+    tagging a type in `internal/pipedrive`; a nested type whose shape
+    already fits may be used as it is (D-17). Review holds that.
 13. **Register every tool through `mcp.AddTool`** in its package's
     `Register` (D-74). `make smoke` and
     `TestRegister_ListsItsToolsWithTheirSchemas` hold it. A description
@@ -151,7 +152,7 @@ path, the error classes or the package layout.
 ## Writing
 
 Plain and short: lead with the outcome, one idea per sentence, facts
-rather than narration, and a count only where a gate checks it. History
+rather than narration, and a count only where a generator writes it or a gate checks it. History
 goes in commit messages. `release.yml` lifts the version's CHANGELOG
 section into the release notes, so follow the rules in `CONTRIBUTING.md`
 exactly (D-91).
