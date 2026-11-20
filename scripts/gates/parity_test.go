@@ -289,7 +289,7 @@ func TestParityCatchesDivergence(t *testing.T) {
 		{name: "the secret scan gone from CI", edits: []docsEdit{replace(fxCI, "run: make gitleaks\n", "run: true\n")},
 			want: []string{gitleaks + " and ci.yml never does"}},
 		{name: "the secret scan gone from make check", remove: "gitleaks", want: []string{
-			".github/workflows/ci.yml:240 runs `go run github.com/zricethezav/gitleaks/v8@v8.30.1 git --log-opts=HEAD " +
+			".github/workflows/ci.yml:239 runs `go run github.com/zricethezav/gitleaks/v8@v8.30.1 git --log-opts=HEAD " +
 				"--redact --no-banner .` and `make check` does not",
 		}},
 		// A variable set on the line, or a flag, changes what the recipe runs.
@@ -304,7 +304,7 @@ func TestParityCatchesDivergence(t *testing.T) {
 		{name: "CI makes a target whose prerequisite runs a check make check does not", edits: []docsEdit{
 			replace(fxMakefile, ".PHONY: check\n", "extra: static\nstatic:\n\t$(GO) run honnef.co/go/tools/cmd/staticcheck@v0.6.1 ./...\n\n.PHONY: check\n"),
 			replace(fxCI, "run: make gitleaks\n", "run: make gitleaks extra\n"),
-		}, want: []string{".github/workflows/ci.yml:240 runs `go run honnef.co/go/tools/cmd/staticcheck@v0.6.1 ./...` and `make check` does not"}},
+		}, want: []string{".github/workflows/ci.yml:239 runs `go run honnef.co/go/tools/cmd/staticcheck@v0.6.1 ./...` and `make check` does not"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
