@@ -6,11 +6,7 @@ import "context"
 // field cache. It reads one page, Pipedrive's default of 100 fields, and
 // does not follow next_cursor.
 func (c *Client) ListDealFields(ctx context.Context) ([]Field, error) {
-	var resp listEnvelope[Field]
-	if err := c.do(ctx, "/dealFields", &resp); err != nil {
-		return nil, err
-	}
-	return resp.Data, nil
+	return readAll[Field](ctx, c, "/dealFields", nil)
 }
 
 // ResolveDealCustomFields returns a copy of raw with hash keys

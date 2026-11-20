@@ -41,8 +41,8 @@ func TestClient_ListStages_AllPipelines(t *testing.T) {
 		if r.URL.Path != "/api/v2/stages" {
 			t.Errorf("path = %q, want /api/v2/stages", r.URL.Path)
 		}
-		if r.URL.RawQuery != "" {
-			t.Errorf("query should be empty when pipelineID=0, got %q", r.URL.RawQuery)
+		if r.URL.Query().Has("pipeline_id") {
+			t.Errorf("pipelineID=0 filtered on a pipeline: %q", r.URL.RawQuery)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"success":true,"data":[
@@ -76,5 +76,51 @@ func TestClient_ListStages_FilterByPipeline(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("expected empty data, got %+v", got)
+	}
+}
+
+// TestClient_DefinitionListsReadEveryPage holds the five lists read
+// whole to the cursor: a field on a second page is a field the cache
+// would otherwise never resolve.
+func TestClient_DefinitionListsReadEveryPage(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+		read func(*Client) (int, error)
+	}{
+		{"pipelines", "/api/v2/pipelines", func(c *Client) (int, error) { r, err := c.ListPipelines(context.Background()); return len(r), err }},
+		{"stages", "/api/v2/stages", func(c *Client) (int, error) { r, err := c.ListStages(context.Background(), 0); return len(r), err }},
+		{"deal fields", "/api/v2/dealFields", func(c *Client) (int, error) { r, err := c.ListDealFields(context.Background()); return len(r), err }},
+		{"person fields", "/api/v2/personFields", func(c *Client) (int, error) { r, err := c.ListPersonFields(context.Background()); return len(r), err }},
+		{"organization fields", "/api/v2/organizationFields", func(c *Client) (int, error) {
+			r, err := c.ListOrganizationFields(context.Background())
+			return len(r), err
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var cursors []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != tc.path || r.URL.Query().Get("limit") != "500" {
+					t.Errorf("request = %s, want %s?limit=500", r.URL, tc.path)
+				}
+				cursors = append(cursors, r.URL.Query().Get("cursor"))
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Query().Get("cursor") == "" {
+					_, _ = io.WriteString(w, `{"success":true,"data":[{"id":1},{"id":2}],"additional_data":{"next_cursor":"p2"}}`)
+					return
+				}
+				_, _ = io.WriteString(w, `{"success":true,"data":[{"id":3}],"additional_data":{"next_cursor":null}}`)
+			}))
+			defer srv.Close()
+
+			n, err := tc.read(newTestClient(srv))
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			if n != 3 || len(cursors) != 2 || cursors[1] != "p2" {
+				t.Errorf("read %d rows over cursors %q; want 3 rows over \"\" then \"p2\"", n, cursors)
+			}
+		})
 	}
 }

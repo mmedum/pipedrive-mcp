@@ -136,11 +136,7 @@ const orgIncludeFields = "people_count"
 // ListOrganizationFields returns the field metadata for organizations.
 // It reads one page, as ListDealFields does.
 func (c *Client) ListOrganizationFields(ctx context.Context) ([]Field, error) {
-	var resp listEnvelope[Field]
-	if err := c.do(ctx, "/organizationFields", &resp); err != nil {
-		return nil, err
-	}
-	return resp.Data, nil
+	return readAll[Field](ctx, c, "/organizationFields", nil)
 }
 
 // ResolveOrganizationCustomFields delegates to the per-Client org

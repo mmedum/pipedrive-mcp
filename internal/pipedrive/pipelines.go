@@ -8,9 +8,5 @@ import "context"
 // than twenty.
 // https://developers.pipedrive.com/docs/api/v1/Pipelines#getPipelines
 func (c *Client) ListPipelines(ctx context.Context) ([]Pipeline, error) {
-	var resp listEnvelope[Pipeline]
-	if err := c.do(ctx, "/pipelines", &resp); err != nil {
-		return nil, err
-	}
-	return resp.Data, nil
+	return readAll[Pipeline](ctx, c, "/pipelines", nil)
 }

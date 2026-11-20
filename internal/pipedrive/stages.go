@@ -16,9 +16,5 @@ func (c *Client) ListStages(ctx context.Context, pipelineID int64) ([]Stage, err
 	if pipelineID > 0 {
 		q.Set("pipeline_id", strconv.FormatInt(pipelineID, 10))
 	}
-	var resp listEnvelope[Stage]
-	if err := c.do(ctx, buildPath("/stages", q), &resp); err != nil {
-		return nil, err
-	}
-	return resp.Data, nil
+	return readAll[Stage](ctx, c, "/stages", q)
 }
