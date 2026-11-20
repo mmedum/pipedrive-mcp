@@ -46,8 +46,8 @@ Non-goals:
   string as a value, so a field can be changed but not emptied.
 - **Merging records.** A merge destroys one record's values across a
   record nobody read, and no refusal could name what it would lose.
-- **Leads, files and goals.** `search` finds some of them, and no tool
-  reads or writes them.
+- **Files and goals.** `search` finds files, and no tool reads or
+  writes either.
 - **Fetching every page for you.** Each list call returns one page and
   the cursor for the next.
 - **Asking you before a call.** Your client approves each call; the
@@ -97,6 +97,10 @@ tool needs. `list_deals` filters; it does not match names.
 | `list_projects` | Projects by status, phase, or linked deal, person or organization; archived projects with `archived` |
 | `list_project_boards` | Every project board with its phases, in order |
 | `manage_project` | Create, edit, archive or delete a project — `create`, `update`, `archive`, `delete`. Link lists are replaced whole; nothing here unarchives |
+| `get_lead` | One lead: title, owner, linked person and company, potential value, labels, whether it is archived (Pipedrive v1) |
+| `list_leads` | Leads by owner, linked person or company, or update window; archived leads with `archived` (v1) |
+| `list_lead_labels` | Every lead label, with its id and color (v1) |
+| `manage_lead` | Create, edit, archive, unarchive or delete a lead — a delete is permanent and needs `confirm: true` (v1) |
 | `get_person` | One contact: names, every email and phone with its label, the company they belong to, and custom fields |
 | `list_persons` | People by owner, linked organization or update window, cursor-paginated |
 | `manage_person` | Create, edit or delete a contact — `create`, `update`, `delete`. Name it with `name` or with `first_name`/`last_name`, never both. Custom fields by name, dropdowns by label |
@@ -183,9 +187,9 @@ Each of these is a decision or an API limit, not an oversight.
   Products, files and leads are returned unchecked. Because the drop
   happens after Pipedrive has paged, a page can come back short, or
   empty with `next_cursor` still set: an empty page is not the end.
-- **The v1 tools sit outside the compatibility promise.** `get_note`,
-  `list_notes`, `manage_note` and `whoami` leave in a minor release if
-  v1 stops answering them; see [CHANGELOG.md](CHANGELOG.md).
+- **The v1 tools sit outside the compatibility promise.** The note,
+  lead and `whoami` tools leave in a minor release if v1 stops
+  answering them; see [CHANGELOG.md](CHANGELOG.md).
 
 ## Install
 

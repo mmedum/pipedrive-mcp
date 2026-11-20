@@ -163,7 +163,7 @@ func RegisterNotes(s *mcp.Server, c notesClient, opts RegisterOptions) {
 		}
 
 		sortBy, sortDir := effectiveSort(in.SortBy, in.SortDirection)
-		start, err := decodeNotesCursor(in.Cursor)
+		start, err := decodeV1Cursor(in.Cursor)
 		if err != nil {
 			return errorResult(err), listNotesOutput{}, nil
 		}
@@ -187,7 +187,7 @@ func RegisterNotes(s *mcp.Server, c notesClient, opts RegisterOptions) {
 		}
 		out := listNotesOutput{
 			Notes:      make([]noteSummary, 0, len(notes)),
-			NextCursor: encodeNotesCursor(page),
+			NextCursor: encodeV1Cursor(page),
 		}
 		for i := range notes {
 			out.Notes = append(out.Notes, summarizeNote(&notes[i]))
@@ -474,22 +474,23 @@ func syntheticNoteFromRequest(req pipedrive.CreateNoteRequest) *pipedrive.Note {
 	return n
 }
 
-// encodeNotesCursor maps v1's offset-pagination block into an opaque
-// cursor string the LLM can pass back verbatim. Returns empty string
+// encodeV1Cursor maps v1's offset-pagination block, which notes and
+// leads share, into an opaque cursor string the LLM can pass back
+// verbatim. Returns empty string
 // when there are no more pages, matching the v2 cursor convention.
 //
 // Encoded form: base64url("v1:<next_start>") — the prefix protects
 // against a future cursor format change without a schema bump.
-func encodeNotesCursor(p *pipedrive.V1Pagination) string {
+func encodeV1Cursor(p *pipedrive.V1Pagination) string {
 	if p == nil || !p.MoreItemsInCollection {
 		return ""
 	}
 	return base64.RawURLEncoding.EncodeToString([]byte("v1:" + strconv.Itoa(p.NextStart)))
 }
 
-// decodeNotesCursor reverses encodeNotesCursor. Empty cursor returns
+// decodeV1Cursor reverses encodeV1Cursor. Empty cursor returns
 // 0 (the start of the collection).
-func decodeNotesCursor(cursor string) (int, error) {
+func decodeV1Cursor(cursor string) (int, error) {
 	if cursor == "" {
 		return 0, nil
 	}

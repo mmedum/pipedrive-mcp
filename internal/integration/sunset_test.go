@@ -59,6 +59,10 @@ func TestV1CarveOutStillAnswers(t *testing.T) {
 			mustCall(t, "list_notes", map[string]any{"limit": 1}, &listed)
 			return map[string]any{"note_id": pickFirst(t, listed.Notes, "workspace has no notes").ID}
 		}},
+		{"list_leads", "/api/v1/leads", func(*testing.T) map[string]any {
+			return map[string]any{"limit": 1}
+		}},
+		{"list_lead_labels", "/api/v1/leadLabels", nil},
 	}
 
 	// Recorded rather than asserted per probe, so the aggregate can be

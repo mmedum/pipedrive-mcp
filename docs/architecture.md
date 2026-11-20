@@ -507,8 +507,8 @@ owner's go-ahead.
 
 ### D-04 The v1 tools sit outside the compatibility promise and leave in a MINOR release if v1 stops answering
 
-The v1 tools, `get_note`, `list_notes`, `manage_note` and `whoami`, sit
-outside the compatibility promise. If v1 stops answering for them, they
+The v1 tools, those for the resources D-105 names, sit outside the
+compatibility promise. If v1 stops answering for them, they
 are removed in a MINOR release. The CHANGELOG's preamble states the
 exception, and every other tool is covered in full (D-75).
 
