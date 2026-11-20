@@ -159,3 +159,23 @@ func TestManageLead_RefusesBadInputAndHonorsTheFloor(t *testing.T) {
 		t.Errorf("the floor let %d writes through", fake.writes())
 	}
 }
+
+func TestListLeads_RefusesACursorFromAnotherListing(t *testing.T) {
+	fake := newLeadsFake()
+	var live struct {
+		NextCursor string `json:"next_cursor"`
+	}
+	callLeads(t, fake, tools.RegisterOptions{}, "list_leads", map[string]any{}, &live)
+	res := callLeads(t, fake, tools.RegisterOptions{}, "list_leads", map[string]any{"archived": true, "cursor": live.NextCursor}, nil)
+	if !strings.Contains(contentText(res), "not from this listing") {
+		t.Errorf("a live cursor on the archive = %q; want a refusal", contentText(res))
+	}
+}
+
+func TestManageLead_ATransitionCarriesNoEdit(t *testing.T) {
+	fake := newLeadsFake()
+	res := callLeads(t, fake, tools.RegisterOptions{}, "manage_lead", map[string]any{"action": "archive", "lead_id": testLeadID, "title": "Renamed"}, nil)
+	if !strings.HasPrefix(contentText(res), "[validation]") || fake.writes() != 0 {
+		t.Errorf("archive with a title = %q, writes %d; want [validation] and nothing sent", contentText(res), fake.writes())
+	}
+}

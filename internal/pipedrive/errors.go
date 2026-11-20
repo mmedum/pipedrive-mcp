@@ -122,8 +122,8 @@ func classify(status int, version apiVersion, endpoint string, env envelope) *AP
 // equivalent, so nothing can fall back.
 //
 // Pipedrive deprecated selected v1 endpoints and put them out of
-// support; /v1/notes and /v1/users/me are on neither list. That the four
-// still answer is checked by the integration test
+// support; the v1 paths the carve-out calls are on neither list. That
+// they still answer is checked by the integration test
 // TestV1CarveOutStillAnswers.
 // https://developers.pipedrive.com/changelog/post/deprecation-of-selected-api-v1-endpoints
 // https://developers.pipedrive.com/changelog/post/deprecated-apiv1-endpoints-become-out-of-support

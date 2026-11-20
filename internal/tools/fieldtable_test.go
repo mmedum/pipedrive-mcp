@@ -48,6 +48,7 @@ func TestEveryWritableFieldHasAFieldSpec(t *testing.T) {
 		{"organization/create", pipedrive.CreateOrganizationRequest{}, names(organizationBaseFields)},
 		{"activity/create", pipedrive.CreateActivityRequest{}, names(activityFields)},
 		{"note/create", pipedrive.CreateNoteRequest{}, names(noteFields)},
+		{"lead/create and update", pipedrive.LeadRequest{}, names(leadFields)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.resource, func(t *testing.T) {
@@ -69,6 +70,11 @@ func TestEveryWritableFieldHasAFieldSpec(t *testing.T) {
 				// this invariant that covers them.
 				if name == "custom_fields" {
 					continue
+				}
+				// A lead's link to an organization is organization_id on the
+				// wire and org_id in the table, as every other tool spells it.
+				if name == "organization_id" {
+					name = "org_id"
 				}
 				if !tabled[name] {
 					t.Errorf("%s: %q is writable but has no fieldSpec entry — it would be written without being guarded or reported",

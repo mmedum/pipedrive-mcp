@@ -376,3 +376,22 @@ func TestSearch_NeverChecksDeals(t *testing.T) {
 		t.Errorf("liveness calls = %v; want none for a deal", fake.liveCalls)
 	}
 }
+
+// A lead's id is a UUID, so a lead hit carries it as lead_id, the id
+// get_lead takes, and its name from title.
+func TestSearch_ALeadHitCarriesItsUUID(t *testing.T) {
+	fake := &fakeSearchClient{hits: []pipedrive.SearchHit{
+		hitItem(1, map[string]any{"id": "de66da40-e521-11f1-af8f-3fd52e2011b4", "type": "lead", "title": "Acme pilot"}),
+	}}
+	var out struct {
+		Hits []struct {
+			ID     int64  `json:"id"`
+			LeadID string `json:"lead_id"`
+			Name   string `json:"name"`
+		} `json:"hits"`
+	}
+	testutil.CallToolInto(t, func(s *mcp.Server) { tools.RegisterSearch(s, fake) }, "search", map[string]any{"term": "Acme"}, &out)
+	if len(out.Hits) != 1 || out.Hits[0].LeadID != "de66da40-e521-11f1-af8f-3fd52e2011b4" || out.Hits[0].Name != "Acme pilot" || out.Hits[0].ID != 0 {
+		t.Errorf("lead hit = %+v; want its UUID as lead_id and its title as name", out.Hits)
+	}
+}

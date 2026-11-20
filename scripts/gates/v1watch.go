@@ -29,7 +29,8 @@ var v1WatchCarveOut = []struct {
 }{
 	{"/notes", regexp.MustCompile(`/v1/notes(/\{id\})?([^/A-Za-z0-9_{]|$)`), "/v1/notes"},
 	{"/users", regexp.MustCompile(`/v1/users/me([^/A-Za-z0-9_]|$)`), "/v1/users/me"},
-	{"/leads", regexp.MustCompile(`/v1/leads(/\{id\})?([^/A-Za-z0-9_{]|$)`), "/v1/leads"},
+	{"/leads", regexp.MustCompile(`/v1/leads(/\{id\}|/archived)?([^/A-Za-z0-9_{]|$)`), "/v1/leads"},
+	{"/leadLabels", regexp.MustCompile(`/v1/leadLabels([^/A-Za-z0-9_{]|$)`), "/v1/leadLabels"},
 }
 
 // v1WatchKnownV2 are v2 paths under a carve-out prefix that were read and
@@ -37,7 +38,7 @@ var v1WatchCarveOut = []struct {
 // and adds it, with the reason.
 var v1WatchKnownV2 = map[string]string{
 	"/users/{id}/followers":                      "a user's followers, not the signed-in user whoami reads",
-	"/leads/search":                              "lead search, which search already calls; no lead records",
+	"/leads/search":                              "lead search, beside the itemSearch search calls; no lead records",
 	"/leads/{id}/convert/deal":                   "converting a lead to a deal; no lead records",
 	"/leads/{id}/convert/status/{conversion_id}": "a conversion's status; no lead records",
 }
