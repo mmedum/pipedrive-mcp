@@ -689,3 +689,33 @@ func TestWrite_ActivityLinksToAPerson(t *testing.T) {
 			id, back.Activity.PersonID, s.PersonID)
 	}
 }
+
+// TestWrite_OrganizationAddressTakesOneLine and
+// TestWrite_ActivityLocationTakesOneLine are the sentinels for OneLine:
+// Pipedrive v2 refuses a bare string for an address or a location and
+// takes an object holding the line. Each fills the empty field on a
+// scratch record and leaves it: Pipedrive refuses an empty line, so no
+// write can restore the field, and the scratch record is deleted.
+func TestWrite_OrganizationAddressTakesOneLine(t *testing.T) {
+	requireWrites(t)
+	sc := newScratch(t)
+	const line = "1 Example Street, Exampleton"
+	mustCall(t, "manage_organization", map[string]any{"action": "update", "org_id": sc.OrgID, "address": line}, nil)
+	var back orgOut
+	mustCall(t, "get_organization", map[string]any{"org_id": sc.OrgID}, &back)
+	if back.Organization.Address == nil || back.Organization.Address.Value != line {
+		t.Errorf("address read back as %+v, want the line %q", back.Organization.Address, line)
+	}
+}
+
+func TestWrite_ActivityLocationTakesOneLine(t *testing.T) {
+	requireWrites(t)
+	sc := newScratch(t)
+	const line = "Meeting room 2, Exampleton"
+	mustCall(t, "manage_activity", map[string]any{"action": "update", "activity_id": sc.ActivityID, "location": line}, nil)
+	var back activityOut
+	mustCall(t, "get_activity", map[string]any{"activity_id": sc.ActivityID}, &back)
+	if back.Activity.Location == nil || back.Activity.Location.Value != line {
+		t.Errorf("location read back as %+v, want the line %q", back.Activity.Location, line)
+	}
+}

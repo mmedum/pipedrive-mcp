@@ -234,7 +234,7 @@ func TestClient_CreateOrganization(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"name":"Example Transit Co"`,
-		`"address":"1 Example Street, Exampleton, Freedonia"`,
+		`"address":{"value":"1 Example Street, Exampleton, Freedonia"}`,
 		`"owner_id":13`,
 	} {
 		if !strings.Contains(sawBody, want) {

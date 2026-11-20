@@ -1,9 +1,15 @@
 package pipedrive
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"maps"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -34,6 +40,14 @@ type specFields struct {
 		Endpoint string            `json:"endpoint"`
 		Fields   map[string]string `json:"fields"`
 	} `json:"types"`
+	// Requests is each request type's body, per endpoint it is sent to.
+	Requests map[string][]struct {
+		Method string            `json:"method"`
+		Path   string            `json:"path"`
+		Fields map[string]string `json:"fields"`
+	} `json:"requests"`
+	// Queries is each read endpoint's query parameters.
+	Queries map[string][]string `json:"queries"`
 }
 
 // knownSpecOmissions are JSON tags this package decodes that the
@@ -185,4 +199,181 @@ func TestUpstreamTypeCoverage(t *testing.T) {
 		t.Logf("%s: decodes %d of %d declared fields; not decoded: %s",
 			name, len(declared.Fields)-len(missing), len(declared.Fields), strings.Join(missing, " "))
 	}
+}
+
+// knownRequestOmissions are request fields this package sends that the
+// v2 description does not declare, each one verified against the live
+// API.
+var knownRequestOmissions = map[string]map[string]string{
+	"CreatePersonRequest": {
+		"first_name": "accepted live; every write probe's scratch person is created with it",
+		"last_name":  "accepted live; every write probe's scratch person is created with it",
+	},
+	"UpdatePersonRequest": {
+		"first_name": "accepted live; checked by the integration test TestWrite_PersonFieldRoundTrips",
+		"last_name":  "accepted live, as first_name is",
+	},
+}
+
+// marshaledKind is what a type with its own MarshalJSON writes, as the
+// description names it, or "" for a type without one.
+func marshaledKind(typ reflect.Type) string {
+	for typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+	}
+	m, ok := reflect.New(typ).Elem().Interface().(json.Marshaler)
+	if !ok {
+		return ""
+	}
+	out, err := m.MarshalJSON()
+	if err != nil || len(out) == 0 {
+		return ""
+	}
+	switch out[0] {
+	case '{':
+		return "object"
+	case '[':
+		return "array"
+	case '"':
+		return "string"
+	}
+	return ""
+}
+
+// TestRequestTypesMatchTheSpec holds the request bodies this package
+// sends to Pipedrive's v2 description, their top-level fields only: the
+// fixture records no nested schemas, so an element of participants or
+// emails is not compared, as TestUpstreamTypesMatchTheSpec
+// holds the responses: a field the description does not declare is one
+// Pipedrive ignores or refuses, and a type it cannot hold is refused.
+func TestRequestTypesMatchTheSpec(t *testing.T) {
+	spec := loadSpecFields(t)
+	cases := map[string]reflect.Type{
+		"CreateDealRequest":         reflect.TypeOf(CreateDealRequest{}),
+		"UpdateDealRequest":         reflect.TypeOf(UpdateDealRequest{}),
+		"CreatePersonRequest":       reflect.TypeOf(CreatePersonRequest{}),
+		"UpdatePersonRequest":       reflect.TypeOf(UpdatePersonRequest{}),
+		"CreateOrganizationRequest": reflect.TypeOf(CreateOrganizationRequest{}),
+		"UpdateOrganizationRequest": reflect.TypeOf(UpdateOrganizationRequest{}),
+		"CreateActivityRequest":     reflect.TypeOf(CreateActivityRequest{}),
+		"UpdateActivityRequest":     reflect.TypeOf(UpdateActivityRequest{}),
+		"InstallmentRequest":        reflect.TypeOf(InstallmentRequest{}),
+	}
+	if len(spec.Requests) != len(cases) {
+		t.Errorf("%s records %d request types and this test holds %d; add the new one to both", specFixture, len(spec.Requests), len(cases))
+	}
+	for name, typ := range cases {
+		endpoints, ok := spec.Requests[name]
+		if !ok || len(endpoints) == 0 {
+			t.Errorf("%s has no request entry for %s", specFixture, name)
+			continue
+		}
+		for _, ep := range endpoints {
+			for i := range typ.NumField() {
+				f := typ.Field(i)
+				tag, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+				if tag == "" || tag == "-" {
+					continue
+				}
+				if _, skip := knownRequestOmissions[name][tag]; skip {
+					continue
+				}
+				kind, found := ep.Fields[tag]
+				if !found {
+					t.Errorf("%s.%s sends %q, which %s %s does not take", name, f.Name, tag, ep.Method, ep.Path)
+					continue
+				}
+				if wrote := marshaledKind(f.Type); wrote != "" {
+					if wrote != kind {
+						t.Errorf("%s.%s writes a JSON %s and %s %s declares %q for %q", name, f.Name, wrote, ep.Method, ep.Path, kind, tag)
+					}
+					continue
+				}
+				if !acceptable(kind, f.Type) {
+					t.Errorf("%s.%s is %s and %s %s declares %q for %q", name, f.Name, f.Type, ep.Method, ep.Path, kind, tag)
+				}
+			}
+		}
+	}
+}
+
+// TestQueriesMatchTheSpec runs every read this package makes with every
+// option set, against a server that records the query, and holds each
+// parameter to the ones the description declares for that path. A
+// parameter Pipedrive does not take is ignored, which reads as a filter
+// that silently does nothing, or refused with a 400.
+func TestQueriesMatchTheSpec(t *testing.T) {
+	spec := loadSpecFields(t)
+	seen := map[string]map[string]bool{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := templatePath(strings.TrimPrefix(r.URL.Path, "/api/v2"))
+		if seen[path] == nil {
+			seen[path] = map[string]bool{}
+		}
+		for k := range r.URL.Query() {
+			seen[path][k] = true
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"success":true,"data":[],"additional_data":{}}`)
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	ctx := context.Background()
+	done := true
+
+	_, _, _ = c.ListDeals(ctx, ListDealsOptions{Status: "open", PipelineID: 1, StageID: 2, OwnerID: 3, PersonID: 4, OrgID: 5,
+		UpdatedSince: "2026-01-01T00:00:00Z", UpdatedUntil: "2026-02-01T00:00:00Z", SortBy: "id", SortDirection: "asc", Limit: 5, Cursor: "c", IDs: []int64{1}})
+	_, _, _ = c.ListDeals(ctx, ListDealsOptions{Archived: true, Status: "open", PipelineID: 1, StageID: 2, OwnerID: 3, PersonID: 4, OrgID: 5,
+		UpdatedSince: "2026-01-01T00:00:00Z", UpdatedUntil: "2026-02-01T00:00:00Z", SortBy: "id", SortDirection: "asc", Limit: 5, Cursor: "c"})
+	_, _, _ = c.ListPersons(ctx, ListPersonsOptions{OwnerID: 1, OrgID: 2, UpdatedSince: "2026-01-01T00:00:00Z", UpdatedUntil: "2026-02-01T00:00:00Z",
+		SortBy: "id", SortDirection: "asc", Limit: 5, Cursor: "c"})
+	_, _, _ = c.ListOrganizations(ctx, ListOrganizationsOptions{OwnerID: 1, UpdatedSince: "2026-01-01T00:00:00Z", UpdatedUntil: "2026-02-01T00:00:00Z",
+		SortBy: "id", SortDirection: "asc", Limit: 5, Cursor: "c"})
+	_, _, _ = c.ListActivities(ctx, ListActivitiesOptions{OwnerID: 1, DealID: 2, LeadID: "l", PersonID: 3, OrgID: 4, Done: &done,
+		UpdatedSince: "2026-01-01T00:00:00Z", UpdatedUntil: "2026-02-01T00:00:00Z", SortBy: "id", SortDirection: "asc", IncludeAttendees: true, Limit: 5, Cursor: "c"})
+	_, _, _ = c.ItemSearch(ctx, SearchOptions{Term: "acme", ItemTypes: []string{"deal"}, ExactMatch: true, Limit: 5, Cursor: "c"})
+	_, _, _ = c.ListInstallments(ctx, []int64{1, 2}, 5, "c")
+	_, _ = c.ListDealProducts(ctx, 7)
+	_, _ = c.ListPipelines(ctx)
+	_, _ = c.ListStages(ctx, 3)
+	_, _ = c.ListDealFields(ctx)
+	_, _ = c.ListPersonFields(ctx)
+	_, _ = c.ListOrganizationFields(ctx)
+	_, _ = c.GetOrganization(ctx, 7)
+	_, _ = c.GetPerson(ctx, 7)
+	_, _ = c.GetActivity(ctx, 7, GetActivityOptions{IncludeAttendees: true})
+
+	// Every path the fixture records has to be reached, so a read that
+	// stops sending, or one the list above leaves out, fails here.
+	for path := range spec.Queries {
+		if _, ok := seen[path]; !ok {
+			t.Errorf("no read above reached %s, which %s records; call it, or drop it from the fixture", path, specFixture)
+		}
+	}
+	for path, params := range seen {
+		declared, ok := spec.Queries[path]
+		if !ok {
+			if len(params) > 0 {
+				t.Errorf("%s records no query parameters for %s, which this package sends %v", specFixture, path, slices.Sorted(maps.Keys(params)))
+			}
+			continue
+		}
+		for p := range params {
+			if !slices.Contains(declared, p) {
+				t.Errorf("a read sends %s?%s=, which Pipedrive's v2 description does not declare for that path", path, p)
+			}
+		}
+	}
+}
+
+// templatePath turns a request path's numeric segments into {id}, the
+// way the description writes them.
+func templatePath(p string) string {
+	parts := strings.Split(p, "/")
+	for i, part := range parts {
+		if part != "" && strings.Trim(part, "0123456789") == "" {
+			parts[i] = "{id}"
+		}
+	}
+	return strings.Join(parts, "/")
 }

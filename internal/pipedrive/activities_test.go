@@ -240,7 +240,7 @@ func TestClient_CreateActivity(t *testing.T) {
 		// outright, which is why this asserts the translation rather
 		// than the field.
 		`"participants":[{"person_id":73,"primary":true}]`,
-		`"location":"Exampleton, Freedonia"`,
+		`"location":{"value":"Exampleton, Freedonia"}`,
 	} {
 		if !strings.Contains(sawBody, want) {
 			t.Errorf("body %q missing %q", sawBody, want)

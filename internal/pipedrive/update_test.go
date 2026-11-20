@@ -155,13 +155,17 @@ func TestClient_UpdateOrganization_RoundTrip(t *testing.T) {
 		if r.URL.Path != "/api/v2/organizations/47" {
 			t.Errorf("path = %q, want /api/v2/organizations/47", r.URL.Path)
 		}
+		// Pipedrive v2 refuses a bare string here; see OneLine.
+		if body, _ := io.ReadAll(r.Body); string(body) != `{"address":{"value":"456 Other Rd"}}` {
+			t.Errorf("body = %s, want the address as an object holding its line", body)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"success":true,"data":{"id":47,"name":"Acme Inc","address":{"value":"456 Other Rd"}}}`)
 	}))
 	defer srv.Close()
 
 	got, err := newTestClient(srv).UpdateOrganization(context.Background(), 47, UpdateOrganizationRequest{
-		Address: ptr("456 Other Rd"),
+		Address: (*OneLine)(ptr("456 Other Rd")),
 	})
 	if err != nil {
 		t.Fatalf("UpdateOrganization: %v", err)

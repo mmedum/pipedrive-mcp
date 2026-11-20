@@ -156,7 +156,7 @@ type manageOrganizationInput struct {
 	Action        string         `json:"action" jsonschema:"create, update or delete"`
 	OrgID         int64          `json:"org_id,omitempty" jsonschema:"the organization to act on, required by update and ignored by create"`
 	Name          *string        `json:"name,omitempty" jsonschema:"the organization's display name, required by create. If the user did not give you a name, ask — do NOT invent one"`
-	Address       *string        `json:"address,omitempty" jsonschema:"a single-line address exactly as the user dictated it, such as 123 Main St, San Francisco, CA 94103. Pipedrive parses it server-side into country, locality and postal_code, so do NOT pre-parse it or split it into components"`
+	Address       *string        `json:"address,omitempty" jsonschema:"a single-line address exactly as the user dictated it, such as 123 Main St, San Francisco, CA 94103. Pipedrive keeps the line as given, so do NOT pre-parse it or split it into components"`
 	OwnerID       *int64         `json:"owner_id,omitempty" jsonschema:"the user who owns the record; omit on create to take the API token's own user"`
 	CustomFields  map[string]any `json:"custom_fields,omitempty" jsonschema:"this workspace's own fields, keyed by the name get_organization reports — a dropdown takes its label as get_organization reports it, a multi-select a list of them, everything else the plain value. Omit a field to leave it as it is; a field cannot be cleared"`
 	DryRun        bool           `json:"dry_run,omitempty" jsonschema:"report what the write would find and change, and send nothing"`
@@ -217,7 +217,7 @@ func createOrganizationAction(ctx context.Context, c organizationsClient, compan
 	}
 	req := pipedrive.CreateOrganizationRequest{
 		Name:         *in.Name,
-		Address:      deref(in.Address),
+		Address:      pipedrive.OneLine(deref(in.Address)),
 		OwnerID:      deref(in.OwnerID),
 		CustomFields: cf.Values,
 	}
@@ -251,7 +251,7 @@ func updateOrganizationAction(ctx context.Context, c organizationsClient, compan
 	}
 	req := pipedrive.UpdateOrganizationRequest{
 		Name:         in.Name,
-		Address:      in.Address,
+		Address:      (*pipedrive.OneLine)(in.Address),
 		OwnerID:      in.OwnerID,
 		CustomFields: cf.Values,
 	}
@@ -289,9 +289,9 @@ func organizationAfterUpdate(before pipedrive.Organization, req pipedrive.Update
 	setIf(&after.Name, req.Name)
 	setIf(&after.OwnerID, req.OwnerID)
 	if req.Address != nil {
-		// Pipedrive re-parses the line server-side; the prediction only
-		// needs the value the guard and the diff compare on.
-		after.Address = &pipedrive.Address{Value: *req.Address}
+		// A PATCH replaces the stored address whole, its parts included,
+		// so the line alone is the record Pipedrive keeps (OneLine).
+		after.Address = &pipedrive.Address{Value: string(*req.Address)}
 	}
 	return after
 }
@@ -300,8 +300,7 @@ func organizationAfterUpdate(before pipedrive.Organization, req pipedrive.Update
 // the CreateOrganizationRequest, used only on the dry-run path so
 // create_organization's output schema stays consistent. ID=0 +
 // dry_run=true tells the LLM nothing was actually persisted. Address
-// is wrapped as Address.Value; server-side parsing of country/
-// locality/postal_code only happens on the real upstream call.
+// is wrapped as Address.Value, the line Pipedrive stores.
 func syntheticOrgFromRequest(req pipedrive.CreateOrganizationRequest) *pipedrive.Organization {
 	o := &pipedrive.Organization{
 		Name:         req.Name,
@@ -309,7 +308,7 @@ func syntheticOrgFromRequest(req pipedrive.CreateOrganizationRequest) *pipedrive
 		CustomFields: req.CustomFields,
 	}
 	if req.Address != "" {
-		o.Address = &pipedrive.Address{Value: req.Address}
+		o.Address = &pipedrive.Address{Value: string(req.Address)}
 	}
 	return o
 }

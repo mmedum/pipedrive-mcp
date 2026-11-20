@@ -22,13 +22,12 @@ type ListOrganizationsOptions struct {
 }
 
 // CreateOrganizationRequest is the JSON body for POST
-// /api/v2/organizations. v2 requires `name`. Address is a single-line
-// string on input — Pipedrive parses it into the structured response
-// shape (Address.Country / Locality / PostalCode) server-side.
+// /api/v2/organizations. v2 requires `name`. Address is the single line
+// a person says, sent as a OneLine.
 type CreateOrganizationRequest struct {
-	Name    string `json:"name"`
-	OwnerID int64  `json:"owner_id,omitempty"`
-	Address string `json:"address,omitempty"` // single-line; server-parsed
+	Name    string  `json:"name"`
+	OwnerID int64   `json:"owner_id,omitempty"`
+	Address OneLine `json:"address,omitempty"`
 
 	// CustomFields is what FieldCache.Encode produces; see
 	// CustomFieldWrite.Values for the shape. Nil omits the object,
@@ -41,9 +40,9 @@ type CreateOrganizationRequest struct {
 // it keeps its stored value. Clearing a field is not supported — see
 // UpdateDealRequest.
 type UpdateOrganizationRequest struct {
-	Name    *string `json:"name,omitempty"`
-	OwnerID *int64  `json:"owner_id,omitempty"`
-	Address *string `json:"address,omitempty"` // single-line; server-parsed
+	Name    *string  `json:"name,omitempty"`
+	OwnerID *int64   `json:"owner_id,omitempty"`
+	Address *OneLine `json:"address,omitempty"`
 
 	// CustomFields is what FieldCache.Encode produces; see
 	// CustomFieldWrite.Values for the shape. Nil omits the object,
@@ -53,7 +52,7 @@ type UpdateOrganizationRequest struct {
 
 // UpdateOrganization edits an organization via
 // PATCH /api/v2/organizations/{id} and returns the record Pipedrive
-// echoes back, with Address re-parsed server-side.
+// echoes back.
 func (c *Client) UpdateOrganization(ctx context.Context, id int64, req UpdateOrganizationRequest) (*Organization, error) {
 	var resp itemEnvelope[Organization]
 	if err := c.patchV2(ctx, "/organizations/"+strconv.FormatInt(id, 10), req, &resp); err != nil {
@@ -84,7 +83,7 @@ func (c *Client) GetOrganization(ctx context.Context, id int64) (*Organization, 
 
 // CreateOrganization posts a new organization via /api/v2/organizations.
 // Returns the created org as Pipedrive echoes it (full record with
-// id, structured Address parsed server-side, and custom_fields).
+// id, Address and custom_fields).
 func (c *Client) CreateOrganization(ctx context.Context, req CreateOrganizationRequest) (*Organization, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("%w: name must not be empty", ErrValidation)

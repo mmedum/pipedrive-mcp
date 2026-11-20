@@ -35,6 +35,7 @@ other tool is covered by the promise in full.
 
 ### Fixed
 
+- Setting an organization's address or an activity's location works; Pipedrive v2 refused both, sent as a plain string, with `[validation]`.
 - Custom fields, pipelines and stages past Pipedrive's first page of 100 are read; a field past it was neither resolved nor written by name.
 - Dropdown options sharing a label, ignoring case, read and write as `label (id N)`; a bare shared label is refused rather than written to the last one.
 
