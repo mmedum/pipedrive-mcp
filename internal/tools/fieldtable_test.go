@@ -49,6 +49,7 @@ func TestEveryWritableFieldHasAFieldSpec(t *testing.T) {
 		{"activity/create", pipedrive.CreateActivityRequest{}, names(activityFields)},
 		{"note/create", pipedrive.CreateNoteRequest{}, names(noteFields)},
 		{"lead/create and update", pipedrive.LeadRequest{}, names(leadFields)},
+		{"goal/create and update", pipedrive.GoalRequest{}, names(goalFields)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.resource, func(t *testing.T) {
@@ -75,6 +76,11 @@ func TestEveryWritableFieldHasAFieldSpec(t *testing.T) {
 				// wire and org_id in the table, as every other tool spells it.
 				if name == "organization_id" {
 					name = "org_id"
+				}
+				// A goal's request carries nested objects, whose parts the
+				// table guards one by one; each object maps to one of them.
+				if part, nested := map[string]string{"type": "type_name", "assignee": "assignee_id", "duration": "start", "expected_outcome": "target"}[name]; nested && strings.HasPrefix(tc.resource, "goal/") {
+					name = part
 				}
 				if !tabled[name] {
 					t.Errorf("%s: %q is writable but has no fieldSpec entry — it would be written without being guarded or reported",

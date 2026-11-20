@@ -105,7 +105,10 @@ func (c *Client) FindGoals(ctx context.Context, opts FindGoalsOptions) ([]Goal, 
 	return resp.Data.Goals, nil
 }
 
-// GoalResult reads one goal and its progress over a period.
+// GoalResult reads one goal and its progress over a period, which has to
+// lie inside the goal's own duration: a period outside it, today's for a
+// goal that has not started included, answers 400 "Invalid Request".
+// Checked by the integration test TestWrite_GoalRoundTrip.
 func (c *Client) GoalResult(ctx context.Context, id, start, end string) (*Goal, int64, error) {
 	q := url.Values{}
 	q.Set("period.start", start)

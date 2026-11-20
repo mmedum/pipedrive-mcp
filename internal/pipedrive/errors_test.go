@@ -123,3 +123,12 @@ func TestClassify_410ExplainsOnlyOnV1(t *testing.T) {
 		})
 	}
 }
+
+// The goals service answers with statusText rather than error, and its
+// message has to reach the caller rather than an empty [validation].
+func TestClassify_TheGoalsServiceMessage(t *testing.T) {
+	got := classify(400, apiV1, "/api/v1/goals/x/results", envelope{StatusText: "Invalid Request"})
+	if got == nil || got.Message != "Invalid Request" || !errors.Is(got, ErrValidation) {
+		t.Errorf("classify = %+v; want [validation] carrying Invalid Request", got)
+	}
+}

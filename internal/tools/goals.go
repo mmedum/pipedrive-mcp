@@ -4,8 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -70,8 +70,8 @@ type listGoalsOutput struct {
 
 type getGoalInput struct {
 	GoalID      string `json:"goal_id" jsonschema:"the goal's id; list_goals reports it"`
-	PeriodStart string `json:"period_start,omitempty" jsonschema:"YYYY-MM-DD to measure progress from; default the goal's own start"`
-	PeriodEnd   string `json:"period_end,omitempty" jsonschema:"YYYY-MM-DD to measure progress to; default today"`
+	PeriodStart string `json:"period_start,omitempty" jsonschema:"YYYY-MM-DD to measure progress from, inside the goal's period; default the goal's own start"`
+	PeriodEnd   string `json:"period_end,omitempty" jsonschema:"YYYY-MM-DD to measure progress to, inside the goal's period; default today, or the goal's end if that comes first"`
 }
 
 type getGoalOutput struct {
@@ -168,25 +168,18 @@ func RegisterGoals(s *mcp.Server, c goalsClient, opts RegisterOptions) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_goal",
-		Description: "Fetch one goal by goal_id and its progress over a period: how far it got, in its own tracking metric, from period_start to period_end, which default to the goal's start and today. Goals come from Pipedrive v1. list_goals finds the id.",
+		Description: "Fetch one goal by goal_id and its progress over a period: how far it got, in its own tracking metric, from period_start to period_end, which default to the goal's start and today, kept inside the goal's own period; Pipedrive refuses a period outside it. Goals come from Pipedrive v1. list_goals finds the id.",
 		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getGoalInput) (*mcp.CallToolResult, getGoalOutput, error) {
 		if err := validateGoalID(in.GoalID); err != nil {
 			return errorResult(err), getGoalOutput{}, nil
 		}
-		start, end := in.PeriodStart, in.PeriodEnd
-		if end == "" {
-			end = time.Now().UTC().Format(time.DateOnly)
+		g, err := readGoal(ctx, c, in.GoalID)
+		if err != nil {
+			return errorResult(err), getGoalOutput{}, nil
 		}
-		if start == "" {
-			// The goal's own start, which a first read on today's date gives.
-			g, _, err := c.GoalResult(ctx, in.GoalID, end, end)
-			if err != nil {
-				return errorResult(err), getGoalOutput{}, nil
-			}
-			start = g.Duration.Start
-		}
-		if err := validateDates(map[string]string{"period_start": start, "period_end": end}); err != nil {
+		start, end := progressPeriod(g, in.PeriodStart, in.PeriodEnd)
+		if err = validateDates(map[string]string{"period_start": start, "period_end": end}); err != nil {
 			return errorResult(err), getGoalOutput{}, nil
 		}
 		g, progress, err := c.GoalResult(ctx, in.GoalID, start, end)
@@ -215,13 +208,7 @@ func validateListGoals(in listGoalsInput) error {
 
 // validateDates checks every non-empty YYYY-MM-DD value.
 func validateDates(dates map[string]string) error {
-	for _, name := range slices.Sorted(func(yield func(string) bool) {
-		for k := range dates {
-			if !yield(k) {
-				return
-			}
-		}
-	}) {
+	for _, name := range slices.Sorted(maps.Keys(dates)) {
 		if d := dates[name]; d != "" {
 			if _, err := time.Parse(time.DateOnly, d); err != nil {
 				return fmt.Errorf("%w: %s %q is not a YYYY-MM-DD date", pipedrive.ErrValidation, name, d)
@@ -404,15 +391,45 @@ func createGoalAction(ctx context.Context, c goalsClient, in manageGoalInput) (*
 }
 
 // readGoal is the read a write makes first. v1 has no read of one goal,
-// and its results read returns the goal for any period, so today's.
+// its results read needs a period inside the goal's duration, which is
+// unknown before the read, and find with no filter returns the token
+// user's goals alone. find by each assignee type returns everyone's, so
+// the goal is looked up by id across the three.
 func readGoal(ctx context.Context, c goalsClient, id string) (*pipedrive.Goal, error) {
-	today := time.Now().UTC().Format(time.DateOnly)
-	g, _, err := c.GoalResult(ctx, id, today, today)
-	return g, err
+	for _, kind := range []string{"person", "company", "team"} {
+		goals, err := c.FindGoals(ctx, pipedrive.FindGoalsOptions{AssigneeType: kind})
+		if err != nil {
+			return nil, err
+		}
+		for i := range goals {
+			if goals[i].ID == id {
+				return &goals[i], nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("%w: no goal %s; list_goals reports the ids", pipedrive.ErrNotFound, id)
+}
+
+// progressPeriod is the period get_goal measures over when the caller
+// names none: from the goal's start to today, kept inside the goal's
+// duration, since Pipedrive refuses a period outside it.
+func progressPeriod(g *pipedrive.Goal, start, end string) (from, to string) {
+	if start == "" {
+		start = g.Duration.Start
+	}
+	if end == "" {
+		end = time.Now().UTC().Format(time.DateOnly)
+		if g.Duration.End != nil && *g.Duration.End < end {
+			end = *g.Duration.End
+		}
+		if end < start {
+			end = start
+		}
+	}
+	return start, end
 }
 
 func updateGoalAction(ctx context.Context, c goalsClient, in manageGoalInput) (*mcp.CallToolResult, manageGoalOutput) {
-	var shapeErr error
 	g, changed, res := guardedWrite[pipedrive.Goal]{
 		Spec:          goalFields,
 		Resource:      "goal " + in.GoalID,
@@ -441,7 +458,6 @@ func updateGoalAction(ctx context.Context, c goalsClient, in manageGoalInput) (*
 	if res != nil {
 		return res, manageGoalOutput{}
 	}
-	_ = shapeErr
 	return nil, manageGoalOutput{Goal: summarizeGoal(g), Changed: changed}
 }
 
@@ -467,6 +483,3 @@ func deleteGoalAction(ctx context.Context, c goalsClient, in manageGoalInput) (*
 	}
 	return nil, manageGoalOutput{Goal: summarizeGoal(before), Deleted: true}
 }
-
-// goalJSON is unused outside tests that compare a request's wire form.
-var _ = json.Marshal
