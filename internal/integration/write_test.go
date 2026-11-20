@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
 	"github.com/mmedum/pipedrive-mcp/internal/server/testutil"
@@ -183,22 +184,26 @@ func TestWrite_PersonFieldRoundTrips(t *testing.T) {
 	}
 }
 
-// TestWrite_PersonEmailsReplaceWholesale and
-// TestWrite_PersonPhonesReplaceWholesale test the premise the
-// contact-point guard rests on: an update replaces the stored emails or
-// phones rather than merging into them. Each appends an entry and takes
-// it away again, and every write carries the whole existing set, so
-// nothing that was there can be lost either way. The append passes
-// under a merge too; the restore is what tells them apart, since it
-// sends the set without the probe entry and fails if the entry stays.
+// TestWrite_PersonEmailsReplaceWholesale probes a person's emails;
+// contactPointsReplaceWholesale says what it tests.
 func TestWrite_PersonEmailsReplaceWholesale(t *testing.T) {
 	contactPointsReplaceWholesale(t, "emails", probeEmail, func(p personRow) []contactRow { return p.Emails })
 }
 
+// TestWrite_PersonPhonesReplaceWholesale probes a person's phones the
+// same way.
 func TestWrite_PersonPhonesReplaceWholesale(t *testing.T) {
 	contactPointsReplaceWholesale(t, "phones", probePhone, func(p personRow) []contactRow { return p.Phones })
 }
 
+// contactPointsReplaceWholesale tests the premise the contact-point
+// guard rests on: an update replaces the stored emails or phones rather
+// than merging into them. It appends an entry and takes it away again,
+// and every write carries the whole existing set, so nothing that was
+// there can be lost either way. The append passes under a merge too; the
+// restore is what tells them apart, since it sends the set without the
+// probe entry and fails if the entry stays. Entries compare by their
+// digits and letters, since Pipedrive may store a phone reformatted.
 func contactPointsReplaceWholesale(t *testing.T, field, probe string, of func(personRow) []contactRow) {
 	requireWrites(t)
 
@@ -226,7 +231,7 @@ func contactPointsReplaceWholesale(t *testing.T, field, probe string, of func(pe
 			return false, fmt.Sprintf("%d entries, want %d", len(got), len(original))
 		}
 		for _, e := range of(back.Person) {
-			if strings.Contains(e.Value, probe) {
+			if strings.Contains(alnum(e.Value), alnum(probe)) {
 				return false, "the probe entry is still on the record"
 			}
 		}
@@ -244,6 +249,17 @@ func contactPointsReplaceWholesale(t *testing.T, field, probe string, of func(pe
 		t.Fatalf("%s went %d -> %d; a write carrying the whole set should have appended one",
 			field, len(original), len(got))
 	}
+}
+
+// alnum keeps a value's letters and digits, lowercased, so a phone
+// compares the same however it is punctuated.
+func alnum(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return unicode.ToLower(r)
+		}
+		return -1
+	}, s)
 }
 
 // probeEmail is on example.com, which RFC 2606 reserves, so a restore

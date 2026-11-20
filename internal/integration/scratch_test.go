@@ -103,8 +103,8 @@ func newScratch(t *testing.T) *scratch {
 
 	s.OrgID = newID("manage_organization",
 		map[string]any{"action": "create", "name": s.Title + " org"}, "organization")
-	// One call, with the parts rather than a full name. first_name and
-	// emails are populated so a probe has something to overwrite.
+	// One call, with the parts rather than a full name. first_name,
+	// emails and phones are populated so a probe has something to overwrite.
 	//
 	// Pipedrive refuses a body carrying `name` together with
 	// first_name/last_name — "Cannot set 'name' and
