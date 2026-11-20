@@ -117,13 +117,13 @@ func classify(status int, version apiVersion, endpoint string, env envelope) *AP
 	return nil
 }
 
-// withV1GoneNote says why a 410 on a v1 path is worth no retry. The four
-// tools on v1 (get_note, list_notes, manage_note and whoami) are there
-// because v2 has no /notes and no /users, so nothing can fall back.
+// withV1GoneNote says why a 410 on a v1 path is worth no retry. The tools
+// on v1, for the resources D-105 names, are there because v2 has no
+// equivalent, so nothing can fall back.
 //
 // Pipedrive deprecated selected v1 endpoints and put them out of
-// support; /v1/notes and /v1/users/me are on neither list. That the four
-// still answer is checked by the integration test
+// support; the v1 paths the carve-out calls are on neither list. That
+// they still answer is checked by the integration test
 // TestV1CarveOutStillAnswers.
 // https://developers.pipedrive.com/changelog/post/deprecation-of-selected-api-v1-endpoints
 // https://developers.pipedrive.com/changelog/post/deprecated-apiv1-endpoints-become-out-of-support

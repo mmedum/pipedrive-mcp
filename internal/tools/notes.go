@@ -163,7 +163,7 @@ func RegisterNotes(s *mcp.Server, c notesClient, opts RegisterOptions) {
 		}
 
 		sortBy, sortDir := effectiveSort(in.SortBy, in.SortDirection)
-		start, err := decodeNotesCursor(in.Cursor)
+		start, err := decodeV1Cursor("notes", in.Cursor)
 		if err != nil {
 			return errorResult(err), listNotesOutput{}, nil
 		}
@@ -187,7 +187,7 @@ func RegisterNotes(s *mcp.Server, c notesClient, opts RegisterOptions) {
 		}
 		out := listNotesOutput{
 			Notes:      make([]noteSummary, 0, len(notes)),
-			NextCursor: encodeNotesCursor(page),
+			NextCursor: encodeV1Cursor("notes", page),
 		}
 		for i := range notes {
 			out.Notes = append(out.Notes, summarizeNote(&notes[i]))
@@ -474,22 +474,24 @@ func syntheticNoteFromRequest(req pipedrive.CreateNoteRequest) *pipedrive.Note {
 	return n
 }
 
-// encodeNotesCursor maps v1's offset-pagination block into an opaque
-// cursor string the LLM can pass back verbatim. Returns empty string
+// encodeV1Cursor maps v1's offset-pagination block, which notes and
+// leads share, into an opaque cursor string the LLM can pass back
+// verbatim. Returns empty string
 // when there are no more pages, matching the v2 cursor convention.
 //
-// Encoded form: base64url("v1:<next_start>") — the prefix protects
-// against a future cursor format change without a schema bump.
-func encodeNotesCursor(p *pipedrive.V1Pagination) string {
+// Encoded form: base64url("v1:<listing>:<next_start>"). The listing,
+// such as "notes" or "leads:archived", is in it so a cursor from one
+// listing is refused by another rather than read as an offset into it.
+func encodeV1Cursor(listing string, p *pipedrive.V1Pagination) string {
 	if p == nil || !p.MoreItemsInCollection {
 		return ""
 	}
-	return base64.RawURLEncoding.EncodeToString([]byte("v1:" + strconv.Itoa(p.NextStart)))
+	return base64.RawURLEncoding.EncodeToString([]byte("v1:" + listing + ":" + strconv.Itoa(p.NextStart)))
 }
 
-// decodeNotesCursor reverses encodeNotesCursor. Empty cursor returns
+// decodeV1Cursor reverses encodeV1Cursor. Empty cursor returns
 // 0 (the start of the collection).
-func decodeNotesCursor(cursor string) (int, error) {
+func decodeV1Cursor(listing, cursor string) (int, error) {
 	if cursor == "" {
 		return 0, nil
 	}
@@ -498,9 +500,9 @@ func decodeNotesCursor(cursor string) (int, error) {
 		return 0, fmt.Errorf("%w: invalid cursor", pipedrive.ErrValidation)
 	}
 	s := string(raw)
-	const prefix = "v1:"
+	prefix := "v1:" + listing + ":"
 	if len(s) <= len(prefix) || s[:len(prefix)] != prefix {
-		return 0, fmt.Errorf("%w: cursor format unrecognized", pipedrive.ErrValidation)
+		return 0, fmt.Errorf("%w: this cursor is not from this listing; pass the next_cursor the same call returned", pipedrive.ErrValidation)
 	}
 	n, err := strconv.Atoi(s[len(prefix):])
 	if err != nil || n < 0 {

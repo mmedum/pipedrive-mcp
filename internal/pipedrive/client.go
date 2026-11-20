@@ -156,6 +156,12 @@ func (c *Client) patchV2(ctx context.Context, path string, body, out any) error 
 	return c.exec(ctx, http.MethodPatch, apiV2, path, body, out)
 }
 
+// patchV1 is a PATCH on /api/v1, which updates a lead: a field the body
+// omits keeps its stored value. Retried as postV1 is.
+func (c *Client) patchV1(ctx context.Context, path string, body, out any) error {
+	return c.exec(ctx, http.MethodPatch, apiV1, path, body, out)
+}
+
 // putV1 is a PUT on /api/v1, which updates a note. v1 treats it as a
 // partial update: a field the body omits keeps its stored value. Retried
 // as postV1 is, since Pipedrive's reference does not promise the PUT is

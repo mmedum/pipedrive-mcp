@@ -29,13 +29,18 @@ var v1WatchCarveOut = []struct {
 }{
 	{"/notes", regexp.MustCompile(`/v1/notes(/\{id\})?([^/A-Za-z0-9_{]|$)`), "/v1/notes"},
 	{"/users", regexp.MustCompile(`/v1/users/me([^/A-Za-z0-9_]|$)`), "/v1/users/me"},
+	{"/leads", regexp.MustCompile(`/v1/leads(/\{id\}|/archived)?([^/A-Za-z0-9_{]|$)`), "/v1/leads"},
+	{"/leadLabels", regexp.MustCompile(`/v1/leadLabels([^/A-Za-z0-9_{]|$)`), "/v1/leadLabels"},
 }
 
 // v1WatchKnownV2 are v2 paths under a carve-out prefix that were read and
 // replace nothing here. A new one fails the gate until someone reads it
 // and adds it, with the reason.
 var v1WatchKnownV2 = map[string]string{
-	"/users/{id}/followers": "a user's followers, not the signed-in user whoami reads",
+	"/users/{id}/followers":                      "a user's followers, not the signed-in user whoami reads",
+	"/leads/search":                              "lead search, beside the itemSearch search calls; no lead records",
+	"/leads/{id}/convert/deal":                   "converting a lead to a deal; no lead records",
+	"/leads/{id}/convert/status/{conversion_id}": "a conversion's status; no lead records",
 }
 
 // v1WatchKnownPosts are changelog posts that name a carve-out path and
@@ -99,7 +104,12 @@ func v1Watch(out io.Writer, fetch func(string) (string, error)) error {
 	if len(problems) > 0 {
 		return fmt.Errorf("v1-watch:\n  %s", strings.Join(problems, "\n  "))
 	}
-	_, err = fmt.Fprintf(out, "v1-watch ok: no new v2 path under /notes or /users in %d paths, and none of %d changelog posts names /v1/notes or /v1/users/me\n", len(paths), len(posts))
+	prefixes, v1s := make([]string, 0, len(v1WatchCarveOut)), make([]string, 0, len(v1WatchCarveOut))
+	for _, c := range v1WatchCarveOut {
+		prefixes, v1s = append(prefixes, c.v2Prefix), append(v1s, c.v1Name)
+	}
+	_, err = fmt.Fprintf(out, "v1-watch ok: no new v2 path under %s in %d paths, and none of %d changelog posts names %s\n",
+		strings.Join(prefixes, ", "), len(paths), len(posts), strings.Join(v1s, ", "))
 	return err
 }
 

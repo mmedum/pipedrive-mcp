@@ -155,8 +155,8 @@ Pipedrive API v1 and has no v2 equivalent — changing the request will
 not help`.
 
 **Cause:** Pipedrive answered 410: it has retired the endpoint (D-05).
-`get_note`, `list_notes`, `manage_note` and `whoami` run on API v1,
-because v2 has no notes and no users (D-105).
+The note, lead and `whoami` tools run on API v1, because v2 has no
+notes, no signed-in user and no lead records (D-105).
 
 **Impact:** those tools stop working, and nothing in this server can
 fall back.

@@ -507,17 +507,17 @@ owner's go-ahead.
 
 ### D-04 The v1 tools sit outside the compatibility promise and leave in a MINOR release if v1 stops answering
 
-The v1 tools, `get_note`, `list_notes`, `manage_note` and `whoami`, sit
-outside the compatibility promise. If v1 stops answering for them, they
+The v1 tools, those for the resources D-105 names, sit outside the
+compatibility promise. If v1 stops answering for them, they
 are removed in a MINOR release. The CHANGELOG's preamble states the
 exception, and every other tool is covered in full (D-75).
 
 A break of the tool surface needs a MAJOR release. These tools sit on an
 API a third party can retire at will, and there is nothing to migrate
-them to, because v2 exposes no `/notes` and no `/users` (D-03). Keeping
+them to, because v2 exposes none of the resources D-105 names. Keeping
 them inside the promise would hand Pipedrive the power to force a MAJOR.
-`TestV1CarveOutStillAnswers` checks that whoami, list_notes and get_note
-still answer, and asserts the aggregate: a retirement fails them
+`TestV1CarveOutStillAnswers` checks that every v1 read tool still
+answers, and asserts the aggregate: a retirement fails them
 together, whatever status it arrives as.
 
 Rejected: a migration, which has no destination; letting a third party

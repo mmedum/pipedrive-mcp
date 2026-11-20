@@ -11,12 +11,14 @@ error message wording, and log line formats are not part of the contract.
 From 1.0.0 onwards, breaking changes require a MAJOR bump. Before it,
 a minor release could break the tool surface, and several did.
 
-**One carve-out, and it is deliberate.** `get_note`, `list_notes`,
-`manage_note` and `whoami` run on Pipedrive API v1, because v2 exposes
-no `/notes` and no `/users` — so there is no equivalent to move them to.
-The v1 endpoints they call are not on Pipedrive's
+**One carve-out, and it is deliberate.** The tools for notes
+(`get_note`, `list_notes`, `manage_note`), `whoami`, and leads
+(`get_lead`, `list_leads`, `list_lead_labels`, `manage_lead`) run on
+Pipedrive API v1, because v2 exposes no `/notes`, no `/users/me` and no
+lead records — so there is no equivalent to move them to. The v1
+endpoints they call are not on Pipedrive's
 [deprecation list](https://developers.pipedrive.com/changelog/post/deprecation-of-selected-api-v1-endpoints).
-Those four sit **outside** the compatibility promise: if v1 stops
+Those tools sit **outside** the compatibility promise: if v1 stops
 answering they are removed in a MINOR release. The alternative is
 letting a third party decide when this project cuts a MAJOR. Every
 other tool is covered by the promise in full.
@@ -31,6 +33,7 @@ other tool is covered by the promise in full.
 - `get_product`, `list_products` and `manage_product` read and write the product catalog, prices and custom fields included.
 - `list_deal_products` and `manage_deal_product` read and change the products on a deal; removing one is permanent and needs `confirm: true`.
 - `get_project`, `list_projects`, `list_project_boards` and `manage_project` read, write, archive and delete projects.
+- `get_lead`, `list_leads`, `list_lead_labels` and `manage_lead` read and write leads on Pipedrive v1, outside the compatibility promise; deleting one is permanent and needs `confirm: true`.
 
 ### Changed
 
