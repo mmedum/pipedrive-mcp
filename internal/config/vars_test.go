@@ -361,6 +361,7 @@ func TestEachVariableIsSpelledOnce(t *testing.T) {
 var scriptsOwn = map[string]string{
 	"SMOKE_HOLD":                 "the smoke gate's: how long it holds the server's stdin open",
 	"PIPEDRIVE_TEST_PIPELINE_ID": "the eval harness's: the scratch pipeline its tasks close deals in",
+	"GOROOT":                     "the cross gate's: the toolchain the go command chose, which it builds every release target with",
 }
 
 // readsFloor is how many reads of a variable the scan finds outside this
