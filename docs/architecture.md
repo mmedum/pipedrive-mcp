@@ -1292,7 +1292,8 @@ caller is told the record already looks that way (D-36). Projected to
 the primary entry's value alone, a write that kept the primary and
 dropped the others read as no change, and an update replaces the stored
 collection wholesale, which the integration test
-`TestWrite_PersonEmailsReplaceWholesale` checks for emails
+`TestWrite_PersonEmailsReplaceWholesale` checks for emails and
+`TestWrite_PersonPhonesReplaceWholesale` for phones
 ([update a person](https://developers.pipedrive.com/docs/api/v1/Persons#updatePerson)).
 Projected to values alone, re-flagging the primary and relabeling were
 invisible. Quoting stops a label that contains the separator from making
@@ -2229,9 +2230,9 @@ activity as read-only, and a fake accepts both;
 Rejected: unit tests against fakes alone.
 Cost: the suite runs by hand against one workspace, so a custom-field or
 permission setup unlike it is untested, and no CI job runs it.
-`TestWrite_PersonEmailsReplaceWholesale` holds that an update replaces a
-person's emails; whether to probe the phones the same way is open
-(#125).
+`TestWrite_PersonEmailsReplaceWholesale` and
+`TestWrite_PersonPhonesReplaceWholesale` hold that an update replaces a
+person's emails and phones.
 
 ### D-79 Live write probes need a second opt-in, stay in their own pipeline, and restore and verify every write
 

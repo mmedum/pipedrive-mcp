@@ -39,6 +39,7 @@ type personRow struct {
 	Name      string       `json:"name"`
 	FirstName string       `json:"first_name,omitempty"`
 	Emails    []contactRow `json:"emails,omitempty"`
+	Phones    []contactRow `json:"phones,omitempty"`
 }
 
 type orgRow struct {
