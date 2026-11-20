@@ -50,6 +50,20 @@ func (e *APIError) Unwrap() error { return e.Class }
 type envelope struct {
 	ErrorMsg  string `json:"error,omitempty"`
 	ErrorInfo string `json:"error_info,omitempty"`
+	// StatusText is where the goals service, which answers /v1/goals,
+	// puts its message: {"statusText":"Invalid Request","statusCode":400}.
+	// Checked by the integration test TestWrite_GoalRoundTrip.
+	StatusText string `json:"statusText,omitempty"`
+}
+
+// message is the body's first non-empty message field.
+func (e envelope) message() string {
+	for _, m := range []string{e.ErrorMsg, e.ErrorInfo, e.StatusText} {
+		if m = strings.TrimSpace(m); m != "" {
+			return m
+		}
+	}
+	return ""
 }
 
 // classify maps an HTTP status and the decoded error body to a typed
@@ -67,10 +81,7 @@ type envelope struct {
 // back in an error body. A need for it gets a redacting accessor, never
 // a field.
 func classify(status int, version apiVersion, endpoint string, env envelope) *APIError {
-	msg := strings.TrimSpace(env.ErrorMsg)
-	if msg == "" {
-		msg = strings.TrimSpace(env.ErrorInfo)
-	}
+	msg := env.message()
 	mk := func(class error) *APIError {
 		return &APIError{Class: class, Status: status, Message: msg, Endpoint: endpoint}
 	}

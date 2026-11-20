@@ -46,8 +46,7 @@ Non-goals:
   string as a value, so a field can be changed but not emptied.
 - **Merging records.** A merge destroys one record's values across a
   record nobody read, and no refusal could name what it would lose.
-- **Files and goals.** `search` finds files, and no tool reads or
-  writes either.
+- **Files.** `search` finds them, and no tool reads or writes them.
 - **Fetching every page for you.** Each list call returns one page and
   the cursor for the next.
 - **Asking you before a call.** Your client approves each call; the
@@ -101,6 +100,9 @@ tool needs. `list_deals` filters; it does not match names.
 | `list_leads` | Leads by owner, linked person or company, or update window; archived leads with `archived` (v1) |
 | `list_lead_labels` | Every lead label, with its id and color (v1) |
 | `manage_lead` | Create, edit, archive, unarchive or delete a lead — a delete is permanent and needs `confirm: true` (v1) |
+| `list_goals` | Goals by title, state, assignee or type; without an assignee or type filter, only your own (v1) |
+| `get_goal` | One goal and its progress over a period inside its own (v1) |
+| `manage_goal` | Create, edit or delete a goal — a delete is permanent and needs `confirm: true` (v1) |
 | `get_person` | One contact: names, every email and phone with its label, the company they belong to, and custom fields |
 | `list_persons` | People by owner, linked organization or update window, cursor-paginated |
 | `manage_person` | Create, edit or delete a contact — `create`, `update`, `delete`. Name it with `name` or with `first_name`/`last_name`, never both. Custom fields by name, dropdowns by label |
@@ -188,7 +190,7 @@ Each of these is a decision or an API limit, not an oversight.
   happens after Pipedrive has paged, a page can come back short, or
   empty with `next_cursor` still set: an empty page is not the end.
 - **The v1 tools sit outside the compatibility promise.** The note,
-  lead and `whoami` tools leave in a minor release if v1 stops
+  lead, goal and `whoami` tools leave in a minor release if v1 stops
   answering them; see [CHANGELOG.md](CHANGELOG.md).
 
 ## Install

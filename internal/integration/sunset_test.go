@@ -63,6 +63,7 @@ func TestV1CarveOutStillAnswers(t *testing.T) {
 			return map[string]any{"limit": 1}
 		}},
 		{"list_lead_labels", "/api/v1/leadLabels", nil},
+		{"list_goals", "/api/v1/goals/find", nil},
 	}
 
 	// Recorded rather than asserted per probe, so the aggregate can be
