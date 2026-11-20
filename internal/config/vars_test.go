@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"io/fs"
 	"maps"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -619,4 +620,74 @@ func joined(e ast.Expr) (string, bool) {
 		return config.EnvPrefix, e.Sel.Name == "EnvPrefix"
 	}
 	return "", false
+}
+
+// docHarnessVars are variables docs/configuration.md documents that the
+// server does not read: the live test harness reads them, and a person
+// running it looks them up in the same place.
+var docHarnessVars = map[string]string{
+	"PIPEDRIVE_INTEGRATION_WRITES": "the integration suite's opt-in to its write probes",
+	"PIPEDRIVE_TEST_PIPELINE_ID":   "the pipeline the write probes and the evals may close deals in",
+}
+
+// TestConfigurationDocDocumentsEverySetting holds the `### NAME` headings
+// under docs/configuration.md's "## Variables" to config.Vars, both
+// ways: a setting the server reads and the doc leaves out is one nobody
+// can look up, and a heading for a setting the server does not read
+// describes a knob that does nothing.
+func TestConfigurationDocDocumentsEverySetting(t *testing.T) {
+	const doc = "../../docs/configuration.md"
+	body, err := os.ReadFile(doc)
+	if err != nil {
+		t.Fatalf("reading %s: %v", doc, err)
+	}
+	documented := configurationDocVars(string(body))
+
+	// A floor stated literally, so a heading format the parser no longer
+	// reads fails rather than passing on nothing.
+	const floor = 4
+	if len(documented) < floor {
+		t.Fatalf("read %d variable headings under ## Variables, fewer than %d; the parser is reading the wrong shape", len(documented), floor)
+	}
+	for _, v := range config.Vars() {
+		if !documented[v.Name] {
+			t.Errorf("%s does not document %s, which the server reads; add a ### `%s` heading under ## Variables", doc, v.Name, v.Name)
+		}
+		delete(documented, v.Name)
+	}
+	for name := range documented {
+		if _, ok := docHarnessVars[name]; !ok {
+			t.Errorf("%s documents %s, which the server does not read and docHarnessVars does not list", doc, name)
+		}
+	}
+}
+
+// configurationDocVars is the variable names of the ### headings between
+// "## Variables" and the next ## heading.
+func configurationDocVars(doc string) map[string]bool {
+	heading := regexp.MustCompile("^### `([A-Z][A-Z0-9_]*)`$")
+	out := map[string]bool{}
+	in := false
+	for line := range strings.Lines(doc) {
+		line = strings.TrimRight(line, "\r\n")
+		switch {
+		case line == "## Variables":
+			in = true
+		case strings.HasPrefix(line, "## "):
+			in = false
+		case in:
+			if m := heading.FindStringSubmatch(line); m != nil {
+				out[m[1]] = true
+			}
+		}
+	}
+	return out
+}
+
+func TestConfigurationDocVars_ReadsOnlyTheVariablesSection(t *testing.T) {
+	got := configurationDocVars("## Token resolution\n### `NOT_THIS`\n## Variables\n### `LOG_LEVEL`\nprose\n### `PIPEDRIVE_DRY_RUN`\n## Examples\n### `NOR_THIS`\n")
+	want := map[string]bool{"LOG_LEVEL": true, "PIPEDRIVE_DRY_RUN": true}
+	if !maps.Equal(got, want) {
+		t.Errorf("configurationDocVars = %v, want %v", got, want)
+	}
 }
