@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
 	"github.com/mmedum/pipedrive-mcp/internal/server/testutil"
@@ -183,64 +184,91 @@ func TestWrite_PersonFieldRoundTrips(t *testing.T) {
 	}
 }
 
-// TestWrite_PersonEmailsReplaceWholesale tests the premise the
-// contact-point guard rests on: an update replaces the stored emails
-// rather than merging into them. It appends an address and takes it
-// away again, and every write carries the whole existing set, so
-// nothing that was there can be lost either way. The append passes
-// under a merge too; the restore is what tells them apart, since it
-// sends the set without the probe address and fails if the address
-// stays.
+// TestWrite_PersonEmailsReplaceWholesale probes a person's emails;
+// contactPointsReplaceWholesale says what it tests.
 func TestWrite_PersonEmailsReplaceWholesale(t *testing.T) {
+	contactPointsReplaceWholesale(t, "emails", probeEmail, func(p personRow) []contactRow { return p.Emails })
+}
+
+// TestWrite_PersonPhonesReplaceWholesale probes a person's phones the
+// same way.
+func TestWrite_PersonPhonesReplaceWholesale(t *testing.T) {
+	contactPointsReplaceWholesale(t, "phones", probePhone, func(p personRow) []contactRow { return p.Phones })
+}
+
+// contactPointsReplaceWholesale tests the premise the contact-point
+// guard rests on: an update replaces the stored emails or phones rather
+// than merging into them. It appends an entry and takes it away again,
+// and every write carries the whole existing set, so nothing that was
+// there can be lost either way. The append passes under a merge too; the
+// restore is what tells them apart, since it sends the set without the
+// probe entry and fails if the entry stays. Entries compare by their
+// digits and letters, since Pipedrive may store a phone reformatted.
+func contactPointsReplaceWholesale(t *testing.T, field, probe string, of func(personRow) []contactRow) {
 	requireWrites(t)
 
 	id := newScratch(t).PersonID
 
-	// The scratch person is created with one address, which is what
-	// this appends to. Read it rather than assuming: the set read back
-	// is what a wholesale replace has to carry.
+	// The scratch person is created with one entry of each, which is
+	// what this appends to. Read it rather than assuming: the set read
+	// back is what a wholesale replace has to carry.
 	var before personOut
 	mustCall(t, "get_person", map[string]any{"person_id": id}, &before)
-	original := before.Person.Emails
+	original := of(before.Person)
 	if len(original) == 0 {
-		t.Fatal("the scratch person was created without the address this probe appends to")
+		t.Fatalf("the scratch person was created without the %s entry this probe appends to", field)
 	}
 
-	undo(t, fmt.Sprintf("person %d emails not restored", id), func() (bool, string) {
+	undo(t, fmt.Sprintf("person %d %s not restored", id, field), func() (bool, string) {
 		if res := call(t, "manage_person", map[string]any{
-			"action": "update", "person_id": id, "emails": original, "overwrite": []string{"emails"},
+			"action": "update", "person_id": id, field: original, "overwrite": []string{field},
 		}); res.IsError {
 			return false, testutil.TextContent(res)
 		}
 		var back personOut
 		mustCall(t, "get_person", map[string]any{"person_id": id}, &back)
-		if len(back.Person.Emails) != len(original) {
-			return false, fmt.Sprintf("%d addresses, want %d", len(back.Person.Emails), len(original))
+		if got := of(back.Person); len(got) != len(original) {
+			return false, fmt.Sprintf("%d entries, want %d", len(got), len(original))
 		}
-		for _, e := range back.Person.Emails {
-			if strings.Contains(e.Value, probeEmail) {
-				return false, "the probe address is still on the record"
+		for _, e := range of(back.Person) {
+			if strings.Contains(alnum(e.Value), alnum(probe)) {
+				return false, "the probe entry is still on the record"
 			}
 		}
 		return true, ""
 	})
 
-	appended := append(slices.Clone(original), contactRow{Value: probeEmail, Label: "probe"})
+	appended := append(slices.Clone(original), contactRow{Value: probe, Label: "probe"})
 	mustCall(t, "manage_person", map[string]any{
-		"action": "update", "person_id": id, "emails": appended, "overwrite": []string{"emails"},
+		"action": "update", "person_id": id, field: appended, "overwrite": []string{field},
 	}, nil)
 
 	var after personOut
 	mustCall(t, "get_person", map[string]any{"person_id": id}, &after)
-	if len(after.Person.Emails) != len(original)+1 {
-		t.Fatalf("emails went %d -> %d; a write carrying the whole set should have appended one",
-			len(original), len(after.Person.Emails))
+	if got := of(after.Person); len(got) != len(original)+1 {
+		t.Fatalf("%s went %d -> %d; a write carrying the whole set should have appended one",
+			field, len(original), len(got))
 	}
+}
+
+// alnum keeps a value's letters and digits, lowercased, so a phone
+// compares the same however it is punctuated.
+func alnum(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return unicode.ToLower(r)
+		}
+		return -1
+	}, s)
 }
 
 // probeEmail is on example.com, which RFC 2606 reserves, so a restore
 // that fails cannot leave a deliverable address on somebody's contact.
 const probeEmail = "pipedrive-mcp-probe@example.com"
+
+// probePhone is in 555-0100 to 555-0199, which the North American
+// Numbering Plan reserves for fiction, so it rings nobody.
+const probePhone = "+1 202 555 0199"
 
 func TestWrite_OrganizationNameRoundTrips(t *testing.T) {
 	requireWrites(t)
