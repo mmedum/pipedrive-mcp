@@ -626,7 +626,7 @@ func joined(e ast.Expr) (string, bool) {
 // server does not read: the live test harness reads them, and a person
 // running it looks them up in the same place. What each does is in that
 // doc and, for the pipeline, in scriptsOwn.
-var docHarnessVars = []string{"PIPEDRIVE_INTEGRATION_WRITES", "PIPEDRIVE_TEST_PIPELINE_ID"}
+var docHarnessVars = []string{"PIPEDRIVE_INTEGRATION_WRITES", "PIPEDRIVE_TEST_PIPELINE_ID", "PIPEDRIVE_TEST_PROJECT_BOARD_ID"}
 
 // TestConfigurationDocDocumentsEverySetting holds the `### NAME` headings
 // under docs/configuration.md's "## Variables" to config.Vars, both

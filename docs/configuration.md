@@ -219,6 +219,15 @@ means the default rather than a value the server refuses.
   pipeline the business does not use. Without it, the probes that need
   it skip, and the evals refuse to start (D-79).
 
+### `PIPEDRIVE_TEST_PROJECT_BOARD_ID`
+
+- **Required**: no, and the server never reads it.
+- **Read by**: the integration write probe for projects.
+- **Effect**: names the project board it may create, archive and delete
+  a project on, which must be a board the business does not use.
+  Pipedrive's API cannot create a board, so set one up in the app.
+  Without it, the projects probe skips.
+
 ## Examples
 
 ### Minimal

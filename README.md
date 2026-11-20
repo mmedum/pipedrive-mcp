@@ -46,8 +46,8 @@ Non-goals:
   string as a value, so a field can be changed but not emptied.
 - **Merging records.** A merge destroys one record's values across a
   record nobody read, and no refusal could name what it would lose.
-- **Leads, files, projects and goals.** `search` finds some of them, and
-  no tool reads or writes them.
+- **Leads, files and goals.** `search` finds some of them, and no tool
+  reads or writes them.
 - **Fetching every page for you.** Each list call returns one page and
   the cursor for the next.
 - **Asking you before a call.** Your client approves each call; the
@@ -93,6 +93,10 @@ tool needs. `list_deals` filters; it does not match names.
 | `manage_product` | Create, edit or delete a catalog product — `create`, `update`, `delete`. Prices are one list, replaced whole |
 | `list_deal_products` | The products on one deal: price, quantity, discount, the sum Pipedrive computes, billing frequency |
 | `manage_deal_product` | Add a product to a deal, edit the line, or remove it — `add`, `update`, `remove`; a removal is permanent and needs `confirm: true` |
+| `get_project` | One project: status, board and phase, the deals, people and companies it links, its dates, whether it is archived |
+| `list_projects` | Projects by status, phase, or linked deal, person or organization; archived projects with `archived` |
+| `list_project_boards` | Every project board with its phases, in order |
+| `manage_project` | Create, edit, archive or delete a project — `create`, `update`, `archive`, `delete`. Link lists are replaced whole; nothing here unarchives |
 | `get_person` | One contact: names, every email and phone with its label, the company they belong to, and custom fields |
 | `list_persons` | People by owner, linked organization or update window, cursor-paginated |
 | `manage_person` | Create, edit or delete a contact — `create`, `update`, `delete`. Name it with `name` or with `first_name`/`last_name`, never both. Custom fields by name, dropdowns by label |

@@ -43,6 +43,11 @@ const writesEnv = "PIPEDRIVE_INTEGRATION_WRITES"
 // variable the probes that close a deal skip.
 const pipelineEnv = "PIPEDRIVE_TEST_PIPELINE_ID"
 
+// projectBoardEnv names a project board the projects probe may write on.
+// A workspace may have one board, which the business uses, and the API
+// cannot create another, so without it that probe skips.
+const projectBoardEnv = "PIPEDRIVE_TEST_PROJECT_BOARD_ID"
+
 var (
 	// live is the connected session every test drives, and liveClient
 	// the Pipedrive client underneath it. One of each per suite: a
