@@ -379,7 +379,24 @@ func TestWrite_CustomFieldRoundTripsByLabel(t *testing.T) {
 	if len(target.Options) < 2 {
 		t.Skip("the dropdown has too few choices to move between")
 	}
-	was, other := target.Options[0].Label, target.Options[1].Label
+	// Two choices whose labels name one option each, so the label written
+	// is the value read back rather than its "label (id N)" form (D-100).
+	var plain []string
+	for _, o := range target.Options {
+		twins := 0
+		for _, p := range target.Options {
+			if strings.EqualFold(p.Label, o.Label) || p.Label == pipedrive.OptionKey(o.ID) {
+				twins++
+			}
+		}
+		if twins == 1 {
+			plain = append(plain, o.Label)
+		}
+	}
+	if len(plain) < 2 {
+		t.Skip("the dropdown has fewer than two choices with a label of their own")
+	}
+	was, other := plain[0], plain[1]
 	if was == "" || other == "" {
 		t.Skip("the dropdown's choices are unusable as a write target")
 	}

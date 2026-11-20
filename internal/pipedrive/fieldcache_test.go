@@ -624,6 +624,9 @@ func TestFieldCache_EncodeTellsLabelsApartByCase(t *testing.T) {
 	if got := fc.Resolve(ctx, map[string]any{"tier": float64(3)}); got["Tier"] != "Silver" {
 		t.Errorf("Resolve(3) = %v; want a unique label plain", got)
 	}
+	if got := fc.Resolve(ctx, map[string]any{"tier": float64(7)}); got["Tier"] != "2 (id 7)" {
+		t.Errorf("Resolve(7) = %v; want a label that is another option's id shown with its own", got)
+	}
 
 	for _, tc := range []struct {
 		value any
@@ -633,6 +636,7 @@ func TestFieldCache_EncodeTellsLabelsApartByCase(t *testing.T) {
 		{"GOLD", float64(2)},          // and the other way round
 		{"silver", float64(3)},        // case is ignored where one option is meant
 		{"Bronze (id 5)", float64(5)}, // the read's form goes back as written
+		{"2 (id 7)", float64(7)},      // a label that is another option's id, by its read form
 		{float64(4), float64(4)},      // an id as a number
 		{"4", float64(4)},             // an id as a string goes out in its stored type
 	} {
@@ -649,13 +653,36 @@ func TestFieldCache_EncodeTellsLabelsApartByCase(t *testing.T) {
 	}{
 		{"Tier", "gold", `"Gold (id 1)", "GOLD (id 2)"`},
 		{"Tier", "Bronze", `"Bronze (id 4)", "Bronze (id 5)"`},
-		{"Tier", "2", `give "2" or "GOLD (id 2)"`},
+		{"Tier", "2", `give "2 (id 7)" or "GOLD (id 2)"`},
 		{"Tags", []any{"hot"}, `"Hot (id 11)", "HOT (id 12)"`},
 		{"Tier", "Brnze", `Bronze (id 4), Bronze (id 5)`},
 	} {
 		_, err := fc.Encode(ctx, map[string]any{tc.field: tc.value})
 		if !errors.Is(err, ErrValidation) || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("Encode(%s: %#v) error = %v; want [validation] containing %s", tc.field, tc.value, err, tc.want)
+		}
+	}
+}
+
+// TestFieldCache_NoTwoOptionsReadAlike holds the second pass in
+// optionTables: a label written like another option's display form gets
+// its id too, so every value read names one option.
+func TestFieldCache_NoTwoOptionsReadAlike(t *testing.T) {
+	fc := fieldCacheFrom(t, `[
+  {"field_code":"tier","field_name":"Tier","field_type":"enum","is_custom_field":true,"is_writable":true,
+   "options":[{"id":1,"label":"Gold"},{"id":2,"label":"gold"},{"id":3,"label":"Gold (id 1)"}]}
+]`)
+	ctx := context.Background()
+	seen := map[any]float64{}
+	for _, id := range []float64{1, 2, 3} {
+		shown := fc.Resolve(ctx, map[string]any{"tier": id})["Tier"]
+		if prev, dup := seen[shown]; dup {
+			t.Fatalf("options %v and %v both read as %q", prev, id, shown)
+		}
+		seen[shown] = id
+		back, err := fc.Encode(ctx, map[string]any{"Tier": shown})
+		if err != nil || back.Values["tier"] != id {
+			t.Errorf("option %v reads as %q, which writes %v, %v", id, shown, back.Values["tier"], err)
 		}
 	}
 }

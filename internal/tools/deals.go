@@ -62,7 +62,7 @@ type dealSummary struct {
 	UpdateTime        string         `json:"update_time,omitempty" jsonschema:"timestamp the deal was last updated"`
 	Probability       *float64       `json:"probability,omitempty" jsonschema:"deal probability override (0-100); null when the stage default applies"`
 	IsArchived        bool           `json:"is_archived,omitempty" jsonschema:"true if the deal has been archived; an archived deal cannot be edited and does not appear in list_deals unless archived is set"`
-	CustomFields      map[string]any `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label, followed by (id N) where another option's label differs only in case; an unrecognized field or option falls through under its stored key"`
+	CustomFields      map[string]any `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label, followed by (id N) where another option's label matches it ignoring case; an unrecognized field or option falls through under its stored key"`
 	URL               string         `json:"url" jsonschema:"link to the deal in the Pipedrive web UI; empty on a dry-run create, which has no record to link to"`
 }
 

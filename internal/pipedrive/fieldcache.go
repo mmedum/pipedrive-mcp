@@ -69,8 +69,10 @@ type cachedField struct {
 	// display form. Nil for a field that has no options, which is what
 	// tells label there is nothing to look up.
 	labels map[string]string
-	// options is the write direction, in the workspace's order.
+	// options is the write direction, in the workspace's order, and byKey
+	// finds one by its id rendered by OptionKey.
 	options []option
+	byKey   map[string]int
 }
 
 // option is one dropdown choice. id keeps the decoded form Pipedrive
@@ -114,7 +116,7 @@ func (e *cacheEntry) load(ctx context.Context, fetch func(context.Context) ([]Fi
 		e.byKey = make(map[string]cachedField, len(fields))
 		e.byName = make(map[string][]string, len(fields))
 		for _, f := range fields {
-			labels, options := optionTables(f.Options)
+			labels, options, byKey := optionTables(f.Options)
 			cf := cachedField{
 				key:      f.Key,
 				name:     f.Name,
@@ -122,6 +124,7 @@ func (e *cacheEntry) load(ctx context.Context, fetch func(context.Context) ([]Fi
 				writable: f.IsWritable,
 				labels:   labels,
 				options:  options,
+				byKey:    byKey,
 			}
 			e.byKey[f.Key] = cf
 			lower := strings.ToLower(f.Name)
@@ -168,34 +171,56 @@ func (fc *FieldCache) Resolve(ctx context.Context, raw map[string]any) map[strin
 	return out
 }
 
-// optionTables builds the two lookups the two directions need: id →
-// display form for a read, and the options for a write. One nil guard,
-// because "this field has options" is a single fact — label tests labels
-// and encode tests options, and two separately-written guards could come
-// to disagree about it.
+// optionTables builds the lookups the two directions need: id → display
+// form for a read, and the options for a write. One nil guard, because
+// "this field has options" is a single fact — label tests labels and
+// encode tests options, and two separately-written guards could come to
+// disagree about it.
 //
-// Pipedrive's reference sets no uniqueness on option labels, so a field
-// can hold labels that differ only in case or not at all.
+// A label reads with its id beside it where it alone does not name one
+// option: another option's label matches it ignoring case, or it is
+// another option's id. A second pass gives the id to a label that reads
+// like another option's display form, so no two options read alike.
+//
+// Pipedrive's reference sets no uniqueness on option labels. No live run
+// has created twins, since that edits the workspace's field definitions,
+// which D-07 leaves alone.
 // https://developers.pipedrive.com/docs/api/v1/DealFields#addDealField
-func optionTables(opts []FieldOption) (labels map[string]string, options []option) {
+func optionTables(opts []FieldOption) (labels map[string]string, options []option, byKey map[string]int) {
 	if len(opts) == 0 {
-		return nil, nil
+		return nil, nil, nil
+	}
+	folds := make(map[string]int, len(opts))
+	byKey = make(map[string]int, len(opts))
+	for i, o := range opts {
+		folds[foldLabel(o.Label)]++
+		byKey[OptionKey(o.ID)] = i
+	}
+	options = make([]option, len(opts))
+	suffixed := make(map[string]bool)
+	for i, o := range opts {
+		key := OptionKey(o.ID)
+		options[i] = option{id: o.ID, label: o.Label, display: o.Label}
+		if _, isKey := byKey[o.Label]; folds[foldLabel(o.Label)] > 1 || (isKey && o.Label != key) {
+			options[i].display = withID(o.Label, key)
+			suffixed[foldLabel(options[i].display)] = true
+		}
 	}
 	labels = make(map[string]string, len(opts))
-	options = make([]option, 0, len(opts))
-	for i, o := range opts {
-		display := o.Label
-		for j, other := range opts {
-			if i != j && strings.EqualFold(other.Label, o.Label) {
-				display = fmt.Sprintf("%s (id %s)", o.Label, OptionKey(o.ID))
-				break
-			}
+	for i := range options {
+		o := &options[i]
+		if o.display == o.label && suffixed[foldLabel(o.label)] {
+			o.display = withID(o.label, OptionKey(o.id))
 		}
-		labels[OptionKey(o.ID)] = display
-		options = append(options, option{id: o.ID, label: o.Label, display: display})
+		labels[OptionKey(o.id)] = o.display
 	}
-	return labels, options
+	return labels, options, byKey
 }
+
+func withID(label, key string) string { return fmt.Sprintf("%s (id %s)", label, key) }
+
+// foldLabel is the key two labels are twins under when case is ignored.
+func foldLabel(s string) string { return strings.ToLower(strings.ToUpper(s)) }
 
 // label replaces the option ids in one stored value with the labels the
 // workspace shows for them.
@@ -435,38 +460,42 @@ func (f cachedField) encode(v any) (any, error) {
 // display form a read handed out, a label, or an id, in that order. An
 // id is accepted because a read that could not resolve an option hands
 // one back, and refusing to take it again would make that output
-// unusable. It goes out as the option's stored id, in its stored type.
+// unusable. It goes out as the option's stored id, in its stored type. A
+// JSON number is always an id, never a label made of digits.
 func (f cachedField) optionID(v any) (any, error) {
-	byKey := func(key string) *option {
-		for i := range f.options {
-			if OptionKey(f.options[i].id) == key {
-				return &f.options[i]
-			}
-		}
-		return nil
-	}
 	if s, ok := v.(string); ok {
-		if id, found, err := f.displayOrLabel(s); found {
-			// A label that is also another option's id could mean either.
-			if other := byKey(s); err == nil && other != nil && OptionKey(other.id) != OptionKey(id) {
-				return nil, fmt.Errorf("%q is one choice's label and another choice's id on the custom field %q; give %q or %q",
-					s, f.name, f.labels[OptionKey(id)], other.display)
-			}
+		other := f.option(s)
+		id, found, err := f.displayOrLabel(s)
+		switch {
+		case found && err != nil && other != nil:
+			return nil, fmt.Errorf("%w; it is also the id of %q", err, other.display)
+		case found && err == nil && other != nil && OptionKey(other.id) != OptionKey(id):
+			return nil, fmt.Errorf("%q is one choice's label and another choice's id on the custom field %q; give %q or %q",
+				s, f.name, f.labels[OptionKey(id)], other.display)
+		case found:
 			return id, err
 		}
 	}
-	if o := byKey(OptionKey(v)); o != nil {
+	if o := f.option(OptionKey(v)); o != nil {
 		return o.id, nil
 	}
 	return nil, fmt.Errorf("%q is not one of the choices on the custom field %q; it takes one of: %s",
 		v, f.name, strings.Join(f.labelList(), ", "))
 }
 
+// option is the option whose id renders as key, or nil.
+func (f cachedField) option(key string) *option {
+	if i, ok := f.byKey[key]; ok {
+		return &f.options[i]
+	}
+	return nil
+}
+
 // displayOrLabel takes the display form a read handed out, which names
 // one option, and otherwise a label.
 func (f cachedField) displayOrLabel(s string) (id any, found bool, err error) {
 	for _, o := range f.options {
-		if o.display == s {
+		if o.display == s && o.display != o.label {
 			return o.id, true, nil
 		}
 	}

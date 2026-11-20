@@ -40,7 +40,7 @@ type personSummary struct {
 	OwnerID      int64                    `json:"owner_id" jsonschema:"id of the user who owns this record"`
 	AddTime      string                   `json:"add_time,omitempty" jsonschema:"timestamp the person was created"`
 	UpdateTime   string                   `json:"update_time,omitempty" jsonschema:"timestamp the person was last updated"`
-	CustomFields map[string]any           `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label, followed by (id N) where another option's label differs only in case; an unrecognized field or option falls through under its stored key"`
+	CustomFields map[string]any           `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label, followed by (id N) where another option's label matches it ignoring case; an unrecognized field or option falls through under its stored key"`
 	URL          string                   `json:"url" jsonschema:"link to the person in the Pipedrive web UI; empty on a dry-run create, which has no record to link to"`
 }
 
