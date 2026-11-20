@@ -18,7 +18,7 @@ import (
 
 type goalsClient interface {
 	FindGoals(ctx context.Context, opts pipedrive.FindGoalsOptions) ([]pipedrive.Goal, error)
-	GoalResult(ctx context.Context, id, start, end string) (*pipedrive.Goal, int64, error)
+	GoalResult(ctx context.Context, id, start, end string) (*pipedrive.Goal, float64, error)
 	CreateGoal(ctx context.Context, req pipedrive.GoalRequest) (*pipedrive.Goal, error)
 	UpdateGoal(ctx context.Context, id string, req pipedrive.GoalRequest) (*pipedrive.Goal, error)
 	DeleteGoal(ctx context.Context, id string) error
@@ -50,13 +50,13 @@ type goalSummary struct {
 	Start           string  `json:"start" jsonschema:"YYYY-MM-DD the goal starts"`
 	End             string  `json:"end,omitempty" jsonschema:"YYYY-MM-DD the goal ends; empty for an open-ended goal"`
 	Interval        string  `json:"interval" jsonschema:"weekly | monthly | quarterly | yearly"`
-	IsActive        bool    `json:"is_active" jsonschema:"true while the goal's period has started and not ended"`
+	IsActive        bool    `json:"is_active" jsonschema:"false once the goal's period has ended; a goal whose period has not started is active"`
 	Version         string  `json:"version" jsonschema:"a fingerprint of the goal's settings; pass it as expect_version to refuse a write if the goal changed since you read it"`
 }
 
 type listGoalsInput struct {
 	Title        string `json:"title,omitempty" jsonschema:"return only goals with exactly this title"`
-	IsActive     *bool  `json:"is_active,omitempty" jsonschema:"true for goals running now, false for the rest; omit for both"`
+	IsActive     *bool  `json:"is_active,omitempty" jsonschema:"true for goals whose period has not ended, false for ended ones; omit for both"`
 	AssigneeID   int64  `json:"assignee_id,omitempty" jsonschema:"return only this person's, company's or team's goals; without it and without assignee_type or type_name, Pipedrive returns the token user's own goals"`
 	AssigneeType string `json:"assignee_type,omitempty" jsonschema:"person | company | team; returns everyone's goals of that kind"`
 	TypeName     string `json:"type_name,omitempty" jsonschema:"return only goals counting this: deals_won | deals_progressed | activities_completed | activities_added | deals_started | revenue_forecast"`
@@ -76,7 +76,7 @@ type getGoalInput struct {
 
 type getGoalOutput struct {
 	Goal        goalSummary `json:"goal" jsonschema:"the goal"`
-	Progress    int64       `json:"progress" jsonschema:"how far the goal got in the period, in its tracking metric"`
+	Progress    float64     `json:"progress" jsonschema:"how far the goal got in the period, in its tracking metric"`
 	PeriodStart string      `json:"period_start" jsonschema:"the period progress was measured over"`
 	PeriodEnd   string      `json:"period_end" jsonschema:"the end of that period"`
 }
@@ -174,13 +174,18 @@ func RegisterGoals(s *mcp.Server, c goalsClient, opts RegisterOptions) {
 		if err := validateGoalID(in.GoalID); err != nil {
 			return errorResult(err), getGoalOutput{}, nil
 		}
-		g, err := readGoal(ctx, c, in.GoalID)
-		if err != nil {
+		if err := validatePeriod(in.PeriodStart, in.PeriodEnd, false); err != nil {
 			return errorResult(err), getGoalOutput{}, nil
 		}
-		start, end := progressPeriod(g, in.PeriodStart, in.PeriodEnd)
-		if err = validateDates(map[string]string{"period_start": start, "period_end": end}); err != nil {
-			return errorResult(err), getGoalOutput{}, nil
+		start, end := in.PeriodStart, in.PeriodEnd
+		// The defaults come from the goal, so only a missing end needs the
+		// read; the results call returns the goal itself.
+		if start == "" || end == "" {
+			g, err := readGoal(ctx, c, in.GoalID)
+			if err != nil {
+				return errorResult(err), getGoalOutput{}, nil
+			}
+			start, end = progressPeriod(g, start, end)
 		}
 		g, progress, err := c.GoalResult(ctx, in.GoalID, start, end)
 		if err != nil {
@@ -203,7 +208,23 @@ func validateListGoals(in listGoalsInput) error {
 	if err := validateEnum(in.TypeName, "type_name", allowedGoalTypes); err != nil {
 		return err
 	}
-	return validateDates(map[string]string{"period_start": in.PeriodStart, "period_end": in.PeriodEnd})
+	return validatePeriod(in.PeriodStart, in.PeriodEnd, true)
+}
+
+// validatePeriod checks a period's dates and their order. find takes
+// period.start and period.end only together, which paired asks for.
+// https://developers.pipedrive.com/docs/api/v1/Goals#getGoals
+func validatePeriod(start, end string, paired bool) error {
+	if err := validateDates(map[string]string{"period_start": start, "period_end": end}); err != nil {
+		return err
+	}
+	if paired && (start == "") != (end == "") {
+		return fmt.Errorf("%w: period_start and period_end go together; pass both or neither", pipedrive.ErrValidation)
+	}
+	if start != "" && end != "" && end < start {
+		return fmt.Errorf("%w: period_end %s comes before period_start %s", pipedrive.ErrValidation, end, start)
+	}
+	return nil
 }
 
 // validateDates checks every non-empty YYYY-MM-DD value.
@@ -276,10 +297,18 @@ func validateGoalInput(in manageGoalInput) error {
 			return err
 		}
 	}
-	for name, v := range map[string]*string{"type_name": in.TypeName, "assignee_type": in.AssigneeType, "tracking_metric": in.TrackingMetric, "interval": in.Interval} {
-		allowed := map[string]map[string]bool{"type_name": allowedGoalTypes, "assignee_type": allowedGoalAssignees, "tracking_metric": allowedGoalMetrics, "interval": allowedGoalIntervals}[name]
-		if v != nil {
-			if err := validateEnum(*v, name, allowed); err != nil {
+	for _, e := range []struct {
+		name    string
+		value   *string
+		allowed map[string]bool
+	}{
+		{"type_name", in.TypeName, allowedGoalTypes},
+		{"assignee_type", in.AssigneeType, allowedGoalAssignees},
+		{"tracking_metric", in.TrackingMetric, allowedGoalMetrics},
+		{"interval", in.Interval, allowedGoalIntervals},
+	} {
+		if e.value != nil {
+			if err := validateEnum(*e.value, e.name, e.allowed); err != nil {
 				return err
 			}
 		}
@@ -332,6 +361,17 @@ func goalAfter(before pipedrive.Goal, in manageGoalInput) pipedrive.Goal {
 		after.Duration.End = clone(in.End)
 	}
 	setIf(&after.Interval, in.Interval)
+	// A params entry the new type or metric does not take goes with the
+	// change, unless the call names it, and the diff reports it.
+	if after.Type.Name != "deals_progressed" && in.StageID == nil {
+		after.Type.Params.StageID = nil
+	}
+	if !isActivityGoal(after.Type.Name) && in.ActivityTypeIDs == nil {
+		after.Type.Params.ActivityTypeID = nil
+	}
+	if after.ExpectedOutcome.TrackingMetric != "sum" && in.CurrencyID == nil {
+		after.ExpectedOutcome.CurrencyID = nil
+	}
 	return after
 }
 
@@ -353,6 +393,12 @@ func goalRequestFor(after pipedrive.Goal, in manageGoalInput) pipedrive.GoalRequ
 	return req
 }
 
+// isActivityGoal reports whether a goal type counts activities, the
+// types that take activity_type_ids.
+func isActivityGoal(typeName string) bool {
+	return typeName == "activities_completed" || typeName == "activities_added"
+}
+
 // checkGoalShape holds the goal a write would leave to the rules
 // Pipedrive's reference states: a sum goal has a currency and a quantity
 // goal none, a stage only on deals_progressed, activity types only on
@@ -365,7 +411,7 @@ func checkGoalShape(g pipedrive.Goal) error {
 		return fmt.Errorf("%w: currency_id is for a sum goal; this one counts a quantity", pipedrive.ErrValidation)
 	case g.Type.Params.StageID != nil && g.Type.Name != "deals_progressed":
 		return fmt.Errorf("%w: stage_id is for a deals_progressed goal", pipedrive.ErrValidation)
-	case len(g.Type.Params.ActivityTypeID) > 0 && g.Type.Name != "activities_completed" && g.Type.Name != "activities_added":
+	case len(g.Type.Params.ActivityTypeID) > 0 && !isActivityGoal(g.Type.Name):
 		return fmt.Errorf("%w: activity_type_ids is for an activities_completed or activities_added goal", pipedrive.ErrValidation)
 	}
 	return nil
@@ -391,10 +437,13 @@ func createGoalAction(ctx context.Context, c goalsClient, in manageGoalInput) (*
 }
 
 // readGoal is the read a write makes first. v1 has no read of one goal,
-// its results read needs a period inside the goal's duration, which is
-// unknown before the read, and find with no filter returns the token
-// user's goals alone. find by each assignee type returns everyone's, so
-// the goal is looked up by id across the three.
+// and its results read needs a period inside the goal's duration, which
+// is unknown before the read. find returns only the token user's goals
+// unless a filter such as assignee.type is given, so the goal is looked
+// up by id across the three assignee types; omitting is_active returns
+// ended goals too, though the reference gives it a default of true.
+// https://developers.pipedrive.com/docs/api/v1/Goals#getGoals
+// Checked by the integration test TestWrite_GoalRoundTrip.
 func readGoal(ctx context.Context, c goalsClient, id string) (*pipedrive.Goal, error) {
 	for _, kind := range []string{"person", "company", "team"} {
 		goals, err := c.FindGoals(ctx, pipedrive.FindGoalsOptions{AssigneeType: kind})
@@ -430,6 +479,7 @@ func progressPeriod(g *pipedrive.Goal, start, end string) (from, to string) {
 }
 
 func updateGoalAction(ctx context.Context, c goalsClient, in manageGoalInput) (*mcp.CallToolResult, manageGoalOutput) {
+	var before pipedrive.Goal
 	g, changed, res := guardedWrite[pipedrive.Goal]{
 		Spec:          goalFields,
 		Resource:      "goal " + in.GoalID,
@@ -442,17 +492,15 @@ func updateGoalAction(ctx context.Context, c goalsClient, in manageGoalInput) (*
 			if err != nil {
 				return nil, err
 			}
+			before = *g
 			// The shape the write would leave is checked against the goal
 			// as stored, before anything is sent.
 			return g, checkGoalShape(goalAfter(*g, in))
 		},
 		Predict: func(g *pipedrive.Goal) pipedrive.Goal { return goalAfter(*g, in) },
 		Put: func(ctx context.Context) (*pipedrive.Goal, error) {
-			before, err := readGoal(ctx, c, in.GoalID)
-			if err != nil {
-				return nil, err
-			}
-			return c.UpdateGoal(ctx, in.GoalID, goalRequestFor(goalAfter(*before, in), in))
+			// Built from the read the guard checked, not a second one.
+			return c.UpdateGoal(ctx, in.GoalID, goalRequestFor(goalAfter(before, in), in))
 		},
 	}.run(ctx)
 	if res != nil {
