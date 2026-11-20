@@ -603,3 +603,86 @@ func TestFieldCache_Reload(t *testing.T) {
 		t.Errorf("fetch invocation count = %d; want 2 (one before Reload, one after)", calls)
 	}
 }
+
+// TestFieldCache_EncodeTellsLabelsApartByCase holds D-100: a dropdown
+// whose labels differ only in case, or not at all, must not resolve a
+// label to whichever option the table kept last, and a read must hand
+// out a form a write can take back.
+func TestFieldCache_EncodeTellsLabelsApartByCase(t *testing.T) {
+	fc := fieldCacheFrom(t, `[
+  {"field_code":"tier","field_name":"Tier","field_type":"enum","is_custom_field":true,"is_writable":true,
+   "options":[{"id":1,"label":"Gold"},{"id":2,"label":"GOLD"},{"id":3,"label":"Silver"},{"id":4,"label":"Bronze"},{"id":5,"label":"Bronze"},{"id":7,"label":"2"}]},
+  {"field_code":"tags","field_name":"Tags","field_type":"set","is_custom_field":true,"is_writable":true,
+   "options":[{"id":11,"label":"Hot"},{"id":12,"label":"HOT"}]}
+]`)
+	ctx := context.Background()
+
+	read := fc.Resolve(ctx, map[string]any{"tier": float64(4), "tags": []any{float64(12)}})
+	if read["Tier"] != "Bronze (id 4)" || !reflect.DeepEqual(read["Tags"], []any{"HOT (id 12)"}) {
+		t.Errorf("Resolve = %v; want twins shown with their ids", read)
+	}
+	if got := fc.Resolve(ctx, map[string]any{"tier": float64(3)}); got["Tier"] != "Silver" {
+		t.Errorf("Resolve(3) = %v; want a unique label plain", got)
+	}
+	if got := fc.Resolve(ctx, map[string]any{"tier": float64(7)}); got["Tier"] != "2 (id 7)" {
+		t.Errorf("Resolve(7) = %v; want a label that is another option's id shown with its own", got)
+	}
+
+	for _, tc := range []struct {
+		value any
+		want  any
+	}{
+		{"Gold", float64(1)},          // exact wins over its case twin
+		{"GOLD", float64(2)},          // and the other way round
+		{"silver", float64(3)},        // case is ignored where one option is meant
+		{"Bronze (id 5)", float64(5)}, // the read's form goes back as written
+		{"2 (id 7)", float64(7)},      // a label that is another option's id, by its read form
+		{float64(4), float64(4)},      // an id as a number
+		{"4", float64(4)},             // an id as a string goes out in its stored type
+	} {
+		got, err := fc.Encode(ctx, map[string]any{"Tier": tc.value})
+		if err != nil || got.Values["tier"] != tc.want {
+			t.Errorf("Encode(Tier: %#v) = %#v, %v; want %#v", tc.value, got.Values["tier"], err, tc.want)
+		}
+	}
+
+	for _, tc := range []struct {
+		field string
+		value any
+		want  string
+	}{
+		{"Tier", "gold", `"Gold (id 1)", "GOLD (id 2)"`},
+		{"Tier", "Bronze", `"Bronze (id 4)", "Bronze (id 5)"`},
+		{"Tier", "2", `give "2 (id 7)" or "GOLD (id 2)"`},
+		{"Tags", []any{"hot"}, `"Hot (id 11)", "HOT (id 12)"`},
+		{"Tier", "Brnze", `Bronze (id 4), Bronze (id 5)`},
+	} {
+		_, err := fc.Encode(ctx, map[string]any{tc.field: tc.value})
+		if !errors.Is(err, ErrValidation) || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("Encode(%s: %#v) error = %v; want [validation] containing %s", tc.field, tc.value, err, tc.want)
+		}
+	}
+}
+
+// TestFieldCache_NoTwoOptionsReadAlike holds the second pass in
+// optionTables: a label written like another option's display form gets
+// its id too, so every value read names one option.
+func TestFieldCache_NoTwoOptionsReadAlike(t *testing.T) {
+	fc := fieldCacheFrom(t, `[
+  {"field_code":"tier","field_name":"Tier","field_type":"enum","is_custom_field":true,"is_writable":true,
+   "options":[{"id":1,"label":"Gold"},{"id":2,"label":"gold"},{"id":3,"label":"Gold (id 1)"}]}
+]`)
+	ctx := context.Background()
+	seen := map[any]float64{}
+	for _, id := range []float64{1, 2, 3} {
+		shown := fc.Resolve(ctx, map[string]any{"tier": id})["Tier"]
+		if prev, dup := seen[shown]; dup {
+			t.Fatalf("options %v and %v both read as %q", prev, id, shown)
+		}
+		seen[shown] = id
+		back, err := fc.Encode(ctx, map[string]any{"Tier": shown})
+		if err != nil || back.Values["tier"] != id {
+			t.Errorf("option %v reads as %q, which writes %v, %v", id, shown, back.Values["tier"], err)
+		}
+	}
+}

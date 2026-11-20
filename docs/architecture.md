@@ -426,6 +426,7 @@ symptom in [troubleshooting.md](troubleshooting.md).
 | D-97 | The registry entry is published by its own workflow, from checksums.txt after cosign verifies it | accepted | TestTheRegistryEntryIsBuiltFromTheRepository, TestTheBundleRowMustBeExactlyOne, TestRegistrySchemaMatchesItsRecordedHash, review |
 | D-98 | Installments are part of the deal surface: get_deal reports a deal's schedule, list_installments reads many, manage_installment writes one | accepted | TestGetDeal_ReportsTheScheduleAndWarnsWhenItIsStale, TestListInstallments_OneSchedulePerDealInTheOrderAsked, TestInstallments_ReadAcrossDeals |
 | D-99 | A permanent delete takes confirm, beside dry_run and expect_version | accepted | TestManageInstallment_DeleteIsPermanentSoItNeedsConfirm, TestWrite_InstallmentRoundTrip |
+| D-100 | A dropdown label matches as written first, ignoring case only when one option could be meant, and an ambiguous label is refused | accepted | TestFieldCache_EncodeTellsLabelsApartByCase |
 
 ### D-01 One Go binary serves one Pipedrive workspace over stdio; nothing is hosted
 
@@ -921,9 +922,8 @@ cannot disagree. The integration test
 reads it back.
 
 Rejected: writing custom fields by hash key and option id.
-Cost: two open questions. Labels match case-insensitively, so two
-options that differ only in case resolve to the same one; whether to
-refuse an ambiguous label or match case exactly is undecided (#121).
+Cost: a dropdown whose labels collide reads and writes in the
+`Label (id N)` form D-100 sets.
 
 ### D-23 Encode refuses rather than guesses, names every bad field, and one bad field refuses the whole map
 
@@ -2781,4 +2781,24 @@ registering the delete only behind a setting, which D-46 rejects.
 Cost: a model can set `confirm` as easily as anything else. It records
 that the call meant the delete; it does not stop a model that means it.
 
-Next ID: D-100
+### D-100 A dropdown label matches as written first, ignoring case only when one option could be meant, and an ambiguous label is refused
+
+A dropdown or multi-select value written by label resolves to the option
+whose label is exactly the one given, and otherwise to the one option
+whose label matches when case is ignored. Where two options could be
+meant, the write is refused with `[validation]`, naming each.
+
+Pipedrive's reference sets no uniqueness on option labels, so a field
+can hold "Gold" and "GOLD", or two "Bronze". Such an option reads as its
+label followed by ` (id N)`, and a write takes that form back exactly,
+so a value read can always be written again. A label that is one
+option's label and another's id is refused too.
+[Add a deal field](https://developers.pipedrive.com/docs/api/v1/DealFields#addDealField)
+shows options as a list of labels with no constraint between them.
+
+Rejected: matching case exactly, which refuses what a person says;
+taking the first match, which writes a choice nobody named.
+Cost: on a field with such twins, a read shows an id beside the label,
+and a label in another case than any option's is refused.
+
+Next ID: D-101

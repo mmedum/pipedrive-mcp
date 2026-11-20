@@ -62,7 +62,7 @@ type dealSummary struct {
 	UpdateTime        string         `json:"update_time,omitempty" jsonschema:"timestamp the deal was last updated"`
 	Probability       *float64       `json:"probability,omitempty" jsonschema:"deal probability override (0-100); null when the stage default applies"`
 	IsArchived        bool           `json:"is_archived,omitempty" jsonschema:"true if the deal has been archived; an archived deal cannot be edited and does not appear in list_deals unless archived is set"`
-	CustomFields      map[string]any `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label; an unrecognized field or option falls through under its stored key"`
+	CustomFields      map[string]any `json:"custom_fields,omitempty" jsonschema:"custom fields keyed by human-readable name, a dropdown's value as its label, followed by (id N) where another option's label matches it ignoring case; an unrecognized field or option falls through under its stored key"`
 	URL               string         `json:"url" jsonschema:"link to the deal in the Pipedrive web UI; empty on a dry-run create, which has no record to link to"`
 }
 
@@ -248,7 +248,7 @@ type manageDealInput struct {
 	ExpectedCloseDate *string        `json:"expected_close_date,omitempty" jsonschema:"YYYY-MM-DD the deal is expected to close. Omit to leave it as it is: Pipedrive v2 offers no way to remove a date once set, so this can only be changed, never cleared"`
 	Probability       *float64       `json:"probability,omitempty" jsonschema:"probability override from 0 to 100; omit to let the stage's own default apply"`
 	LostReason        *string        `json:"lost_reason,omitempty" jsonschema:"why the deal was lost, for mark_lost. Free text Pipedrive keeps and reports on: if the user did not give a reason, leave this blank — do NOT invent one"`
-	CustomFields      map[string]any `json:"custom_fields,omitempty" jsonschema:"this workspace's own fields, keyed by the name get_deal reports — a dropdown takes its label, a multi-select a list of labels, everything else the plain value. Only create and update read this; the transitions ignore it, as they ignore every descriptive field. Omit a field to leave it as it is; a field cannot be cleared"`
+	CustomFields      map[string]any `json:"custom_fields,omitempty" jsonschema:"this workspace's own fields, keyed by the name get_deal reports — a dropdown takes its label as get_deal reports it, a multi-select a list of them, everything else the plain value. Only create and update read this; the transitions ignore it, as they ignore every descriptive field. Omit a field to leave it as it is; a field cannot be cleared"`
 	DryRun            bool           `json:"dry_run,omitempty" jsonschema:"report what the write would find and change, and send nothing"`
 	Overwrite         []string       `json:"overwrite,omitempty" jsonschema:"the fields this write may replace, named exactly as the refusal listed them, e.g. [\"title\", \"value\"]. Omit it and a write that would replace a populated field is refused, naming each one. A refusal is NOT a retry signal: name a field only when the user asked for what is already there to be replaced, never to get past a refusal they have not seen. Naming fewer fields than the refusal listed is still refused, over the ones you left out"`
 	ExpectVersion     string         `json:"expect_version,omitempty" jsonschema:"the update_time from the read that informed this write; the write is refused if the deal changed since"`
