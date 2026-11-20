@@ -2,9 +2,11 @@ package pipedrive
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 )
 
@@ -122,5 +124,41 @@ func TestClient_DefinitionListsReadEveryPage(t *testing.T) {
 				t.Errorf("read %d rows over cursors %q; want 3 rows over \"\" then \"p2\"", n, cursors)
 			}
 		})
+	}
+}
+
+func TestClient_ListStages_KeepsThePipelineFilterOnEveryPage(t *testing.T) {
+	var filters []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		filters = append(filters, r.URL.Query().Get("pipeline_id"))
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("cursor") == "" {
+			_, _ = io.WriteString(w, `{"success":true,"data":[{"id":1}],"additional_data":{"next_cursor":"p2"}}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"success":true,"data":[{"id":2}]}`)
+	}))
+	defer srv.Close()
+
+	if _, err := newTestClient(srv).ListStages(context.Background(), 5); err != nil {
+		t.Fatalf("ListStages: %v", err)
+	}
+	if want := []string{"5", "5"}; !reflect.DeepEqual(filters, want) {
+		t.Errorf("pipeline_id per page = %q, want %q", filters, want)
+	}
+}
+
+func TestClient_ACursorThatNeverEndsStopsAtTheCap(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"success":true,"data":[{"id":1}],"additional_data":{"next_cursor":"again"}}`)
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(srv).ListPipelines(context.Background())
+	if !errors.Is(err, ErrServerError) || calls != maxListPages {
+		t.Errorf("err = %v after %d calls; want ErrServerError after %d", err, calls, maxListPages)
 	}
 }

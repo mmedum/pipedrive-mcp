@@ -3,8 +3,7 @@ package pipedrive
 import "context"
 
 // ListDealFields returns the field metadata for deals, for the deal
-// field cache. It reads one page, Pipedrive's default of 100 fields, and
-// does not follow next_cursor.
+// field cache, every page of it.
 func (c *Client) ListDealFields(ctx context.Context) ([]Field, error) {
 	return readAll[Field](ctx, c, "/dealFields", nil)
 }

@@ -55,7 +55,10 @@ const maxListPages = 20
 // server reads whole, pipelines, stages and the three field lists,
 // because a field the cache never saw is neither resolved by name nor
 // writable by name. Each takes `limit` up to 500 and `cursor`, per
-// Pipedrive's v2 description.
+// Pipedrive's v2 description. That limit=500 is accepted is checked by
+// the integration tests TestCustomFields_ResolveToWorkspaceWords and
+// TestListStages_BelongToThePipelineAsked; no live workspace here holds a
+// second page, so the cursor is checked against a fake alone.
 // https://developers.pipedrive.com/docs/api/v1/DealFields#getDealFields
 func readAll[T any](ctx context.Context, c *Client, path string, q url.Values) ([]T, error) {
 	if q == nil {
@@ -74,5 +77,6 @@ func readAll[T any](ctx context.Context, c *Client, path string, q url.Values) (
 		}
 		q.Set("cursor", resp.AdditionalData.NextCursor)
 	}
-	return nil, fmt.Errorf("pipedrive: %s runs past %d pages", path, maxListPages)
+	// A cursor that never ends is Pipedrive's fault, not the caller's.
+	return nil, fmt.Errorf("%w: %s runs past %d pages", ErrServerError, path, maxListPages)
 }

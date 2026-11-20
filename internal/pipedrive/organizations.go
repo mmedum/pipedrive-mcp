@@ -133,8 +133,8 @@ func (c *Client) ListOrganizations(ctx context.Context, opts ListOrganizationsOp
 // https://developers.pipedrive.com/docs/api/v1/Organizations#getOrganizations
 const orgIncludeFields = "people_count"
 
-// ListOrganizationFields returns the field metadata for organizations.
-// It reads one page, as ListDealFields does.
+// ListOrganizationFields returns the field metadata for organizations,
+// every page of it.
 func (c *Client) ListOrganizationFields(ctx context.Context) ([]Field, error) {
 	return readAll[Field](ctx, c, "/organizationFields", nil)
 }

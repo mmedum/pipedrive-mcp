@@ -31,7 +31,7 @@ other tool is covered by the promise in full.
 
 ### Fixed
 
-- Custom fields, pipelines and stages past Pipedrive's first page of 100 are read: a workspace with more custom fields of one kind lost the rest by name.
+- Custom fields, pipelines and stages past Pipedrive's first page of 100 are read; a field past it was neither resolved nor written by name.
 
 ### Security
 

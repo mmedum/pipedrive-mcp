@@ -197,7 +197,7 @@ func (c *Client) ListPersons(ctx context.Context, opts ListPersonsOptions) ([]Pe
 }
 
 // ListPersonFields returns the field metadata for persons, for the
-// person field cache. It reads one page, as ListDealFields does.
+// person field cache, every page of it.
 func (c *Client) ListPersonFields(ctx context.Context) ([]Field, error) {
 	return readAll[Field](ctx, c, "/personFields", nil)
 }
