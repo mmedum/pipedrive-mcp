@@ -291,7 +291,25 @@ func shouldRetry(method string, status int) bool {
 	return false
 }
 
+// rawBody is a request body sent as it is, under its own content type:
+// a multipart upload or a form. Each attempt reads it afresh from data,
+// so a retried write sends the same bytes.
+type rawBody struct {
+	contentType string
+	data        []byte
+}
+
 func newRequest(ctx context.Context, method, requestURL string, body any, token string) (*http.Request, error) {
+	if raw, ok := body.(rawBody); ok {
+		req, err := http.NewRequestWithContext(ctx, method, requestURL, bytes.NewReader(raw.data))
+		if err != nil {
+			return nil, fmt.Errorf("pipedrive: build request: %w", err)
+		}
+		req.Header.Set("x-api-token", token)
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Content-Type", raw.contentType)
+		return req, nil
+	}
 	var bodyReader io.Reader = http.NoBody
 	if body != nil {
 		raw, err := json.Marshal(body)

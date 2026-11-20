@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -68,6 +69,9 @@ type Config struct {
 	LogFormat     LogFormat
 	DryRun        bool
 	HTTPTimeout   time.Duration
+	// UploadDir is the one directory manage_file may upload from; empty
+	// means no upload (D-106).
+	UploadDir string
 }
 
 // DomainEnv names the workspace. Resolution of which value wins — env
@@ -88,6 +92,7 @@ const (
 	EnvLogFormat   = "LOG_FORMAT"
 	EnvDryRun      = EnvPrefix + "DRY_RUN"
 	EnvHTTPTimeout = EnvPrefix + "HTTP_TIMEOUT"
+	EnvUploadDir   = EnvPrefix + "UPLOAD_DIR"
 )
 
 // envOnly is every variable read outside Load: the domain by
@@ -118,8 +123,8 @@ func Lookup(env func(string) string, name string) string {
 // through Lookup and recorded for Vars as it is read, so the registry
 // cannot fall behind a setting added here.
 type settings struct {
-	logLevel, logFormat, dryRun, httpTimeout string
-	vars                                     []Var
+	logLevel, logFormat, dryRun, httpTimeout, uploadDir string
+	vars                                                []Var
 }
 
 func readSettings(env func(string) string) settings {
@@ -132,6 +137,7 @@ func readSettings(env func(string) string) settings {
 	s.logFormat = read(Var{Name: EnvLogFormat})
 	s.dryRun = read(Var{Name: EnvDryRun, Switch: true})
 	s.httpTimeout = read(Var{Name: EnvHTTPTimeout})
+	s.uploadDir = read(Var{Name: EnvUploadDir})
 	return s
 }
 
@@ -265,6 +271,18 @@ func Load(rawDomain string, env func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("config: %s must be positive, got %s", EnvHTTPTimeout, d)
 		}
 		c.HTTPTimeout = d
+	}
+
+	if v := s.uploadDir; v != "" {
+		// An absolute directory that exists, checked at start, so a
+		// mistyped path fails before the first upload rather than at it.
+		if !filepath.IsAbs(v) {
+			return Config{}, fmt.Errorf("config: %s %q must be an absolute path", EnvUploadDir, v)
+		}
+		if info, err := os.Stat(v); err != nil || !info.IsDir() {
+			return Config{}, fmt.Errorf("config: %s %q is not a directory", EnvUploadDir, v)
+		}
+		c.UploadDir = v
 	}
 
 	return c, nil
