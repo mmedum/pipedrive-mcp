@@ -46,7 +46,9 @@ Non-goals:
   string as a value, so a field can be changed but not emptied.
 - **Merging records.** A merge destroys one record's values across a
   record nobody read, and no refusal could name what it would lose.
-- **Files.** `search` finds them, and no tool reads or writes them.
+- **Reading a file's content.** `get_file` reports a file and its
+  link; an upload reads only from the folder `PIPEDRIVE_UPLOAD_DIR`
+  names ([configuration](docs/configuration.md)).
 - **Fetching every page for you.** Each list call returns one page and
   the cursor for the next.
 - **Asking you before a call.** Your client approves each call; the
@@ -103,6 +105,9 @@ tool needs. `list_deals` filters; it does not match names.
 | `list_goals` | Goals by title, state, assignee or type; without an assignee or type filter, only your own (v1) |
 | `get_goal` | One goal and its progress over a period inside its own (v1) |
 | `manage_goal` | Create, edit or delete a goal — a delete is permanent and needs `confirm: true` (v1) |
+| `get_file` | One file's details and the record it hangs off; not its content (v1) |
+| `list_files` | The workspace's files, most recently updated first (v1) |
+| `manage_file` | Upload a file from `PIPEDRIVE_UPLOAD_DIR` to a record, rename or describe one, or delete one softly (v1) |
 | `get_person` | One contact: names, every email and phone with its label, the company they belong to, and custom fields |
 | `list_persons` | People by owner, linked organization or update window, cursor-paginated |
 | `manage_person` | Create, edit or delete a contact — `create`, `update`, `delete`. Name it with `name` or with `first_name`/`last_name`, never both. Custom fields by name, dropdowns by label |
@@ -190,7 +195,7 @@ Each of these is a decision or an API limit, not an oversight.
   happens after Pipedrive has paged, a page can come back short, or
   empty with `next_cursor` still set: an empty page is not the end.
 - **The v1 tools sit outside the compatibility promise.** The note,
-  lead, goal and `whoami` tools leave in a minor release if v1 stops
+  lead, goal, file and `whoami` tools leave in a minor release if v1 stops
   answering them; see [CHANGELOG.md](CHANGELOG.md).
 
 ## Install

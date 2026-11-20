@@ -432,6 +432,7 @@ symptom in [troubleshooting.md](troubleshooting.md).
 | D-103 | No token reload while the server runs | rejected | review |
 | D-104 | Products, projects, leads, files and goals have tools; the other unmodeled resources do not | accepted | TestRegister_ListsItsToolsWithTheirSchemas, review |
 | D-105 | Pipedrive v2 is the default; notes, whoami, leads, files and goals are the v1 carve-outs | accepted | TestClient_WhoAmI_UsesV1, TestClient_ListNotes_FiltersAndV1Pagination, v1-watch, review |
+| D-106 | An upload reads only from the folder `PIPEDRIVE_UPLOAD_DIR` names | accepted | TestManageFile_UploadsOnlyFromInsideTheFolder, TestWrite_FileRoundTrip |
 
 ### D-01 One Go binary serves one Pipedrive workspace over stdio; nothing is hosted
 
@@ -2916,4 +2917,25 @@ leaves D-104's milestone without three of its five resources.
 Cost: more of the surface rests on the API version Pipedrive treats as
 the older one, and each v1 tool can leave in a minor release.
 
-Next ID: D-106
+### D-106 An upload reads only from the folder `PIPEDRIVE_UPLOAD_DIR` names
+
+`manage_file` uploads a file only from inside one folder, which the
+operator names in `PIPEDRIVE_UPLOAD_DIR`; with none named, upload is
+off. The model names a path inside that folder, and `os.Root` opens it,
+so a path that leaves the folder, through `..`, an absolute path or a
+symbolic link, is refused before anything is read. An upload sends the
+file to Pipedrive, where every user of the workspace can open it, so
+the folder is the operator's statement of what may leave the machine.
+The variable is checked at start: it must be an absolute path to a
+directory, and the bundle leaves it out, so an install uploads nothing
+until its owner sets it.
+
+Rejected: any path the server process can read, which lets a prompt
+send a key or a credentials file to the CRM; a list of allowed file
+types, which a renamed file passes; content passed inline in the call,
+which puts the file through the model's context and caps it at what
+fits there.
+Cost: an upload needs the file copied into the folder first, and the
+Claude Desktop bundle cannot upload without a hand-set variable.
+
+Next ID: D-107
