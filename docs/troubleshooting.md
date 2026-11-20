@@ -109,8 +109,9 @@ says, and restart the client.
 
 ## `[permission]` and `[business_rule]`
 
-**Cause:** Pipedrive answered 403. The server calls it `[business_rule]`
-when the message mentions a rule, such as a locked record or a stage
+**Cause:** Pipedrive answered 403. A message saying a limit was reached
+is [`[plan]`](#plan). The server calls the rest `[business_rule]` when
+the message mentions a rule, such as a locked record or a stage
 setting, and `[permission]` otherwise (D-52). The word list in
 `internal/pipedrive/errors.go` is unverified against real bodies of both
 kinds, so a 403 can land in the wrong class.

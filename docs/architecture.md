@@ -1633,8 +1633,8 @@ Cost: the signal list comes from the reference and a few observed
 bodies, not from real 403s of both kinds side by side. Which bodies each
 kind carries, and so whether the list is right, is open until a
 permission-denied and a locked-record 403 are captured from a live
-workspace and kept as test fixtures (#115). A 402, a 415 and a
-limit-reached 403 are not told apart (#128).
+workspace and kept as test fixtures (#115). A 403 that says a limit was
+reached is `[plan]` before this split runs (D-101).
 
 ### D-53 The model reads the upstream message alone; status and path go to the debug log
 

@@ -79,7 +79,9 @@ func classify(status int, version apiVersion, endpoint string, env envelope) *AP
 		return mk(ErrUnauthorized)
 	case status == 402:
 		return mk(ErrAccountNotOpen)
-	case status == 415:
+	case status == 415 && msg != "":
+		// Pipedrive's own answer. A 415 with no message is an edge's, for
+		// a request body it would not take, and stays validation.
 		return mk(ErrPlanLimit)
 	case status == 403:
 		// A reached limit, a business rule or a permission failure, by
@@ -152,8 +154,10 @@ var businessRule403Signals = []string{
 
 // limit403Signals mark a 403 for a limit the account has reached, which
 // the status-code page gives as "User account has reached a limit for an
-// entity". Unverified like the list above: no such 403 has been captured.
-var limit403Signals = []string{"limit"}
+// entity". Phrases, not the bare word, so "limited to its owner" stays a
+// permission failure. Unverified like the list above: no such 403 has
+// been captured.
+var limit403Signals = []string{"reached a limit", "reached the limit", "limit reached", "limit has been reached"}
 
 func isBusinessRule403(msg string) bool {
 	return hasSignal(msg, businessRule403Signals)

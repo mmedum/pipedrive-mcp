@@ -31,7 +31,7 @@ other tool is covered by the promise in full.
 
 ### Changed
 
-- An account that is not open is `[account]`, and a plan's missing feature or reached limit is `[plan]`; they were `[validation]` or `[permission]`.
+- An account that is not open is `[account]`, and a plan's missing feature or reached limit is `[plan]`; they were `[validation]`, `[permission]` or `[business_rule]`.
 
 ### Fixed
 

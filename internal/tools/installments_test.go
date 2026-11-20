@@ -457,3 +457,35 @@ func TestManageInstallment_RefusesWhatPipedriveWould(t *testing.T) {
 		})
 	}
 }
+
+func TestGetDeal_ScheduleErrorsSayWhatTheClassMeans(t *testing.T) {
+	cases := []struct {
+		name      string
+		err       error
+		class     string
+		hint      string
+		wrongHint string
+	}{
+		{"a plan refusal names the plan, not permission", &pipedrive.APIError{Class: pipedrive.ErrPlanLimit, Status: 415, Message: "Feature is not enabled"},
+			"[plan]", "plan's limits", "lack permission"},
+		{"a permission refusal names both", &pipedrive.APIError{Class: pipedrive.ErrForbiddenPermission, Status: 403, Message: "Forbidden"},
+			"[permission]", "lack permission", ""},
+		{"a closed account gets no plan hint", &pipedrive.APIError{Class: pipedrive.ErrAccountNotOpen, Status: 402, Message: "Company account is not open"},
+			"[account]", "Company account is not open", "Growth plan"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeDealsClient{deal: &pipedrive.Deal{ID: 7}, installmentsErr: tc.err}
+			var out struct {
+				InstallmentsError string `json:"installments_error"`
+			}
+			testutil.CallToolInto(t, func(s *mcp.Server) {
+				tools.RegisterDeals(s, fake, "acme", tools.RegisterOptions{})
+			}, "get_deal", map[string]any{"deal_id": 7}, &out)
+			got := out.InstallmentsError
+			if !strings.HasPrefix(got, tc.class) || !strings.Contains(got, tc.hint) || (tc.wrongHint != "" && strings.Contains(got, tc.wrongHint)) {
+				t.Errorf("installments_error = %q; want %s with %q and without %q", got, tc.class, tc.hint, tc.wrongHint)
+			}
+		})
+	}
+}

@@ -547,11 +547,14 @@ func checkInstallmentProducts(dealID int64, products []pipedrive.DealProduct) er
 	return nil
 }
 
-// installmentHint names the plan when an installment call is refused for
-// permission or plan, because either here most often means the
-// workspace's plan lacks installments rather than that the user does.
+// installmentHint says what a refused installment call most likely
+// means: a [plan] refusal is the plan or one of its caps, and a 403 that
+// reads as a permission failure here is often the plan as well.
 func installmentHint(err error) error {
-	if errors.Is(err, pipedrive.ErrForbiddenPermission) || errors.Is(err, pipedrive.ErrPlanLimit) {
+	switch {
+	case errors.Is(err, pipedrive.ErrPlanLimit):
+		return withHint(err, "installments need Pipedrive's Growth plan or above, and the plan's limits apply to them")
+	case errors.Is(err, pipedrive.ErrForbiddenPermission):
 		return withHint(err, "installments need Pipedrive's Growth plan or above; if the workspace has it, this token's user may lack permission for the deal")
 	}
 	return err
