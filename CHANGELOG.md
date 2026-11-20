@@ -30,6 +30,7 @@ other tool is covered by the promise in full.
 - `manage_installment` creates, edits and deletes installments, guarded like the other writes; a delete is permanent and needs `confirm: true`.
 - `get_product`, `list_products` and `manage_product` read and write the product catalog, prices and custom fields included.
 - `list_deal_products` and `manage_deal_product` read and change the products on a deal; removing one is permanent and needs `confirm: true`.
+- `get_project`, `list_projects`, `list_project_boards` and `manage_project` read, write, archive and delete projects.
 
 ### Changed
 

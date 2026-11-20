@@ -219,6 +219,51 @@
         "update_time": "string",
         "visible_to": "any"
       }
+    },
+    "Project": {
+      "endpoint": "/projects/{id}",
+      "fields": {
+        "add_time": "string",
+        "archive_time": "string",
+        "board_id": "integer",
+        "custom_fields": "object",
+        "deal_ids": "array",
+        "description": "string",
+        "end_date": "string",
+        "health_status": "integer",
+        "id": "integer",
+        "label_ids": "array",
+        "org_ids": "array",
+        "owner_id": "integer",
+        "person_ids": "array",
+        "phase_id": "integer",
+        "start_date": "string",
+        "status": "string",
+        "status_change_time": "string",
+        "title": "string",
+        "update_time": "string"
+      }
+    },
+    "ProjectBoard": {
+      "endpoint": "/boards",
+      "fields": {
+        "add_time": "string",
+        "id": "integer",
+        "name": "string",
+        "order_nr": "integer",
+        "update_time": "string"
+      }
+    },
+    "ProjectPhase": {
+      "endpoint": "/phases",
+      "fields": {
+        "add_time": "string",
+        "board_id": "integer",
+        "id": "integer",
+        "name": "string",
+        "order_nr": "integer",
+        "update_time": "string"
+      }
     }
   },
   "requests": {
@@ -521,6 +566,50 @@
           "tax_method": "string"
         }
       }
+    ],
+    "ProjectRequest": [
+      {
+        "method": "POST",
+        "path": "/projects",
+        "fields": {
+          "board_id": "integer",
+          "custom_fields": "object",
+          "deal_ids": "array",
+          "description": "string",
+          "end_date": "string",
+          "health_status": "integer",
+          "label_ids": "array",
+          "org_ids": "array",
+          "owner_id": "integer",
+          "person_ids": "array",
+          "phase_id": "integer",
+          "start_date": "string",
+          "status": "string",
+          "template_id": "integer",
+          "title": "string"
+        }
+      },
+      {
+        "method": "PATCH",
+        "path": "/projects/{id}",
+        "fields": {
+          "board_id": "integer",
+          "custom_fields": "object",
+          "deal_ids": "array",
+          "description": "string",
+          "end_date": "string",
+          "health_status": "integer",
+          "label_ids": "array",
+          "org_ids": "array",
+          "owner_id": "integer",
+          "person_ids": "array",
+          "phase_id": "integer",
+          "start_date": "string",
+          "status": "string",
+          "template_id": "integer",
+          "title": "string"
+        }
+      }
     ]
   },
   "queries": {
@@ -693,6 +782,28 @@
       "include_fields",
       "limit"
     ],
-    "/products/{id}": []
+    "/products/{id}": [],
+    "/projects": [
+      "cursor",
+      "deal_id",
+      "filter_id",
+      "limit",
+      "org_id",
+      "person_id",
+      "phase_id",
+      "status"
+    ],
+    "/projects/archived": [
+      "cursor",
+      "filter_id",
+      "limit",
+      "phase_id",
+      "status"
+    ],
+    "/boards": [],
+    "/phases": [
+      "board_id"
+    ],
+    "/projects/{id}": []
   }
 }

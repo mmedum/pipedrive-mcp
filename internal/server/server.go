@@ -29,7 +29,7 @@ whoami says which account the token acts as. Call it before attributing anything
 
 Read one record with get_deal, get_person, get_organization, get_activity or get_note, and many with the matching list_ tool. A get_ is one call and a list_ is one call, but a list_ you then page through is as many calls as you ask for, so filter rather than sweeping. Custom fields come back resolved to the names they carry in the workspace rather than the 40-character hashes Pipedrive stores them under, and a dropdown comes back as its label rather than the option id, with (id N) after it where two options share the label, so you can read them and quote them directly; refresh_field_cache re-reads both after somebody adds, renames or extends a field in the Pipedrive UI.
 
-Every mutation goes through a manage_ tool — manage_deal, manage_person, manage_organization, manage_activity, manage_note, manage_installment, manage_product, manage_deal_product — with an action saying which.
+Every mutation goes through a manage_ tool — manage_deal, manage_person, manage_organization, manage_activity, manage_note, manage_installment, manage_product, manage_deal_product, manage_project — with an action saying which.
 
 Writing is guarded. A manage_ tool reads its target before it writes and refuses to replace ANY field that already holds a value unless you name that field in overwrite, e.g. overwrite: ["title", "value"] — the refusal lists exactly the names to pass, and naming fewer than it listed is still refused over the rest; filling a field that is empty destroys nothing and needs no permission. expect_version refuses a write whose record moved since you read it. Pipedrive has no undo, so take a refusal as information rather than an obstacle, and reach for dry_run when you are not sure what is there. overwrite carries a decision the USER made, not a way past a refusal: if a write is refused and the user has not said to replace what is there, report what the refusal named and stop. Re-sending the same write with overwrite makes the guard decorative. The named transitions — mark_won, mark_lost, move_stage, reopen, complete, archive, unarchive — take no overwrite, because the field they change is the field you named.
 
@@ -85,6 +85,7 @@ func newServer(ctx context.Context, version string, client *pipedrive.Client, do
 	tools.RegisterNotes(srv, client, opts)
 	tools.RegisterInstallments(srv, client, opts)
 	tools.RegisterProducts(srv, client, opts)
+	tools.RegisterProjects(srv, client, opts)
 	tools.RegisterCache(srv, client)
 	tools.RegisterSearch(srv, client)
 	tools.RegisterWhoAmI(srv, client)
