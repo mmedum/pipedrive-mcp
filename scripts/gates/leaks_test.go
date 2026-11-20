@@ -81,7 +81,9 @@ func TestExcusedHoldsAPinToItsBlobRuleAndCount(t *testing.T) {
 }
 
 // The history scan reads a commit message, an old version of a file, a
-// path and a tag's message, and leaves a tag's header and a binary alone.
+// path and a tag's message, and leaves a tag's header, a binary and the
+// attribution trailers alone; an address in prose that names a trailer
+// is still read.
 func TestHistoryProblemsReadsWhatWasPublished(t *testing.T) {
 	isolateGit(t)
 	root, home := t.TempDir(), t.TempDir()
@@ -110,14 +112,16 @@ func TestHistoryProblemsReadsWhatWasPublished(t *testing.T) {
 	write("call "+"+44 20 "+"7946 0958.txt", "")
 	git("fixture@example.com", "add", ".")
 	git("fixture@example.com", "commit", "-q", "-m", "Clean the notes")
+	git("fixture@example.com", "commit", "-q", "--allow-empty", "-m", "Bump a module\n\nThe Co-authored-by: line named "+address+".\n\n"+
+		"Signed-off-by: A Bot <"+address+">\nco-authored-by: A Tester <"+address+">")
 	git(address, "tag", "-a", "v0.0.1", "-m", "call +61-"+"491-570-156")
 
 	problems, commits, blobs, err := historyProblems(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if commits != 2 || blobs != 3 {
-		t.Errorf("read %d commit messages and %d text blobs, want 2 and 3", commits, blobs)
+	if commits != 3 || blobs != 3 {
+		t.Errorf("read %d commit messages and %d text blobs, want 3 and 3", commits, blobs)
 	}
 	kinds := make([]string, 0, len(problems))
 	for _, p := range problems {
@@ -134,6 +138,7 @@ func TestHistoryProblemsReadsWhatWasPublished(t *testing.T) {
 	want := []string{
 		"a path in the history | a phone number outside 555-0100..0199: +44 20 " + "7946 0958",
 		"commit | a company's Pipedrive subdomain: /vexqorlund" + ".pipedrive.com",
+		"commit | " + addressRule + ": " + address,
 		"notes.txt | " + addressRule + ": " + address,
 		"tag v0.0.1 | a phone number outside 555-0100..0199: +61-" + "491-570-156",
 	}
