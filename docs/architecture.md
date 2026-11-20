@@ -2824,36 +2824,38 @@ D-52's list until real bodies are recorded (#115).
 
 ### D-102 No log line per tool call
 
-Rejected: one log line per tool call, carrying the method, the path, the
-status and the duration and no payload. The server keeps no record of
-tool calls (D-60), and this decision keeps it so.
+The server logs no line per tool call. A proposed line carrying the
+method, the path, the status and the duration, with no payload, is
+declined, and D-60 stands.
 
-The line would add nothing a reader can act on. D-59 already logs each
-HTTP request's path, method, status, attempt and duration at debug
-level, which is the part of a call an operator diagnoses. A tool name
-beside them says which tool ran but never why, and the client's
-transcript holds both. Adding the line would also add an asset to the
-threat model in [security.md](security.md), which relies on stderr
-holding no record of what a person asked for.
+The line would add little an operator can act on. D-59 already logs a
+debug line per response and a warning per transport failure, which
+cover the part of a call an operator diagnoses. A tool name beside them
+says which tool ran but never why, and the client's transcript holds
+both. The threat model in [security.md](security.md) states that "the
+server keeps no record of tool calls", and the line would end that.
 
-Rejected: a per-call line at info level; one at debug level only.
+Rejected: a per-call line at info level, or at debug level only.
 Cost: an operator who wants to know which tools ran reads the client's
 transcript, not this server's stderr.
 
 ### D-103 No token reload while the server runs
 
-Rejected: reloading the API token without a restart, on a signal or
-after a 401. The token is read once at startup (D-63).
+The server reads the API token once, at startup (D-63), and does not
+reload it. A reload on a signal or after a 401 is declined.
 
 One binary serves one person's client, which starts it as a subprocess
-(D-01), so a restart is the client reconnecting, a matter of seconds.
-A reload on a signal needs a signal Windows does not have. A reload on a
-401 would re-read the keyring on every rejected call, and a token that
-is wrong rather than rotated would be fetched again and again. Both add
-a path where the token changes under requests in flight.
+(D-01), so after a rotation the person restarts the client, and a new
+server is up within seconds. A reload on a signal needs a signal Windows
+does not have. A reload after a 401 would re-read the keyring on every
+rejected call, and a token that is wrong rather than rotated would be
+fetched again and again. Both add a path where the token changes under
+requests in flight.
 
 Rejected: a SIGHUP reload; a re-read of the keyring after a 401.
-Cost: a rotated token takes effect when the client restarts the server,
-and `[auth]` says so (docs/troubleshooting.md#auth).
+Cost: a rotated token takes effect when the person restarts the client,
+as the `[auth]` entry in
+[troubleshooting.md](troubleshooting.md#auth) says; the `[auth]` error
+itself carries only Pipedrive's message.
 
 Next ID: D-104
