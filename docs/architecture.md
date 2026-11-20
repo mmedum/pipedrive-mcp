@@ -518,11 +518,13 @@ together, whatever status it arrives as.
 
 Rejected: a migration, which has no destination; letting a third party
 decide when this project cuts a MAJOR.
-Cost: the carve-out check runs only when someone runs `make
-integration`, so a retirement between releases reaches a user first.
-Nothing checks Pipedrive's v2 description for `/notes` and `/users` at
-each refresh, or runs the carve-out check on a schedule; whether to do
-both is open (#117).
+Cost: the live carve-out check runs only when someone runs `make
+integration`, since CI holds no token. Between releases `v1-watch` reads
+Pipedrive's v2 description and changelog weekly, so a retirement
+announced there is caught, and one Pipedrive does not announce reaches a
+user first. GitHub disables a public repository's schedule after 60 days
+without activity, and mails only the last person to edit it, so the
+release runbook runs `make v1-watch` as well.
 
 ### D-05 A 410 is [gone], never retried, and on a v1 path says the endpoint has no v2 equivalent
 
