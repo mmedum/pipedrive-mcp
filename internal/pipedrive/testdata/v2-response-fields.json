@@ -1,7 +1,7 @@
 {
   "_source": "https://developers.pipedrive.com/docs/api/v1/openapi-v2.yaml",
-  "_spec_sha256": "4ecf2b3c4f0a2603506dfc4c1353e8ff33ce9673c3813082cebf33db1c7e6adc",
-  "_captured": "2026-11-05",
+  "_spec_sha256": "9b885686eb08d505e1a339aaf3e15fb20f0b93155c5f45f876092e4502f6ee68",
+  "_captured": "2026-11-20",
   "types": {
     "Deal": {
       "endpoint": "/deals",
