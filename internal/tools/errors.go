@@ -162,6 +162,8 @@ var allSentinels = []error{
 	pipedrive.ErrGone,
 	pipedrive.ErrServerError,
 	pipedrive.ErrValidation,
+	pipedrive.ErrAccountNotOpen,
+	pipedrive.ErrPlanLimit,
 }
 
 // validatePositiveID returns nil when v > 0, or a wrapped
@@ -219,6 +221,10 @@ func errorClass(err error) string {
 		return "server_error"
 	case errors.Is(err, pipedrive.ErrValidation):
 		return "validation"
+	case errors.Is(err, pipedrive.ErrAccountNotOpen):
+		return "account"
+	case errors.Is(err, pipedrive.ErrPlanLimit):
+		return "plan"
 	default:
 		return "error"
 	}
