@@ -43,14 +43,21 @@ type personRow struct {
 }
 
 type orgRow struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
+	ID      int64    `json:"id"`
+	Name    string   `json:"name"`
+	Address *lineRow `json:"address,omitempty"`
+}
+
+// lineRow is the part of a stored address or location the probes read.
+type lineRow struct {
+	Value string `json:"value"`
 }
 
 type activityRow struct {
-	ID       int64 `json:"id"`
-	Done     bool  `json:"done"`
-	PersonID int64 `json:"person_id"`
+	ID       int64    `json:"id"`
+	Done     bool     `json:"done"`
+	PersonID int64    `json:"person_id"`
+	Location *lineRow `json:"location,omitempty"`
 }
 
 type noteRow struct {

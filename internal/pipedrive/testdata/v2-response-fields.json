@@ -198,5 +198,382 @@
         "update_time": "string"
       }
     }
+  },
+  "requests": {
+    "CreateDealRequest": [
+      {
+        "method": "POST",
+        "path": "/deals",
+        "fields": {
+          "archive_time": "string",
+          "channel": "integer",
+          "channel_id": "string",
+          "close_time": "string",
+          "currency": "string",
+          "custom_fields": "object",
+          "expected_close_date": "string",
+          "is_archived": "boolean",
+          "label_ids": "array",
+          "lost_reason": "string",
+          "lost_time": "string",
+          "org_id": "integer",
+          "origin_id": "string",
+          "owner_id": "integer",
+          "person_id": "integer",
+          "pipeline_id": "integer",
+          "probability": "number",
+          "stage_id": "integer",
+          "status": "string",
+          "title": "string",
+          "value": "number",
+          "visible_to": "integer",
+          "won_time": "string"
+        }
+      }
+    ],
+    "UpdateDealRequest": [
+      {
+        "method": "PATCH",
+        "path": "/deals/{id}",
+        "fields": {
+          "archive_time": "string",
+          "channel": "integer",
+          "channel_id": "string",
+          "close_time": "string",
+          "currency": "string",
+          "custom_fields": "object",
+          "expected_close_date": "string",
+          "is_archived": "boolean",
+          "is_deleted": "boolean",
+          "label_ids": "array",
+          "lost_reason": "string",
+          "lost_time": "string",
+          "org_id": "integer",
+          "owner_id": "integer",
+          "person_id": "integer",
+          "pipeline_id": "integer",
+          "probability": "number",
+          "stage_id": "integer",
+          "status": "string",
+          "title": "string",
+          "value": "number",
+          "visible_to": "integer",
+          "won_time": "string"
+        }
+      }
+    ],
+    "CreatePersonRequest": [
+      {
+        "method": "POST",
+        "path": "/persons",
+        "fields": {
+          "add_time": "string",
+          "birthday": "string",
+          "custom_fields": "object",
+          "emails": "array",
+          "im": "array",
+          "job_title": "string",
+          "label_ids": "array",
+          "marketing_status": "string",
+          "name": "string",
+          "notes": "string",
+          "org_id": "integer",
+          "owner_id": "integer",
+          "phones": "array",
+          "postal_address": "object",
+          "visible_to": "integer"
+        }
+      }
+    ],
+    "UpdatePersonRequest": [
+      {
+        "method": "PATCH",
+        "path": "/persons/{id}",
+        "fields": {
+          "birthday": "string",
+          "custom_fields": "object",
+          "emails": "array",
+          "im": "array",
+          "job_title": "string",
+          "label_ids": "array",
+          "marketing_status": "string",
+          "name": "string",
+          "notes": "string",
+          "org_id": "integer",
+          "owner_id": "integer",
+          "phones": "array",
+          "postal_address": "object",
+          "visible_to": "integer"
+        }
+      }
+    ],
+    "CreateOrganizationRequest": [
+      {
+        "method": "POST",
+        "path": "/organizations",
+        "fields": {
+          "add_time": "string",
+          "address": "object",
+          "annual_revenue": "integer",
+          "custom_fields": "object",
+          "employee_count": "integer",
+          "industry": "integer",
+          "label_ids": "array",
+          "linkedin": "string",
+          "name": "string",
+          "owner_id": "integer",
+          "visible_to": "integer",
+          "website": "string"
+        }
+      }
+    ],
+    "UpdateOrganizationRequest": [
+      {
+        "method": "PATCH",
+        "path": "/organizations/{id}",
+        "fields": {
+          "address": "object",
+          "annual_revenue": "integer",
+          "custom_fields": "object",
+          "employee_count": "integer",
+          "industry": "integer",
+          "label_ids": "array",
+          "linkedin": "string",
+          "name": "string",
+          "owner_id": "integer",
+          "visible_to": "integer",
+          "website": "string"
+        }
+      }
+    ],
+    "CreateActivityRequest": [
+      {
+        "method": "POST",
+        "path": "/activities",
+        "fields": {
+          "attendees": "array",
+          "busy": "boolean",
+          "deal_id": "integer",
+          "done": "boolean",
+          "due_date": "string",
+          "due_time": "string",
+          "duration": "string",
+          "lead_id": "string",
+          "location": "object",
+          "note": "string",
+          "org_id": "integer",
+          "outcome": "integer",
+          "owner_id": "integer",
+          "participants": "array",
+          "priority": "integer",
+          "project_id": "integer",
+          "public_description": "string",
+          "subject": "string",
+          "type": "string"
+        }
+      }
+    ],
+    "UpdateActivityRequest": [
+      {
+        "method": "PATCH",
+        "path": "/activities/{id}",
+        "fields": {
+          "attendees": "array",
+          "busy": "boolean",
+          "deal_id": "integer",
+          "done": "boolean",
+          "due_date": "string",
+          "due_time": "string",
+          "duration": "string",
+          "lead_id": "string",
+          "location": "object",
+          "note": "string",
+          "org_id": "integer",
+          "outcome": "integer",
+          "owner_id": "integer",
+          "participants": "array",
+          "priority": "integer",
+          "project_id": "integer",
+          "public_description": "string",
+          "subject": "string",
+          "type": "string"
+        }
+      }
+    ],
+    "InstallmentRequest": [
+      {
+        "method": "POST",
+        "path": "/deals/{id}/installments",
+        "fields": {
+          "amount": "number",
+          "billing_date": "string",
+          "description": "string"
+        }
+      },
+      {
+        "method": "PATCH",
+        "path": "/deals/{id}/installments/{installment_id}",
+        "fields": {
+          "amount": "number",
+          "billing_date": "string",
+          "description": "string"
+        }
+      }
+    ]
+  },
+  "queries": {
+    "/deals": [
+      "cursor",
+      "custom_fields",
+      "filter_id",
+      "ids",
+      "include_fields",
+      "include_labels",
+      "include_option_labels",
+      "limit",
+      "org_id",
+      "owner_id",
+      "person_id",
+      "pipeline_id",
+      "sort_by",
+      "sort_direction",
+      "stage_id",
+      "status",
+      "updated_since",
+      "updated_until"
+    ],
+    "/deals/archived": [
+      "cursor",
+      "custom_fields",
+      "filter_id",
+      "ids",
+      "include_fields",
+      "limit",
+      "org_id",
+      "owner_id",
+      "person_id",
+      "pipeline_id",
+      "sort_by",
+      "sort_direction",
+      "stage_id",
+      "status",
+      "updated_since",
+      "updated_until"
+    ],
+    "/persons": [
+      "cursor",
+      "custom_fields",
+      "deal_id",
+      "filter_id",
+      "ids",
+      "include_fields",
+      "include_labels",
+      "include_option_labels",
+      "limit",
+      "org_id",
+      "owner_id",
+      "sort_by",
+      "sort_direction",
+      "updated_since",
+      "updated_until"
+    ],
+    "/organizations": [
+      "cursor",
+      "custom_fields",
+      "filter_id",
+      "ids",
+      "include_fields",
+      "include_labels",
+      "include_option_labels",
+      "limit",
+      "owner_id",
+      "sort_by",
+      "sort_direction",
+      "updated_since",
+      "updated_until"
+    ],
+    "/activities": [
+      "cursor",
+      "deal_id",
+      "done",
+      "filter_id",
+      "ids",
+      "include_fields",
+      "lead_id",
+      "limit",
+      "org_id",
+      "owner_id",
+      "person_id",
+      "sort_by",
+      "sort_direction",
+      "updated_since",
+      "updated_until"
+    ],
+    "/itemSearch": [
+      "cursor",
+      "exact_match",
+      "fields",
+      "include_fields",
+      "item_types",
+      "limit",
+      "search_for_related_items",
+      "term"
+    ],
+    "/deals/installments": [
+      "cursor",
+      "deal_ids",
+      "limit",
+      "sort_by",
+      "sort_direction"
+    ],
+    "/pipelines": [
+      "cursor",
+      "limit",
+      "sort_by",
+      "sort_direction"
+    ],
+    "/stages": [
+      "cursor",
+      "limit",
+      "pipeline_id",
+      "sort_by",
+      "sort_direction"
+    ],
+    "/dealFields": [
+      "cursor",
+      "include_fields",
+      "limit"
+    ],
+    "/personFields": [
+      "cursor",
+      "include_fields",
+      "limit"
+    ],
+    "/organizationFields": [
+      "cursor",
+      "include_fields",
+      "limit"
+    ],
+    "/deals/{id}/products": [
+      "cursor",
+      "limit",
+      "sort_by",
+      "sort_direction"
+    ],
+    "/organizations/{id}": [
+      "custom_fields",
+      "include_fields",
+      "include_labels",
+      "include_option_labels"
+    ],
+    "/persons/{id}": [
+      "custom_fields",
+      "include_fields",
+      "include_labels",
+      "include_option_labels"
+    ],
+    "/activities/{id}": [
+      "include_fields"
+    ]
   }
 }

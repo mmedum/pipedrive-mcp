@@ -108,9 +108,8 @@ func PrimaryParticipant(personID int64, participants []ActivityParticipant) []Ac
 // types: that would need a cache and a probe, and Pipedrive's 400 on an
 // unknown type already reaches the caller as [validation].
 //
-// Location is a single-line string on input — Pipedrive parses it
-// server-side into the structured ActivityLocation response (same
-// pattern as POST /organizations).
+// Location is the single line a person says, sent as a OneLine, as an
+// organization's address is.
 //
 // Done and Busy use Go's zero-value-is-false default; sending false
 // is equivalent to omitting (json:omitempty). For the rare "create
@@ -128,7 +127,7 @@ type CreateActivityRequest struct {
 	OwnerID           int64                 `json:"owner_id,omitempty"`
 	Note              string                `json:"note,omitempty"`               // private; HTML allowed
 	PublicDescription string                `json:"public_description,omitempty"` // shared with attendees
-	Location          string                `json:"location,omitempty"`           // single-line; server-parsed
+	Location          OneLine               `json:"location,omitempty"`
 	Participants      []ActivityParticipant `json:"participants,omitempty"`
 	Done              bool                  `json:"done,omitempty"`
 	Busy              bool                  `json:"busy,omitempty"`
@@ -153,7 +152,7 @@ type UpdateActivityRequest struct {
 	OwnerID           *int64                `json:"owner_id,omitempty"`
 	Note              *string               `json:"note,omitempty"`
 	PublicDescription *string               `json:"public_description,omitempty"`
-	Location          *string               `json:"location,omitempty"`
+	Location          *OneLine              `json:"location,omitempty"`
 	Participants      []ActivityParticipant `json:"participants,omitempty"`
 	Done              *bool                 `json:"done,omitempty"`
 	Busy              *bool                 `json:"busy,omitempty"`
@@ -193,7 +192,7 @@ func (c *Client) GetActivity(ctx context.Context, id int64, opts GetActivityOpti
 
 // CreateActivity posts a new activity via /api/v2/activities. Returns
 // the created activity as Pipedrive echoes it (full record with id,
-// structured Location parsed server-side, and resolved type).
+// Location, and resolved type).
 func (c *Client) CreateActivity(ctx context.Context, req CreateActivityRequest) (*Activity, error) {
 	if req.Subject == "" {
 		return nil, fmt.Errorf("%w: subject must not be empty", ErrValidation)

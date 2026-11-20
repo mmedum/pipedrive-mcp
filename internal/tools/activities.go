@@ -256,7 +256,7 @@ type manageActivityInput struct {
 	OwnerID           *int64                          `json:"owner_id,omitempty" jsonschema:"the user who owns the record; omit on create to take the API token's own user"`
 	Note              *string                         `json:"note,omitempty" jsonschema:"a private note on the activity, HTML allowed. If the user did not dictate notes, leave this blank — do NOT invent meeting minutes"`
 	PublicDescription *string                         `json:"public_description,omitempty" jsonschema:"the description attendees see in the calendar invite. If the user did not provide one, leave it blank"`
-	Location          *string                         `json:"location,omitempty" jsonschema:"a single line as the user said it, such as 123 Main St or 'Zoom — link in invite'. Pipedrive parses physical addresses server-side, so do NOT pre-parse it"`
+	Location          *string                         `json:"location,omitempty" jsonschema:"a single line as the user said it, such as 123 Main St or 'Zoom — link in invite'. Pipedrive keeps the line as given, so do NOT pre-parse it"`
 	Participants      []pipedrive.ActivityParticipant `json:"participants,omitempty" jsonschema:"linked persons, exactly one marked primary. person_id wins if both are set, and the rest stay on as non-primary. On update this REPLACES the collection"`
 	Busy              *bool                           `json:"busy,omitempty" jsonschema:"whether the owner shows as busy on the calendar"`
 	Done              *bool                           `json:"done,omitempty" jsonschema:"whether the activity is finished. Prefer action complete or reopen, which say what you mean; this is here for create, to log something that already happened"`
@@ -325,7 +325,7 @@ func createActivityAction(ctx context.Context, c activitiesClient, companyDomain
 		OwnerID:           deref(in.OwnerID),
 		Note:              deref(in.Note),
 		PublicDescription: deref(in.PublicDescription),
-		Location:          deref(in.Location),
+		Location:          pipedrive.OneLine(deref(in.Location)),
 		// person_id is read-only upstream: it reports the primary
 		// participant rather than setting one. PrimaryParticipant
 		// turns it into the participants entry Pipedrive accepts, and
@@ -414,7 +414,7 @@ func activityRequestFor(in manageActivityInput) pipedrive.UpdateActivityRequest 
 			OwnerID:           in.OwnerID,
 			Note:              in.Note,
 			PublicDescription: in.PublicDescription,
-			Location:          in.Location,
+			Location:          (*pipedrive.OneLine)(in.Location),
 		}
 	}
 }
@@ -436,9 +436,9 @@ func activityAfterUpdate(before pipedrive.Activity, req pipedrive.UpdateActivity
 	setIf(&after.Note, req.Note)
 	setIf(&after.PublicDescription, req.PublicDescription)
 	if req.Location != nil {
-		// Pipedrive re-parses the line server-side; the prediction only
-		// needs the value the guard and the diff compare on.
-		after.Location = &pipedrive.ActivityLocation{Value: *req.Location}
+		// The prediction needs only the line, which is what the guard and
+		// the diff compare on (OneLine).
+		after.Location = &pipedrive.ActivityLocation{Value: string(*req.Location)}
 	}
 	if req.Participants != nil {
 		after.Participants = req.Participants
@@ -450,8 +450,7 @@ func activityAfterUpdate(before pipedrive.Activity, req pipedrive.UpdateActivity
 // the CreateActivityRequest, used only on the dry-run path so
 // create_activity's output schema stays consistent. ID=0 +
 // dry_run=true tells the LLM nothing was actually persisted. Location
-// is wrapped as ActivityLocation.Value; server-side parsing only
-// happens on the real upstream call.
+// is wrapped as ActivityLocation.Value, the line Pipedrive stores.
 func syntheticActivityFromRequest(req pipedrive.CreateActivityRequest) *pipedrive.Activity {
 	a := &pipedrive.Activity{
 		Subject:           req.Subject,
@@ -471,7 +470,7 @@ func syntheticActivityFromRequest(req pipedrive.CreateActivityRequest) *pipedriv
 		Participants:      req.Participants,
 	}
 	if req.Location != "" {
-		a.Location = &pipedrive.ActivityLocation{Value: req.Location}
+		a.Location = &pipedrive.ActivityLocation{Value: string(req.Location)}
 	}
 	return a
 }

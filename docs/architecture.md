@@ -398,7 +398,7 @@ symptom in [troubleshooting.md](troubleshooting.md).
 | D-69 | A mistyped subcommand exits non-zero | accepted | TestAnUnknownCommandIsReported |
 | D-70 | internal/pipedrive has no MCP imports, and internal/tools holds schemas, validation and presentation | accepted | depguard, review |
 | D-71 | The Pipedrive client is hand-written, not generated | accepted | depguard, review |
-| D-72 | Pipedrive's v2 description is a test oracle for the response types | accepted | TestUpstreamTypesMatchTheSpec, TestUpstreamTypeCoverage |
+| D-72 | Pipedrive's v2 description is a test oracle for the response types | accepted | TestUpstreamTypesMatchTheSpec, TestUpstreamTypeCoverage, TestRequestTypesMatchTheSpec, TestQueriesMatchTheSpec |
 | D-73 | --dump-schemas prints what an in-memory client is served | accepted | TestTheDumpIsWhatAClientIsServed, TestTheDumpListsResourcesAndPrompts |
 | D-74 | Every tool is added through mcp.AddTool, which infers its schemas | accepted | smoke, TestRegister_ListsItsToolsWithTheirSchemas |
 | D-75 | The tool surface is the versioning contract, and a break needs a MAJOR | accepted | schema-ack, TestSchemaAckAsksForBreakingChangeOnlyForAReleasedBreak |
@@ -2094,13 +2094,20 @@ where the spec says `number` fails a whole page on one fractional value.
 The spec is a poor code input (D-71) and a good oracle for exactly that
 drift.
 
+The same fixture holds what the client sends: every field of a request
+type is a field its endpoint's body declares, with a type it can hold,
+and every query parameter a read sends is one its path declares. A body
+field the description does not declare is ignored or refused, and a
+query parameter it does not declare is a filter that does nothing.
+
 Rejected: the spec as a code input.
 Cost: `knownSpecOmissions` exempts two tags the description does not
 declare: `is_writable`, which the `*Fields` endpoints return live and
 the write guard depends on, and `people_count`, an `include_fields`
 value every organization read asks for. The fixture is only as current
-as its last refresh. Request bodies and query parameters are not held to
-the description; whether to extend the check to them is open (#120).
+as its last refresh. `knownRequestOmissions` exempts `first_name` and
+`last_name` on persons, which the live write probes send and Pipedrive
+takes though the description does not declare them.
 
 ### D-73 --dump-schemas prints what an in-memory client is served
 
