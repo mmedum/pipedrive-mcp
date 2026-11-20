@@ -423,11 +423,13 @@ symptom in [troubleshooting.md](troubleshooting.md).
 | D-94 | A release is six archives named as the sibling servers name theirs, and the bundle carries the Windows amd64 binary alone | accepted | mcpb, pins, TestTheReleaseMatrixIsTheSix, TestGoreleaserMatrixReadsEveryBuild, TestTheArchivesAreNamedNameVersionOSArch, TestReleaseDocProblems, TestTheBundleReachesEveryPair |
 | D-95 | The bundle manifest is validated against a vendored schema pinned by SHA256 | accepted | mcpb, TestCommittedManifestSatisfiesItsSchema, TestVendoredSchemaMatchesItsRecordedHash, TestTheSchemaRefIsATagNotABranch |
 | D-96 | The bundle's settings come from config.Vars, and its defaults are started through config.Load | accepted | mcpb, TestBundleVarsAreDerivedFromTheSettings, TestDefaultsProblemsReportsEveryUnreadableDefaultAndTheRest, TestSettingProblemsRefuseABundleWithNoSecret |
-| D-97 | The registry entry is published by its own workflow, from checksums.txt after cosign verifies it | accepted | TestTheRegistryEntryIsBuiltFromTheRepository, TestTheBundleRowMustBeExactlyOne, TestRegistrySchemaMatchesItsRecordedHash, review |
+| D-97 | The registry entry is published by its own workflow, from checksums.txt after cosign verifies it | accepted | TestTheRegistryEntryIsBuiltFromTheRepository, TestTheBundleRowMustBeExactlyOne, TestTheBundleRowMustBeThisTagsBundle, TestRegistrySchemaMatchesItsRecordedHash, review |
 | D-98 | Installments are part of the deal surface: get_deal reports a deal's schedule, list_installments reads many, manage_installment writes one | accepted | TestGetDeal_ReportsTheScheduleAndWarnsWhenItIsStale, TestListInstallments_OneSchedulePerDealInTheOrderAsked, TestInstallments_ReadAcrossDeals |
 | D-99 | A permanent delete takes confirm, beside dry_run and expect_version | accepted | TestManageInstallment_DeleteIsPermanentSoItNeedsConfirm, TestWrite_InstallmentRoundTrip |
 | D-100 | A dropdown label matches as written first, ignoring case only when one option could be meant, and an ambiguous label is refused | accepted | TestFieldCache_EncodeTellsLabelsApartByCase |
 | D-101 | A 402 is [account], and a 415 or a limit-reached 403 is [plan] | accepted | TestClassify, TestEverySentinelHasItsOwnClass, TestTroubleshootingDocListsEveryErrorClass |
+| D-102 | No log line per tool call | rejected | review |
+| D-103 | No token reload while the server runs | rejected | review |
 
 ### D-01 One Go binary serves one Pipedrive workspace over stdio; nothing is hosted
 
@@ -516,11 +518,13 @@ together, whatever status it arrives as.
 
 Rejected: a migration, which has no destination; letting a third party
 decide when this project cuts a MAJOR.
-Cost: the carve-out check runs only when someone runs `make
-integration`, so a retirement between releases reaches a user first.
-Nothing checks Pipedrive's v2 description for `/notes` and `/users` at
-each refresh, or runs the carve-out check on a schedule; whether to do
-both is open (#117).
+Cost: the live carve-out check runs only when someone runs `make
+integration`, since CI holds no token. Between releases `v1-watch` reads
+Pipedrive's v2 description and changelog weekly, so a retirement
+announced there is caught, and one Pipedrive does not announce reaches a
+user first. GitHub disables a public repository's schedule after 60 days
+without activity, and mails only the last person to edit it, so the
+release runbook runs `make v1-watch` as well.
 
 ### D-05 A 410 is [gone], never retried, and on a v1 path says the endpoint has no v2 equivalent
 
@@ -1820,9 +1824,7 @@ model in [security.md](security.md) relies on the absence.
 Rejected: an audit trail kept by this server, which could record what
 was called and never why.
 Cost: the client transcript is the only record of a call or a rehearsal.
-Whether to add one line per call, with the method, the path, the status
-and the duration and no payload, is open (#123); adding it changes the
-threat model.
+A line per call is rejected (D-102).
 
 ### D-61 The token is unexported on Settings, and LogValue and String redact it
 
@@ -1888,8 +1890,7 @@ reported rather than read as no token.
 Rejected: the token in the client's JSON config.
 Cost: same-user malware reads an unlocked keyring as it reads any of the
 user's files. The token is read once at startup, so a rotated token
-takes effect only on a restart; whether to reload it on a signal or on
-an auth failure is open (#122).
+takes effect only on a restart, and a reload is rejected (D-103).
 
 ### D-64 The domain resolves from the environment, then a non-secret pointer file, then an error
 
@@ -2724,7 +2725,7 @@ The MCP registry entry is published by
 `.github/workflows/publish-mcp.yml`, which `release.yml` calls once the
 release exists and which can be dispatched by hand against a tag that
 already shipped. It downloads the published `checksums.txt`, verifies
-its cosign signature against `release.yml` on a tag ref, and only then
+its cosign signature against `release.yml` on that tag, and only then
 lets `gates registry-publish` lift the bundle's row into the entry's
 `fileSha256`. It verifies `mcp-publisher` with cosign before unpacking
 it, and holds no more privilege than publishing needs. A prerelease
@@ -2740,9 +2741,11 @@ signature is what does not move with them. An entry cannot be withdrawn.
 
 Rejected: publishing from inside `release.yml`; reading the checksums
 before verifying them.
-Cost: the signature's identity accepts `release.yml` on any tag of this
-repository, and the bundle's row is not checked against the tag being
-published; whether to hold both to that tag is open (#118).
+Cost: an entry is published only for a tag whose checksum file
+(`checksums.txt`, or `SHA256SUMS` before the rename) was signed by
+`release.yml` on that same tag, and whose bundle row names
+that tag's version; a release whose signing failed cannot be published
+without a new tag.
 
 ### D-98 Installments are part of the deal surface: get_deal reports a deal's schedule, list_installments reads many, manage_installment writes one
 
@@ -2830,4 +2833,40 @@ blocks every call; leaving them as `[validation]` and `[permission]`.
 Cost: the 403 signal is a word in Pipedrive's message, unverified like
 D-52's list until real bodies are recorded (#115).
 
-Next ID: D-102
+### D-102 No log line per tool call
+
+The server logs no line per tool call. A proposed line carrying the
+method, the path, the status and the duration, with no payload, is
+declined, and D-60 stands.
+
+The line would add little an operator can act on. D-59 already logs a
+debug line per response and a warning per transport failure, which
+cover the part of a call an operator diagnoses. A tool name beside them
+says which tool ran but never why, and the client's transcript holds
+both. The threat model in [security.md](security.md) states that "the
+server keeps no record of tool calls", and the line would end that.
+
+Rejected: a per-call line at info level, or at debug level only.
+Cost: an operator who wants to know which tools ran reads the client's
+transcript, not this server's stderr.
+
+### D-103 No token reload while the server runs
+
+The server reads the API token once, at startup (D-63), and does not
+reload it. A reload on a signal or after a 401 is declined.
+
+One binary serves one person's client, which starts it as a subprocess
+(D-01), so after a rotation the person restarts the client, and a new
+server is up within seconds. A reload on a signal needs a signal Windows
+does not have. A reload after a 401 would re-read the keyring on every
+rejected call, and a token that is wrong rather than rotated would be
+fetched again and again. Both add a path where the token changes under
+requests in flight.
+
+Rejected: a SIGHUP reload; a re-read of the keyring after a 401.
+Cost: a rotated token takes effect when the person restarts the client,
+as the `[auth]` entry in
+[troubleshooting.md](troubleshooting.md#auth) says; the `[auth]` error
+itself carries only Pipedrive's message.
+
+Next ID: D-104

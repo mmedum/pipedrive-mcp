@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -335,5 +336,47 @@ func TestRegistryEntrySchemaCatchesABrokenEntry(t *testing.T) {
 				t.Errorf("the refusal does not say %q: %v", tc.want, err)
 			}
 		})
+	}
+}
+
+// The bundle row is held to the tag being published, so checksums from
+// another release cannot put their hash under this version.
+func TestTheBundleRowMustBeThisTagsBundle(t *testing.T) {
+	err := serverJSON(parityRepoRoot, "v1.3.0", sums(t, oneBundle), io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "pipedrive-mcp_1.2.0.mcpb, which is not v1.3.0's bundle") {
+		t.Errorf("serverJSON for v1.3.0 over 1.2.0's checksums = %v; want a refusal naming both", err)
+	}
+}
+
+func TestTheLegacyBundleNameIsHeldToItsTagToo(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "SHA256SUMS")
+	for _, tc := range []struct {
+		row string
+		ok  bool
+	}{{"pipedrive-mcp-1.1.3.mcpb", true}, {"pipedrive-mcp-1.1.2.mcpb", false}} {
+		if err := os.WriteFile(path, []byte(strings.Repeat("d", 64)+"  "+tc.row+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		err := serverJSON(parityRepoRoot, "v1.1.3", path, io.Discard)
+		if (err == nil) != tc.ok {
+			t.Errorf("serverJSON(v1.1.3) over %s = %v; want ok=%v", tc.row, err, tc.ok)
+		}
+	}
+}
+
+// The packer writes the bundle under the name serverJSON expects: the
+// repository's name, an underscore and the version.
+func TestThePackerNamesTheBundleAsThePublishExpects(t *testing.T) {
+	raw := string(repoFile(t, parityGoreleaser))
+	m := regexp.MustCompile(`mcpb-pack dist \{\{ \.Version \}\} dist/([a-z0-9-]+)_\{\{ \.Version \}\}\.mcpb`).FindStringSubmatch(raw)
+	if m == nil {
+		t.Fatalf("%s has no mcpb-pack hook writing dist/<name>_{{ .Version }}.mcpb", parityGoreleaser)
+	}
+	module, err := modulePath(parityRepoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, repo, err := githubRepo(module); err != nil || m[1] != repo {
+		t.Errorf("the packer names the bundle %s_<version>.mcpb and the publish expects %s_<version>.mcpb (%v)", m[1], repo, err)
 	}
 }
