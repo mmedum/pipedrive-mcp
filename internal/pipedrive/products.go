@@ -28,7 +28,9 @@ type Product struct {
 }
 
 // ProductPrice is one currency's price of a product. A write sends the
-// whole list, which replaces the stored one.
+// whole list, and Pipedrive replaces the stored one with it, keeping the
+// order it was sent in: a PATCH carrying EUR alone leaves EUR alone.
+// Checked by the integration test TestWrite_DealProductRoundTrip.
 type ProductPrice struct {
 	Price      float64 `json:"price"`
 	Currency   string  `json:"currency"`

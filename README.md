@@ -46,6 +46,8 @@ Non-goals:
   string as a value, so a field can be changed but not emptied.
 - **Merging records.** A merge destroys one record's values across a
   record nobody read, and no refusal could name what it would lose.
+- **Leads, files, projects and goals.** `search` finds some of them, and
+  no tool reads or writes them.
 - **Fetching every page for you.** Each list call returns one page and
   the cursor for the next.
 - **Asking you before a call.** Your client approves each call; the

@@ -2,9 +2,12 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
 )
 
 type cacheClient interface {
@@ -21,6 +24,8 @@ type fieldCacheRefresh struct {
 	Resource string `json:"resource" jsonschema:"deals | persons | organizations | products"`
 	Count    int    `json:"count" jsonschema:"number of fields cached after reload; 0 on error"`
 	Error    string `json:"error,omitempty" jsonschema:"per-resource error message; empty on success"`
+	// Unavailable is set when the workspace's plan lacks the resource.
+	Unavailable string `json:"unavailable,omitempty" jsonschema:"why the workspace has no such fields, such as a plan without products; not counted as an error"`
 }
 
 type refreshFieldCacheInput struct{}
@@ -87,7 +92,12 @@ func refreshAllFieldCaches(ctx context.Context, c cacheClient) refreshFieldCache
 
 func rowFor(resource string, count int, err error) fieldCacheRefresh {
 	row := fieldCacheRefresh{Resource: resource, Count: count}
-	if err != nil {
+	switch {
+	case errors.Is(err, pipedrive.ErrPlanLimit):
+		// A plan without the resource, such as products, has no fields
+		// to cache; that is the workspace's shape, not a failure.
+		row.Unavailable = errorText(err)
+	case err != nil:
 		row.Error = errorText(err)
 	}
 	return row

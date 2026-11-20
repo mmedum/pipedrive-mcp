@@ -107,18 +107,10 @@ func (c *Client) DeleteInstallment(ctx context.Context, dealID, id int64) error 
 	return c.deleteV2(ctx, installmentsPath(dealID)+"/"+strconv.FormatInt(id, 10))
 }
 
-// ListDealProducts reads the products attached to a deal, first page
-// only. A deal with more than 500 products is beyond what the
-// installment rule needs to see.
+// ListDealProducts reads every product line on a deal, every page.
 // https://developers.pipedrive.com/docs/api/v1/Deals#getDealProducts
 func (c *Client) ListDealProducts(ctx context.Context, dealID int64) ([]DealProduct, error) {
-	q := url.Values{}
-	q.Set("limit", "500")
-	var resp listEnvelope[DealProduct]
-	if err := c.do(ctx, buildPath("/deals/"+strconv.FormatInt(dealID, 10)+"/products", q), &resp); err != nil {
-		return nil, err
-	}
-	return resp.Data, nil
+	return readAll[DealProduct](ctx, c, dealProductsPath(dealID), nil)
 }
 
 func installmentsPath(dealID int64) string {

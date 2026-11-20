@@ -301,3 +301,15 @@ func TestProductWrites_HonorTheDryRunFloor(t *testing.T) {
 		t.Errorf("the floor let %d writes through", fake.writes())
 	}
 }
+
+func TestManageProduct_TheSamePricesInAnotherOrderChangeNothing(t *testing.T) {
+	fake := newProductsFake()
+	var out productResult
+	res := callProducts(t, fake, tools.RegisterOptions{}, "manage_product", map[string]any{
+		"action": "update", "product_id": 5,
+		"prices": []map[string]any{{"price": 750, "currency": "DKK"}, {"price": 100, "currency": "EUR"}},
+	}, &out)
+	if res.IsError || fake.updates != 0 || len(out.Changed) != 0 {
+		t.Errorf("a reorder = %s, %+v, updates = %d; want a no-op with nothing sent", contentText(res), out, fake.updates)
+	}
+}

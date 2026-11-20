@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -180,11 +181,17 @@ var productBaseFields = []fieldSpec[pipedrive.Product]{
 }
 
 // projectPrices covers every field of a price a write can set (D-39),
-// quoted so two different lists cannot render alike.
+// quoted so two different lists cannot render alike. Rows sort by
+// currency first: a product has one price per currency, so the same
+// prices in another order are the same prices, though Pipedrive keeps
+// the order it is sent.
 func projectPrices(ps []pipedrive.ProductPrice) string {
-	return projectCollection(ps, func(p pipedrive.ProductPrice) string {
-		return strconv.Quote(p.Currency) + projectMoney(p.Price) + "|" + projectMoney(p.Cost) + "|" + projectMoney(p.DirectCost) + "|" + strconv.Quote(p.Notes)
-	})
+	rows := make([]string, 0, len(ps))
+	for _, p := range ps {
+		rows = append(rows, strconv.Quote(p.Currency)+projectMoney(p.Price)+"|"+projectMoney(p.Cost)+"|"+projectMoney(p.DirectCost)+"|"+strconv.Quote(p.Notes))
+	}
+	slices.Sort(rows)
+	return projectCollection(rows, func(s string) string { return s })
 }
 
 func projectOptInt(p *int) string {
@@ -455,7 +462,7 @@ func registerDealProducts(s *mcp.Server, c productsClient, opts RegisterOptions)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "manage_deal_product",
-		Description: "Add a catalog product to a deal, edit the line, or remove it. add takes deal_id, product_id, item_price and quantity; update and remove take deal_id and deal_product_id. Every action reads the deal's lines first and returns them all afterwards. An update refuses to replace any field that holds a value unless you name it in overwrite. expect_version takes the line's update_time. Removing a line is PERMANENT: Pipedrive keeps no copy, so remove needs confirm: true, and dry_run shows what would go without it. Pipedrive recomputes the deal's value from its lines. A one-time product is what lets a deal take installments, and a recurring one rules them out.",
+		Description: "Add a catalog product to a deal, edit the line, or remove it. add takes deal_id, product_id, item_price and quantity; update and remove take deal_id and deal_product_id. Every action reads the deal's lines first and returns them all afterwards. An update refuses to replace any field that holds a value unless you name it in overwrite. expect_version takes the line's update_time. Removing a line is PERMANENT: Pipedrive keeps no copy, so remove needs confirm: true, and dry_run shows what would go without it. Pipedrive recomputes the deal's value from its lines. A line is billed one-time unless you pass billing_frequency: it does NOT take the catalog product's frequency. A one-time line is what lets a deal take installments, and a recurring one rules them out.",
 		Annotations: mutatingAnnotations(),
 	}, manageDealProductHandler(c, opts.DryRun))
 }
@@ -580,12 +587,11 @@ func addDealProductAction(ctx context.Context, c productsClient, in manageDealPr
 		return errorResult(err), manageDealProductOutput{}
 	}
 	req := dealProductRequestFor(in)
-	enabled := true
-	if req.IsEnabled == nil {
-		// Pipedrive switches a new line on; the preview says so too.
-		req.IsEnabled = &enabled
-	}
-	added := dealProductAfter(pipedrive.DealProduct{DealID: in.DealID}, req)
+	// What Pipedrive gives a line the call leaves unset: switched on and
+	// billed one-time, whatever the catalog product says, so a monthly
+	// product added without billing_frequency is a one-time line. Checked
+	// by the integration test TestWrite_DealProductRoundTrip.
+	added := dealProductAfter(pipedrive.DealProduct{DealID: in.DealID, IsEnabled: true, BillingFrequency: "one-time"}, req)
 	result, after := &added, append(append([]pipedrive.DealProduct(nil), rows...), added)
 	if !in.DryRun {
 		if result, err = c.AddDealProduct(ctx, in.DealID, req); err != nil {

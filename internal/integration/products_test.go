@@ -28,10 +28,12 @@ type dealLinesOut struct {
 		Quantity float64 `json:"quantity"`
 	} `json:"product"`
 	Products []struct {
-		ID         int64   `json:"id"`
-		ProductID  int64   `json:"product_id"`
-		Quantity   float64 `json:"quantity"`
-		UpdateTime string  `json:"update_time"`
+		ID               int64   `json:"id"`
+		ProductID        int64   `json:"product_id"`
+		Quantity         float64 `json:"quantity"`
+		BillingFrequency string  `json:"billing_frequency"`
+		IsEnabled        bool    `json:"is_enabled"`
+		UpdateTime       string  `json:"update_time"`
 	} `json:"products"`
 }
 
@@ -46,8 +48,8 @@ func TestWrite_DealProductRoundTrip(t *testing.T) {
 
 	var created productOut
 	mustCall(t, "manage_product", map[string]any{
-		"action": "create", "name": sc.Title + " product", "billing_frequency": "one-time",
-		"prices": []map[string]any{{"price": 10, "currency": "EUR"}},
+		"action": "create", "name": sc.Title + " product", "billing_frequency": "monthly",
+		"prices": []map[string]any{{"price": 10, "currency": "EUR"}, {"price": 75, "currency": "DKK"}},
 	}, &created)
 	productID := created.Product.ID
 	t.Cleanup(func() {
@@ -55,9 +57,20 @@ func TestWrite_DealProductRoundTrip(t *testing.T) {
 			t.Errorf("LEFT BEHIND: product %d: %s", productID, testutil.TextContent(res))
 		}
 	})
-	if productID == 0 || len(created.Product.Prices) != 1 {
-		t.Fatalf("create = %+v; want a product with its one price", created.Product)
+	if productID == 0 || len(created.Product.Prices) != 2 {
+		t.Fatalf("create = %+v; want a product with its two prices", created.Product)
 	}
+
+	// A write's prices replace the stored list whole.
+	var repriced productOut
+	mustCall(t, "manage_product", map[string]any{
+		"action": "update", "product_id": productID, "prices": []map[string]any{{"price": 12, "currency": "EUR"}}, "overwrite": []string{"prices"},
+	}, nil)
+	mustCall(t, "get_product", map[string]any{"product_id": productID}, &repriced)
+	if len(repriced.Product.Prices) != 1 || repriced.Product.Prices[0].Currency != "EUR" {
+		t.Errorf("after a write of EUR alone the product has prices %+v", repriced.Product.Prices)
+	}
+	created.Product.UpdateTime = repriced.Product.UpdateTime
 
 	rename := map[string]any{"action": "update", "product_id": productID, "name": sc.Title + " product renamed"}
 	if res := call(t, "manage_product", rename); errClass(res) != "refused" {
@@ -87,6 +100,10 @@ func TestWrite_DealProductRoundTrip(t *testing.T) {
 	})
 	if line == 0 || len(added.Products) != 1 {
 		t.Fatalf("add = %+v; want one line on the deal", added)
+	}
+	// The line does not take the monthly product's frequency.
+	if added.Products[0].BillingFrequency != "one-time" || !added.Products[0].IsEnabled {
+		t.Errorf("a line added without billing_frequency is %+v; want one-time and switched on", added.Products[0])
 	}
 
 	update := map[string]any{"action": "update", "deal_id": sc.DealID, "deal_product_id": line, "quantity": 3}
