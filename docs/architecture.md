@@ -427,6 +427,7 @@ symptom in [troubleshooting.md](troubleshooting.md).
 | D-98 | Installments are part of the deal surface: get_deal reports a deal's schedule, list_installments reads many, manage_installment writes one | accepted | TestGetDeal_ReportsTheScheduleAndWarnsWhenItIsStale, TestListInstallments_OneSchedulePerDealInTheOrderAsked, TestInstallments_ReadAcrossDeals |
 | D-99 | A permanent delete takes confirm, beside dry_run and expect_version | accepted | TestManageInstallment_DeleteIsPermanentSoItNeedsConfirm, TestWrite_InstallmentRoundTrip |
 | D-100 | A dropdown label matches as written first, ignoring case only when one option could be meant, and an ambiguous label is refused | accepted | TestFieldCache_EncodeTellsLabelsApartByCase |
+| D-101 | A 402 is [account], and a 415 or a limit-reached 403 is [plan] | accepted | TestClassify, TestEverySentinelHasItsOwnClass, TestTroubleshootingDocListsEveryErrorClass |
 
 ### D-01 One Go binary serves one Pipedrive workspace over stdio; nothing is hosted
 
@@ -1633,8 +1634,8 @@ Cost: the signal list comes from the reference and a few observed
 bodies, not from real 403s of both kinds side by side. Which bodies each
 kind carries, and so whether the list is right, is open until a
 permission-denied and a locked-record 403 are captured from a live
-workspace and kept as test fixtures (#115). A 402, a 415 and a
-limit-reached 403 are not told apart (#128).
+workspace and kept as test fixtures (#115). A 403 that says a limit was
+reached is `[plan]` before this split runs (D-101).
 
 ### D-53 The model reads the upstream message alone; status and path go to the debug log
 
@@ -2802,4 +2803,24 @@ taking the first match, which writes a choice nobody named.
 Cost: on a field with such twins, a read shows an id beside the label,
 and a label in another case than any option's is refused.
 
-Next ID: D-101
+### D-101 A 402 is [account], and a 415 or a limit-reached 403 is [plan]
+
+Pipedrive's 402 is `[account]`, and its 415 is `[plan]`. A 403 whose
+message carries "limit" is `[plan]` too, ahead of D-52's business-rule
+and permission split. Each class has its own troubleshooting entry.
+
+Pipedrive's
+[status-code page](https://pipedrive.readme.io/docs/core-api-concepts-http-status-codes)
+gives 402 as "Company account is not open", 415 as "Feature is not
+enabled", and 403 as "User account has reached a limit for an entity".
+None of the three is the caller's input, so `[validation]` sends a model
+to change arguments that are right, and `[permission]` sends a person to
+change rights that are fine. An account that is not open is a billing
+step, and a plan's feature or cap is an upgrade or a cleanup.
+
+Rejected: one class for all three, which hides that a closed account
+blocks every call; leaving them as `[validation]` and `[permission]`.
+Cost: the 403 signal is a word in Pipedrive's message, unverified like
+D-52's list until real bodies are recorded (#115).
+
+Next ID: D-102
