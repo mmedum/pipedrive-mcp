@@ -23,6 +23,12 @@ other tool is covered by the promise in full.
 
 ## [Unreleased]
 
+### Added
+
+- `get_deal` reports the deal's installments, their sum beside the deal value, and warnings when the two differ or the deal is won.
+- `list_installments` reads the installment schedules of up to 100 deals in two API calls.
+- `manage_installment` creates, edits and deletes installments, guarded like the other writes; a delete is permanent and needs `confirm: true`.
+
 ### Security
 
 - Built with Go 1.27.4, fixing [GO-2026-6859](https://pkg.go.dev/vuln/GO-2026-6859) (CVE-2026-97054), an HTTP server crash. This program runs no server, but the advisory lists client functions.

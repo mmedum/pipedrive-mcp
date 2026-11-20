@@ -161,6 +161,42 @@
         "subfields": "array",
         "ui_visibility": "object"
       }
+    },
+    "Installment": {
+      "endpoint": "/deals/installments",
+      "fields": {
+        "amount": "number",
+        "billing_date": "string",
+        "deal_id": "integer",
+        "description": "string",
+        "id": "integer"
+      }
+    },
+    "DealProduct": {
+      "endpoint": "/deals/{id}/products",
+      "fields": {
+        "add_time": "string",
+        "billing_frequency": "string",
+        "billing_frequency_cycles": "integer",
+        "billing_start_date": "string",
+        "comments": "string",
+        "currency": "string",
+        "deal_id": "integer",
+        "discount": "number",
+        "discount_type": "string",
+        "id": "integer",
+        "is_enabled": "boolean",
+        "item_price": "number",
+        "name": "string",
+        "order_nr": "integer",
+        "product_id": "integer",
+        "product_variation_id": "integer",
+        "quantity": "number",
+        "sum": "number",
+        "tax": "number",
+        "tax_method": "string",
+        "update_time": "string"
+      }
     }
   }
 }

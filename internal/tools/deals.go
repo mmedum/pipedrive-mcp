@@ -20,6 +20,8 @@ type dealsClient interface {
 	// The reads a dry-run create makes to show what Pipedrive fills in.
 	whoamiClient
 	ListStages(ctx context.Context, pipelineID int64) ([]pipedrive.Stage, error)
+	// The schedule get_deal reports beside the deal.
+	installmentLister
 }
 
 // dealStatusOpen is Pipedrive's default status for a freshly-created
@@ -95,7 +97,9 @@ type getDealInput struct {
 }
 
 type getDealOutput struct {
-	Deal dealSummary `json:"deal" jsonschema:"the requested deal"`
+	Deal              dealSummary          `json:"deal" jsonschema:"the requested deal"`
+	Installments      *installmentSchedule `json:"installments,omitempty" jsonschema:"the deal's payment schedule: every installment, their sum next to the deal value, and warnings where the two differ or the deal is won. Absent when it could not be read; installments_error then says why"`
+	InstallmentsError string               `json:"installments_error,omitempty" jsonschema:"why the schedule could not be read, such as a plan without installments; the deal itself is still reported"`
 }
 
 // RegisterDeals wires the deal tools into the MCP server. Reads are
@@ -105,7 +109,7 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string, opts Regi
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_deal",
-		Description: "Fetch a single Pipedrive deal by deal_id. Returns id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, lost_reason, and any custom fields under their workspace names, dropdown values as labels rather than option ids. Unknown deal_id returns a [not_found] error.",
+		Description: "Fetch a single Pipedrive deal by deal_id. Returns id, title, value, currency, status (open | won | lost | deleted), stage_id, pipeline_id, owner_id, person_id, org_id, expected_close_date, won/lost timestamps, lost_reason, and any custom fields under their workspace names, dropdown values as labels rather than option ids. It also returns the deal's installments, its payment schedule of amounts billed on dates, with their sum next to the deal value and a warning where they differ or the deal is won, since a won deal's installments may already be invoices elsewhere; that is a second API call, and if it fails the deal still comes back with installments_error saying why. manage_installment changes the schedule. Unknown deal_id returns a [not_found] error.",
 		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getDealInput) (*mcp.CallToolResult, getDealOutput, error) {
 		if err := validatePositiveID(in.DealID, "deal_id"); err != nil {
@@ -115,7 +119,16 @@ func RegisterDeals(s *mcp.Server, c dealsClient, companyDomain string, opts Regi
 		if err != nil {
 			return errorResult(err), getDealOutput{}, nil
 		}
-		return nil, getDealOutput{Deal: resolvedDeal(ctx, c, companyDomain, deal)}, nil
+		out := getDealOutput{Deal: resolvedDeal(ctx, c, companyDomain, deal)}
+		// The schedule is a second read, and the deal stands without it:
+		// a plan without installments must not cost the caller the deal.
+		if rows, err := allInstallments(ctx, c, []int64{deal.ID}); err != nil {
+			out.InstallmentsError = errorText(installmentHint(err))
+		} else {
+			sched := scheduleFor(deal, rows)
+			out.Installments = &sched
+		}
+		return nil, out, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{

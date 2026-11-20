@@ -57,7 +57,7 @@ func RegisterResources(s *mcp.Server, c resourcesClient, companyDomain string) {
 		{
 			collection:  "deals",
 			title:       "Pipedrive deal",
-			description: "One deal by id, with its custom fields under the names the workspace gives them and dropdown values under their labels. The same record get_deal returns.",
+			description: "One deal by id, with its custom fields under the names the workspace gives them and dropdown values under their labels. The same record get_deal returns under deal; its installments come from get_deal or list_installments.",
 			fetch: func(ctx context.Context, id int64) (any, error) {
 				d, err := c.GetDeal(ctx, id)
 				if err != nil {

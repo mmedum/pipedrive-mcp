@@ -61,7 +61,7 @@ path, the error classes or the package layout.
 9. **Add `force` or a confirmation flag only where the caller cannot see
    what it loses** (D-28). Deletes register by default and guard the
    call, and a soft delete takes `dry_run` and `expect_version` alone
-   (D-46, D-47). The named transitions take no `overwrite` (D-43).
+   (D-46, D-47); a permanent delete also takes `confirm` (D-99). The named transitions take no `overwrite` (D-43).
    `TestDelete_SendsTheDeleteAndReportsIt` and
    `TestREADMENamesEverySelfAuthorizingAction` hold it.
 10. **Retry a write only when it cannot have reached Pipedrive**, because

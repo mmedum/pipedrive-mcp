@@ -41,6 +41,13 @@ type fakeDealsClient struct {
 	lastDeleteID int64
 
 	encodeErr error
+
+	installments    []pipedrive.Installment
+	installmentsErr error
+}
+
+func (f *fakeDealsClient) ListInstallments(context.Context, []int64, int, string) ([]pipedrive.Installment, string, error) {
+	return f.installments, "", f.installmentsErr
 }
 
 // ListStages has no stages to offer, so a dry-run create previews no

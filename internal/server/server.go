@@ -29,7 +29,7 @@ whoami says which account the token acts as. Call it before attributing anything
 
 Read one record with get_deal, get_person, get_organization, get_activity or get_note, and many with the matching list_ tool. A get_ is one call and a list_ is one call, but a list_ you then page through is as many calls as you ask for, so filter rather than sweeping. Custom fields come back resolved to the names they carry in the workspace rather than the 40-character hashes Pipedrive stores them under, and a dropdown comes back as its label rather than the option id, so you can read them and quote them directly; refresh_field_cache re-reads both after somebody adds, renames or extends a field in the Pipedrive UI.
 
-Every mutation goes through a manage_ tool — manage_deal, manage_person, manage_organization, manage_activity, manage_note — with an action saying which.
+Every mutation goes through a manage_ tool — manage_deal, manage_person, manage_organization, manage_activity, manage_note, manage_installment — with an action saying which.
 
 Writing is guarded. A manage_ tool reads its target before it writes and refuses to replace ANY field that already holds a value unless you name that field in overwrite, e.g. overwrite: ["title", "value"] — the refusal lists exactly the names to pass, and naming fewer than it listed is still refused over the rest; filling a field that is empty destroys nothing and needs no permission. expect_version refuses a write whose record moved since you read it. Pipedrive has no undo, so take a refusal as information rather than an obstacle, and reach for dry_run when you are not sure what is there. overwrite carries a decision the USER made, not a way past a refusal: if a write is refused and the user has not said to replace what is there, report what the refusal named and stop. Re-sending the same write with overwrite makes the guard decorative. The named transitions — mark_won, mark_lost, move_stage, reopen, complete, archive, unarchive — take no overwrite, because the field they change is the field you named.
 
@@ -37,7 +37,7 @@ IMPORTANT: a list_ page holding fewer rows than the limit is NOT the end. Keep g
 
 Three things no amount of retrying will fix. Activity type (call, email, meeting and so on) cannot be filtered server-side, so ask for the rows and filter them on their own type field. Activities are not indexed by search: reach them through list_activities, filtered by the deal or person they hang off. And a field that already holds a value can be changed but NOT cleared — Pipedrive v2 rejects a null and stores an empty string as a value — so omit what you do not mean to change rather than sending a blank to empty it.
 
-Resources pipedrive://deals/{id}, and the same for persons, organizations, activities and notes, carry what the matching get_ tool returns, for attaching a record rather than calling a tool. They take no options, so include_attendees and include_notes still need the tool.
+Resources pipedrive://deals/{id}, and the same for persons, organizations, activities and notes, carry what the matching get_ tool returns, for attaching a record rather than calling a tool. They take no options, so include_attendees and include_notes still need the tool, and a deal's resource carries the deal without its installments, which get_deal and list_installments report.
 
 Everything here is Pipedrive v2 except notes, which v2 does not expose at all; those come from v1 and behave the same way, except that deleting one is soft — it clears active_flag, and nothing here sets it back. Custom fields are writable on deals, people and organizations: pass custom_fields keyed by the names a get_ reports, and give a dropdown its label rather than an option id. ARCHIVING IS NOT CLOSING: archive takes a deal out of the pipeline and out of list_deals — they are their own collection, so pass archived to read them — and an archived deal accepts no edit until you unarchive it. mark_lost is what 'we lost it' means. Products, leads, files, projects and goals are not here.`
 
@@ -83,6 +83,7 @@ func newServer(ctx context.Context, version string, client *pipedrive.Client, do
 	tools.RegisterOrganizations(srv, client, domain, opts)
 	tools.RegisterActivities(srv, client, domain, opts)
 	tools.RegisterNotes(srv, client, opts)
+	tools.RegisterInstallments(srv, client, opts)
 	tools.RegisterCache(srv, client)
 	tools.RegisterSearch(srv, client)
 	tools.RegisterWhoAmI(srv, client)
