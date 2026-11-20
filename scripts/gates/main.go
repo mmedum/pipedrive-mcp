@@ -120,6 +120,10 @@ func init() {
 			run: crossGate, args: "", runs: inCheck,
 			doc: "the server builds for every target .goreleaser.yaml releases",
 		},
+		"v1-watch": {
+			run: v1WatchGate, args: "", runs: manual,
+			doc: "Pipedrive's v2 description and changelog leave the notes and users carve-out where it is",
+		},
 		"parity": {
 			run: parity, args: "", runs: inCheck,
 			doc: "`make check` and CI run the same gates",

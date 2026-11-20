@@ -129,6 +129,12 @@ changelog-links: ## Every CHANGELOG version heading has its link definition
 cross: ## Build the server for every target the release ships
 	@$(GO) run ./scripts/gates cross
 
+# Not in check: it reads Pipedrive's site, so it runs weekly in
+# v1-watch.yml and before a release.
+.PHONY: v1-watch
+v1-watch: ## Pipedrive's v2 description and changelog leave the v1 carve-out where it is
+	@$(GO) run ./scripts/gates v1-watch
+
 .PHONY: mcpb
 mcpb: ## The bundle manifest describes the bundle the packer stages, and the release its six archives
 	@$(GO) run ./scripts/gates mcpb
