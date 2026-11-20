@@ -202,8 +202,8 @@ func projectCollection[E any](es []E, render func(E) string) string {
 // phones wholesale. Pipedrive's reference says only "The emails of the
 // person". Checked for emails by the integration test
 // TestWrite_PersonEmailsReplaceWholesale, whose restore sends the set
-// without its probe address and fails if the address stays; no test
-// probes phones.
+// without its probe address and fails if the address stays, and for
+// phones by the integration test TestWrite_PersonPhonesReplaceWholesale.
 // https://developers.pipedrive.com/docs/api/v1/Persons#updatePerson
 //
 // Value and Label are quoted rather than concatenated with a separator.
@@ -242,8 +242,8 @@ func projectParticipants(ps []pipedrive.ActivityParticipant) string {
 }
 
 // projectAddress and projectLocation render the structured records
-// Pipedrive parses out of a single line back to that line, which is the
-// same shape a write sends.
+// Pipedrive stores for an address or a location back to their line,
+// which is what a write sends.
 func projectAddress(a *pipedrive.Address) string {
 	if a == nil {
 		return ""

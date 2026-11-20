@@ -20,7 +20,9 @@ cannot be withdrawn (D-97).
   since the previous tag. Nothing they produce is committed.
 - Refresh `internal/pipedrive/testdata/v2-response-fields.json` from
   <https://developers.pipedrive.com/docs/api/v1/openapi-v2.yaml>, with
-  the spec's SHA256 and the capture date (D-72). A field that appears or
+  the spec's SHA256 and the capture date (D-72): the response `types`,
+  the request bodies under `requests`, and the query parameters under
+  `queries`. A field that appears or
   goes is a finding. Check there whether v2 has gained notes or users
   (D-04).
 - Re-fetch the vendored schemas: a pinned hash proves the bytes are the

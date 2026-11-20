@@ -241,7 +241,9 @@ func marshaledKind(typ reflect.Type) string {
 }
 
 // TestRequestTypesMatchTheSpec holds the request bodies this package
-// sends to Pipedrive's v2 description, as TestUpstreamTypesMatchTheSpec
+// sends to Pipedrive's v2 description, their top-level fields only: the
+// fixture records no nested schemas, so an element of participants or
+// emails is not compared, as TestUpstreamTypesMatchTheSpec
 // holds the responses: a field the description does not declare is one
 // Pipedrive ignores or refuses, and a type it cannot hold is refused.
 func TestRequestTypesMatchTheSpec(t *testing.T) {
@@ -341,10 +343,12 @@ func TestQueriesMatchTheSpec(t *testing.T) {
 	_, _ = c.GetPerson(ctx, 7)
 	_, _ = c.GetActivity(ctx, 7, GetActivityOptions{IncludeAttendees: true})
 
-	// A floor stated literally: the reads above reach this many paths.
-	const floor = 14
-	if len(seen) < floor {
-		t.Fatalf("the reads reached %d paths, fewer than %d; the recorder is not seeing them", len(seen), floor)
+	// Every path the fixture records has to be reached, so a read that
+	// stops sending, or one the list above leaves out, fails here.
+	for path := range spec.Queries {
+		if _, ok := seen[path]; !ok {
+			t.Errorf("no read above reached %s, which %s records; call it, or drop it from the fixture", path, specFixture)
+		}
 	}
 	for path, params := range seen {
 		declared, ok := spec.Queries[path]

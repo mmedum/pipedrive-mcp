@@ -694,7 +694,8 @@ func TestWrite_ActivityLinksToAPerson(t *testing.T) {
 // TestWrite_ActivityLocationTakesOneLine are the sentinels for OneLine:
 // Pipedrive v2 refuses a bare string for an address or a location and
 // takes an object holding the line. Each fills the empty field on a
-// scratch record, which the test deletes, since no write empties it.
+// scratch record and leaves it: Pipedrive refuses an empty line, so no
+// write can restore the field, and the scratch record is deleted.
 func TestWrite_OrganizationAddressTakesOneLine(t *testing.T) {
 	requireWrites(t)
 	sc := newScratch(t)

@@ -69,7 +69,7 @@ type activitySummary struct {
 	Busy                    bool                            `json:"busy" jsonschema:"true marks the owner as busy on calendar"`
 	Done                    bool                            `json:"done" jsonschema:"true once the activity has been completed"`
 	MarkedAsDoneTime        string                          `json:"marked_as_done_time,omitempty" jsonschema:"timestamp when the activity was marked done, empty if still open"`
-	Location                *pipedrive.ActivityLocation     `json:"location,omitempty" jsonschema:"physical location: value (display string), country, locality, postal_code"`
+	Location                *pipedrive.ActivityLocation     `json:"location,omitempty" jsonschema:"physical location: value, the line as written, and country, locality and postal_code where Pipedrive has them; a line written through this server has none"`
 	Participants            []pipedrive.ActivityParticipant `json:"participants,omitempty" jsonschema:"linked persons; one is marked primary"`
 	Attendees               []pipedrive.ActivityAttendee    `json:"attendees,omitempty" jsonschema:"calendar invitees with RSVP status; populated only when include_attendees is true"`
 	ConferenceMeetingClient string                          `json:"conference_meeting_client,omitempty" jsonschema:"conference provider name (e.g. zoom, googlemeet)"`
@@ -436,8 +436,8 @@ func activityAfterUpdate(before pipedrive.Activity, req pipedrive.UpdateActivity
 	setIf(&after.Note, req.Note)
 	setIf(&after.PublicDescription, req.PublicDescription)
 	if req.Location != nil {
-		// The prediction needs only the line, which is what the guard and
-		// the diff compare on (OneLine).
+		// A PATCH replaces the stored location whole, as it does an
+		// address, so the line alone is what Pipedrive keeps (OneLine).
 		after.Location = &pipedrive.ActivityLocation{Value: string(*req.Location)}
 	}
 	if req.Participants != nil {

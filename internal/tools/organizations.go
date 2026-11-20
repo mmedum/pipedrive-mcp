@@ -289,8 +289,8 @@ func organizationAfterUpdate(before pipedrive.Organization, req pipedrive.Update
 	setIf(&after.Name, req.Name)
 	setIf(&after.OwnerID, req.OwnerID)
 	if req.Address != nil {
-		// The prediction needs only the line, which is what the guard and
-		// the diff compare on (OneLine).
+		// A PATCH replaces the stored address whole, its parts included,
+		// so the line alone is the record Pipedrive keeps (OneLine).
 		after.Address = &pipedrive.Address{Value: string(*req.Address)}
 	}
 	return after
