@@ -119,6 +119,26 @@ kinds, so a 403 can land in the wrong class.
 failure needs the token's user to have access to the record. A business
 rule needs the record or the stage changed in Pipedrive.
 
+## `[account]`
+
+**Cause:** Pipedrive answered 402: the company account is not open, for
+example because its trial expired or no payment details are entered
+(D-101).
+
+**Fix:** open the account in Pipedrive's billing settings. No call
+succeeds until then, and changing the request does not help.
+
+## `[plan]`
+
+**Cause:** Pipedrive answered 415, a feature the workspace's plan does
+not include, or a 403 saying the account has reached a limit for an
+entity, such as a plan's cap on a kind of record (D-101). Installments,
+for example, need the Growth plan or above.
+
+**Fix:** read the message, which is Pipedrive's own. Upgrade the plan,
+or remove records to get under the limit. Retrying with other arguments
+does not help.
+
 ## `[not_found]`
 
 **Cause:** no record has that id, or the token's user cannot see it.

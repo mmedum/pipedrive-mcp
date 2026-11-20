@@ -25,6 +25,9 @@ func TestClassify(t *testing.T) {
 		{"400", 400, envelope{ErrorMsg: "Invalid"}, ErrValidation},
 		{"422", 422, envelope{ErrorMsg: "Unprocessable"}, ErrValidation},
 		{"410", 410, envelope{ErrorMsg: "Gone"}, ErrGone},
+		{"402 account not open", 402, envelope{ErrorMsg: "Company account is not open"}, ErrAccountNotOpen},
+		{"415 feature not enabled", 415, envelope{ErrorMsg: "Feature is not enabled"}, ErrPlanLimit},
+		{"403 limit reached", 403, envelope{ErrorMsg: "User account has reached a limit for an entity"}, ErrPlanLimit},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -29,6 +29,10 @@ other tool is covered by the promise in full.
 - `list_installments` reads the installment schedules of up to 100 deals in two API calls.
 - `manage_installment` creates, edits and deletes installments, guarded like the other writes; a delete is permanent and needs `confirm: true`.
 
+### Changed
+
+- An account that is not open is `[account]`, and a plan's missing feature or reached limit is `[plan]`; they were `[validation]` or `[permission]`.
+
 ### Fixed
 
 - Custom fields, pipelines and stages past Pipedrive's first page of 100 are read; a field past it was neither resolved nor written by name.
