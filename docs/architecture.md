@@ -428,6 +428,8 @@ symptom in [troubleshooting.md](troubleshooting.md).
 | D-99 | A permanent delete takes confirm, beside dry_run and expect_version | accepted | TestManageInstallment_DeleteIsPermanentSoItNeedsConfirm, TestWrite_InstallmentRoundTrip |
 | D-100 | A dropdown label matches as written first, ignoring case only when one option could be meant, and an ambiguous label is refused | accepted | TestFieldCache_EncodeTellsLabelsApartByCase |
 | D-101 | A 402 is [account], and a 415 or a limit-reached 403 is [plan] | accepted | TestClassify, TestEverySentinelHasItsOwnClass, TestTroubleshootingDocListsEveryErrorClass |
+| D-102 | No log line per tool call | rejected | review |
+| D-103 | No token reload while the server runs | rejected | review |
 
 ### D-01 One Go binary serves one Pipedrive workspace over stdio; nothing is hosted
 
@@ -1820,9 +1822,7 @@ model in [security.md](security.md) relies on the absence.
 Rejected: an audit trail kept by this server, which could record what
 was called and never why.
 Cost: the client transcript is the only record of a call or a rehearsal.
-Whether to add one line per call, with the method, the path, the status
-and the duration and no payload, is open (#123); adding it changes the
-threat model.
+A line per call is rejected (D-102).
 
 ### D-61 The token is unexported on Settings, and LogValue and String redact it
 
@@ -1888,8 +1888,7 @@ reported rather than read as no token.
 Rejected: the token in the client's JSON config.
 Cost: same-user malware reads an unlocked keyring as it reads any of the
 user's files. The token is read once at startup, so a rotated token
-takes effect only on a restart; whether to reload it on a signal or on
-an auth failure is open (#122).
+takes effect only on a restart, and a reload is rejected (D-103).
 
 ### D-64 The domain resolves from the environment, then a non-secret pointer file, then an error
 
@@ -2823,4 +2822,38 @@ blocks every call; leaving them as `[validation]` and `[permission]`.
 Cost: the 403 signal is a word in Pipedrive's message, unverified like
 D-52's list until real bodies are recorded (#115).
 
-Next ID: D-102
+### D-102 No log line per tool call
+
+Rejected: one log line per tool call, carrying the method, the path, the
+status and the duration and no payload. The server keeps no record of
+tool calls (D-60), and this decision keeps it so.
+
+The line would add nothing a reader can act on. D-59 already logs each
+HTTP request's path, method, status, attempt and duration at debug
+level, which is the part of a call an operator diagnoses. A tool name
+beside them says which tool ran but never why, and the client's
+transcript holds both. Adding the line would also add an asset to the
+threat model in [security.md](security.md), which relies on stderr
+holding no record of what a person asked for.
+
+Rejected: a per-call line at info level; one at debug level only.
+Cost: an operator who wants to know which tools ran reads the client's
+transcript, not this server's stderr.
+
+### D-103 No token reload while the server runs
+
+Rejected: reloading the API token without a restart, on a signal or
+after a 401. The token is read once at startup (D-63).
+
+One binary serves one person's client, which starts it as a subprocess
+(D-01), so a restart is the client reconnecting, a matter of seconds.
+A reload on a signal needs a signal Windows does not have. A reload on a
+401 would re-read the keyring on every rejected call, and a token that
+is wrong rather than rotated would be fetched again and again. Both add
+a path where the token changes under requests in flight.
+
+Rejected: a SIGHUP reload; a re-read of the keyring after a 401.
+Cost: a rotated token takes effect when the client restarts the server,
+and `[auth]` says so (docs/troubleshooting.md#auth).
+
+Next ID: D-104
