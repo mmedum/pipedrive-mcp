@@ -109,8 +109,9 @@ says, and restart the client.
 
 ## `[permission]` and `[business_rule]`
 
-**Cause:** Pipedrive answered 403. The server calls it `[business_rule]`
-when the message mentions a rule, such as a locked record or a stage
+**Cause:** Pipedrive answered 403. A message saying a limit was reached
+is [`[plan]`](#plan). The server calls the rest `[business_rule]` when
+the message mentions a rule, such as a locked record or a stage
 setting, and `[permission]` otherwise (D-52). The word list in
 `internal/pipedrive/errors.go` is unverified against real bodies of both
 kinds, so a 403 can land in the wrong class.
@@ -118,6 +119,26 @@ kinds, so a 403 can land in the wrong class.
 **Fix:** read the message, which is Pipedrive's own. A permission
 failure needs the token's user to have access to the record. A business
 rule needs the record or the stage changed in Pipedrive.
+
+## `[account]`
+
+**Cause:** Pipedrive answered 402: the company account is not open, for
+example because its trial expired or no payment details are entered
+(D-101).
+
+**Fix:** open the account in Pipedrive's billing settings. No call
+succeeds until then, and changing the request does not help.
+
+## `[plan]`
+
+**Cause:** Pipedrive answered 415, a feature the workspace's plan does
+not include, or a 403 saying the account has reached a limit for an
+entity, such as a plan's cap on a kind of record (D-101). Installments,
+for example, need the Growth plan or above.
+
+**Fix:** read the message, which is Pipedrive's own. Upgrade the plan,
+or remove records to get under the limit. Retrying with other arguments
+does not help.
 
 ## `[not_found]`
 

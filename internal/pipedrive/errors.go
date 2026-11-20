@@ -19,6 +19,12 @@ var (
 	ErrGone                  = errors.New("pipedrive: gone")
 	ErrServerError           = errors.New("pipedrive: server error")
 	ErrValidation            = errors.New("pipedrive: validation")
+	// ErrAccountNotOpen is a 402: the company account is not open, so no
+	// call succeeds until somebody pays or ends the trial (D-101).
+	ErrAccountNotOpen = errors.New("pipedrive: account not open")
+	// ErrPlanLimit is a 415, a feature the plan does not include, or a
+	// 403 for a limit the account has reached (D-101).
+	ErrPlanLimit = errors.New("pipedrive: plan limit")
 )
 
 // APIError carries the wire-level detail. Wrap one of the sentinels above
@@ -49,9 +55,12 @@ type envelope struct {
 // classify maps an HTTP status and the decoded error body to a typed
 // APIError. Pipedrive's v2 description declares no 401, 403, 429 or 5xx
 // on any operation, so the switch takes the common statuses from its
-// status-code page: 401, 403, 404, 410 and 429 each have a class, a 5xx
-// is a server error and any other 4xx is validation. The page's 402, 415
-// and limit-reached 403 are not told apart (#128).
+// status-code page: 401, 402, 403, 404, 410, 415 and 429 each have a
+// class, a 5xx is a server error and any other 4xx is validation. The
+// page gives 402 as "Company account is not open (possible reason: trial
+// expired, payment details not entered)", 415 as "Feature is not
+// enabled", and 403 as "User account has reached a limit for an entity"
+// (D-101).
 // https://pipedrive.readme.io/docs/core-api-concepts-http-status-codes
 //
 // The raw body is not kept on APIError, because Pipedrive can echo PII
@@ -68,10 +77,19 @@ func classify(status int, version apiVersion, endpoint string, env envelope) *AP
 	switch {
 	case status == 401:
 		return mk(ErrUnauthorized)
+	case status == 402:
+		return mk(ErrAccountNotOpen)
+	case status == 415 && msg != "":
+		// Pipedrive's own answer. A 415 with no message is an edge's, for
+		// a request body it would not take, and stays validation.
+		return mk(ErrPlanLimit)
 	case status == 403:
-		// A business rule when the message carries a signal substring,
-		// a permission failure otherwise; the endpoint plays no part
-		// (D-52).
+		// A reached limit, a business rule or a permission failure, by
+		// signal substrings in the message; the endpoint plays no part
+		// (D-52, D-101).
+		if hasSignal(msg, limit403Signals) {
+			return mk(ErrPlanLimit)
+		}
 		if isBusinessRule403(msg) {
 			return mk(ErrForbiddenBusinessRule)
 		}
@@ -134,9 +152,21 @@ var businessRule403Signals = []string{
 	"restricted by",
 }
 
+// limit403Signals mark a 403 for a limit the account has reached, which
+// the status-code page gives as "User account has reached a limit for an
+// entity". Phrases, not the bare word, so "limited to its owner" stays a
+// permission failure. Unverified like the list above: no such 403 has
+// been captured.
+var limit403Signals = []string{"reached a limit", "reached the limit", "limit reached", "limit has been reached"}
+
 func isBusinessRule403(msg string) bool {
+	return hasSignal(msg, businessRule403Signals)
+}
+
+// hasSignal reports whether msg carries one of signals, ignoring case.
+func hasSignal(msg string, signals []string) bool {
 	low := strings.ToLower(msg)
-	for _, sig := range businessRule403Signals {
+	for _, sig := range signals {
 		if strings.Contains(low, sig) {
 			return true
 		}
