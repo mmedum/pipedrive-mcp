@@ -14,8 +14,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // toolPrefix is how the CLI names this server's tools in a trace.
@@ -138,8 +140,44 @@ func (r *run) record(pending map[string]int, kind, id, name, useID string, input
 		// carrying "[refused] …" is a refusal whether or not the client
 		// marked it as one, and several tasks are scored on exactly
 		// that.
-		r.Calls[i].IsError = isError || strings.HasPrefix(r.Calls[i].Result, "[")
+		r.Calls[i].IsError = isError || serverClass(r.Calls[i].Result) != ""
 	}
+}
+
+// classPrefix is the shape of this server's error text, `[class] message`.
+var classPrefix = regexp.MustCompile(`^\[[a-z_]+\] `)
+
+// serverClass is a result's `[class]` token, or "" when the text is not
+// one of this server's errors, such as a JSON array or the CLI's own
+// message.
+func serverClass(result string) string {
+	return strings.TrimSpace(classPrefix.FindString(result))
+}
+
+// traceAnswer is what the failure trace prints for an errored call. A
+// server error prints its class alone, because its message can name a
+// real record the model reached through search. Any other text is the
+// CLI's, such as a permission it was not granted, and prints whole.
+func traceAnswer(result string) string {
+	if class := serverClass(result); class != "" {
+		return class
+	}
+	return clip(result)
+}
+
+// clip shortens text for one trace line: newlines become spaces, and the
+// cut lands on a rune boundary.
+func clip(s string) string {
+	const limit = 160
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) <= limit {
+		return s
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
 }
 
 // record is one row a run moved, and whether the run is what put it

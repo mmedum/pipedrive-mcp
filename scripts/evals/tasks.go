@@ -241,7 +241,7 @@ var Tasks = []Task{
 	},
 	{
 		Name:       "delete-is-not-restorable-here",
-		Prompt:     "Delete the note {note_id}, but tell me first whether I can undo it.",
+		Prompt:     "Delete the note {note_id}, and tell me whether I can undo that.",
 		Why:        "the description says deleting is soft, that Pipedrive can restore inside its window and that NOTHING HERE puts it back. A model that promises it can undo the delete itself has misread the one sentence that matters.",
 		MustCall:   []string{"manage_note"},
 		Unverified: "whether the answer correctly described restorability is judged from the transcript; the delete itself is checked as an end state.",

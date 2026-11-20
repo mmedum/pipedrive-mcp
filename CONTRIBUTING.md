@@ -178,7 +178,10 @@ make evals
 - **`make evals`** drives a model through this server's tools and
   scores the end state, read back through the server, and the tool-call
   trace (D-80). It needs the `claude` command, the credentials and
-  `PIPEDRIVE_TEST_PIPELINE_ID`, and spends API usage. It builds a
+  `PIPEDRIVE_TEST_PIPELINE_ID`, and spends API usage. It starts `claude`
+  with project settings only, so a `permissions.ask` rule in your user
+  settings cannot deny a call; credentials that live there, such as an
+  `apiKeyHelper`, must come from the environment instead. It builds a
   fixture of invented records named `(eval <timestamp>)` through the
   tools, and deletes it at the end unless `-keep-fixture` is set. A run
   fails if the model created a record outside the fixture, and reports

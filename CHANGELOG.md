@@ -31,6 +31,7 @@ other tool is covered by the promise in full.
 
 ### Fixed
 
+- Custom fields, pipelines and stages past Pipedrive's first page of 100 are read; a field past it was neither resolved nor written by name.
 - A dropdown label matching two options that differ only in case is refused, naming both; it wrote whichever option Pipedrive listed last.
 
 ### Security

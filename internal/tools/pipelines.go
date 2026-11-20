@@ -122,9 +122,6 @@ func RegisterPipelines(s *mcp.Server, c pipelinesClient, companyDomain string) {
 // ListPipelines concurrently, then enforces the "pipeline must exist"
 // gate so an unknown id surfaces as [not_found] rather than a silently
 // empty result. Returns the stage list on success.
-//
-// ListPipelines reads one page, Pipedrive's default of 100 pipelines, so
-// a pipeline past it reads as not found here.
 func stagesAndValidatedPipeline(ctx context.Context, c pipelinesClient, pipelineID int64) ([]pipedrive.Stage, error) {
 	if pipelineID == 0 {
 		return c.ListStages(ctx, 0)
