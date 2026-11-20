@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"io/fs"
 	"maps"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -619,4 +620,97 @@ func joined(e ast.Expr) (string, bool) {
 		return config.EnvPrefix, e.Sel.Name == "EnvPrefix"
 	}
 	return "", false
+}
+
+// docHarnessVars are variables docs/configuration.md documents that the
+// server does not read: the live test harness reads them, and a person
+// running it looks them up in the same place. What each does is in that
+// doc and, for the pipeline, in scriptsOwn.
+var docHarnessVars = []string{"PIPEDRIVE_INTEGRATION_WRITES", "PIPEDRIVE_TEST_PIPELINE_ID"}
+
+// TestConfigurationDocDocumentsEverySetting holds the `### NAME` headings
+// under docs/configuration.md's "## Variables" to config.Vars, both
+// ways: a setting the server reads and the doc leaves out is one nobody
+// can look up, and a heading for a setting the server does not read
+// describes a knob that does nothing.
+func TestConfigurationDocDocumentsEverySetting(t *testing.T) {
+	const doc = "../../docs/configuration.md"
+	body, err := os.ReadFile(doc)
+	if err != nil {
+		t.Fatalf("reading %s: %v", doc, err)
+	}
+	documented, unread := configurationDocVars(string(body))
+	for _, line := range unread {
+		t.Errorf("%s has a heading under ## Variables this test cannot read: %q; write it as ### `NAME`", doc, line)
+	}
+
+	// Stated literally and below the count, so a parser that reads the
+	// wrong shape fails here while one lost heading still gets its own
+	// message below.
+	const floor = 4
+	if len(documented) < floor {
+		t.Fatalf("read %d variable headings under ## Variables, fewer than %d; the parser is reading the wrong shape", len(documented), floor)
+	}
+	for name, n := range documented {
+		if n > 1 {
+			t.Errorf("%s documents %s under %d headings; keep one", doc, name, n)
+		}
+	}
+	server := map[string]bool{}
+	for _, v := range config.Vars() {
+		server[v.Name] = true
+		if documented[v.Name] == 0 {
+			t.Errorf("%s does not document %s, which the server reads; add a ### `%s` heading under ## Variables", doc, v.Name, v.Name)
+		}
+	}
+	for _, name := range docHarnessVars {
+		if server[name] {
+			t.Errorf("%s is in docHarnessVars and config.Vars; the doc says the server does not read it", name)
+		}
+		if documented[name] == 0 {
+			t.Errorf("docHarnessVars lists %s, which %s no longer documents; drop it from the list", name, doc)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(documented)) {
+		if !server[name] && !slices.Contains(docHarnessVars, name) {
+			t.Errorf("%s documents %s, which the server does not read and docHarnessVars does not list", doc, name)
+		}
+	}
+}
+
+// configurationDocVars counts the variable names of the ### headings
+// between "## Variables" and the next heading of level one or two,
+// outside code fences, and returns any ### heading there it cannot read.
+func configurationDocVars(doc string) (counts map[string]int, unread []string) {
+	heading := regexp.MustCompile("^### `([A-Z][A-Z0-9_]*)`$")
+	counts = map[string]int{}
+	in, fenced := false, false
+	for line := range strings.Lines(doc) {
+		line = strings.TrimRight(line, "\r\n")
+		switch {
+		case strings.HasPrefix(line, "```"):
+			fenced = !fenced
+		case fenced:
+		case line == "## Variables":
+			in = true
+		case strings.HasPrefix(line, "# ") || strings.HasPrefix(line, "## "):
+			in = false
+		case in && strings.HasPrefix(line, "### "):
+			if m := heading.FindStringSubmatch(line); m != nil {
+				counts[m[1]]++
+			} else {
+				unread = append(unread, line)
+			}
+		}
+	}
+	return counts, unread
+}
+
+func TestConfigurationDocVars_ReadsOnlyTheVariablesSection(t *testing.T) {
+	counts, unread := configurationDocVars("## Token resolution\n```\n## Variables\n### `IN_A_FENCE`\n```\n### `NOT_THIS`\n" +
+		"## Variables\n### `LOG_LEVEL`\nprose\n### `PIPEDRIVE_DRY_RUN`\n### `PIPEDRIVE_DRY_RUN`\n### OLD_KNOB\n# Next\n### `NOR_THIS`\n")
+	want := map[string]int{"LOG_LEVEL": 1, "PIPEDRIVE_DRY_RUN": 2}
+	if !maps.Equal(counts, want) || !slices.Equal(unread, []string{"### OLD_KNOB"}) {
+		t.Errorf("configurationDocVars = %v, %q; want %v, [### OLD_KNOB]", counts, unread, want)
+	}
 }
