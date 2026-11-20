@@ -46,8 +46,8 @@ Non-goals:
   string as a value, so a field can be changed but not emptied.
 - **Merging records.** A merge destroys one record's values across a
   record nobody read, and no refusal could name what it would lose.
-- **Products, leads, files, projects and goals.** `search` finds some of
-  them, and no tool reads or writes them.
+- **Leads, files, projects and goals.** `search` finds some of them, and
+  no tool reads or writes them.
 - **Fetching every page for you.** Each list call returns one page and
   the cursor for the next.
 - **Asking you before a call.** Your client approves each call; the
@@ -88,6 +88,11 @@ tool needs. `list_deals` filters; it does not match names.
 | `manage_deal` | Create or edit a deal, move it between stages, close it, archive it, or delete it — `create`, `update`, `move_stage`, `mark_won`, `mark_lost`, `reopen`, `archive`, `unarchive`, `delete`. Custom fields by name, dropdowns by label |
 | `list_installments` | The installment schedules of up to 100 deals: amounts, billing dates and currency, each schedule's sum beside its deal value, and warnings where they differ |
 | `manage_installment` | Add, change or remove one installment on a deal — `create`, `update`, `delete`. Needs Pipedrive's Growth plan and a deal with a one-time product |
+| `get_product` | One catalog product: code, unit, tax, billing frequency, its prices per currency, and custom fields under their workspace names |
+| `list_products` | The product catalog by owner, ids or update window, cursor-paginated |
+| `manage_product` | Create, edit or delete a catalog product — `create`, `update`, `delete`. Prices are one list, replaced whole |
+| `list_deal_products` | The products on one deal: price, quantity, discount, the sum Pipedrive computes, billing frequency |
+| `manage_deal_product` | Add a product to a deal, edit the line, or remove it — `add`, `update`, `remove`; a removal is permanent and needs `confirm: true` |
 | `get_person` | One contact: names, every email and phone with its label, the company they belong to, and custom fields |
 | `list_persons` | People by owner, linked organization or update window, cursor-paginated |
 | `manage_person` | Create, edit or delete a contact — `create`, `update`, `delete`. Name it with `name` or with `first_name`/`last_name`, never both. Custom fields by name, dropdowns by label |

@@ -28,6 +28,8 @@ other tool is covered by the promise in full.
 - `get_deal` reports the deal's installments, their sum beside the deal value, and warnings when the two differ or the deal is won.
 - `list_installments` reads the installment schedules of up to 100 deals in two API calls.
 - `manage_installment` creates, edits and deletes installments, guarded like the other writes; a delete is permanent and needs `confirm: true`.
+- `get_product`, `list_products` and `manage_product` read and write the product catalog, prices and custom fields included.
+- `list_deal_products` and `manage_deal_product` read and change the products on a deal; removing one is permanent and needs `confirm: true`.
 
 ### Changed
 

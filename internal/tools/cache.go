@@ -2,36 +2,42 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
 )
 
 type cacheClient interface {
 	ReloadDealFields(ctx context.Context) (int, error)
 	ReloadPersonFields(ctx context.Context) (int, error)
 	ReloadOrganizationFields(ctx context.Context) (int, error)
+	ReloadProductFields(ctx context.Context) (int, error)
 }
 
 // fieldCacheRefresh is one row of refreshFieldCacheOutput. Error is
 // the per-resource [class] message when that resource's reload fails;
 // successes return error="" and the live count.
 type fieldCacheRefresh struct {
-	Resource string `json:"resource" jsonschema:"deals | persons | organizations"`
+	Resource string `json:"resource" jsonschema:"deals | persons | organizations | products"`
 	Count    int    `json:"count" jsonschema:"number of fields cached after reload; 0 on error"`
 	Error    string `json:"error,omitempty" jsonschema:"per-resource error message; empty on success"`
+	// Unavailable is set when the workspace's plan lacks the resource.
+	Unavailable string `json:"unavailable,omitempty" jsonschema:"why the workspace has no such fields, such as a plan without products; not counted as an error"`
 }
 
 type refreshFieldCacheInput struct{}
 
 type refreshFieldCacheOutput struct {
-	Refreshed []fieldCacheRefresh `json:"refreshed" jsonschema:"per-resource result, one entry each for deals / persons / organizations"`
+	Refreshed []fieldCacheRefresh `json:"refreshed" jsonschema:"per-resource result, one entry each for deals / persons / organizations / products"`
 	Errors    int                 `json:"errors,omitempty" jsonschema:"how many resources failed to reload; 0 on full success"`
 }
 
 // RegisterCache wires the refresh_field_cache tool into the MCP
-// server. The tool has no inputs — it always refreshes all three
-// per-resource caches (deals, persons, organizations) in parallel.
+// server. The tool has no inputs — it always refreshes all four
+// per-resource caches (deals, persons, organizations, products) in parallel.
 // Activities don't have a custom-field cache on Pipedrive v2 so they
 // are intentionally absent.
 func RegisterCache(s *mcp.Server, c cacheClient) {
@@ -39,20 +45,20 @@ func RegisterCache(s *mcp.Server, c cacheClient) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "refresh_field_cache",
-		Description: "Refresh Pipedrive's custom-field name caches for deals, persons, and organizations. Use after a custom field is added or renamed in the Pipedrive UI, or after a dropdown gains an option, so the LLM-facing tools (get_deal, get_person, get_organization, list_X) start surfacing the new name or label without restarting the server. Refreshes all three resources in parallel; returns per-resource field count after reload, plus an `errors` count if any resource failed. Activities do not have custom fields on Pipedrive v2 and are intentionally skipped.",
+		Description: "Refresh Pipedrive's custom-field name caches for deals, persons, organizations and products. Use after a custom field is added or renamed in the Pipedrive UI, or after a dropdown gains an option, so the LLM-facing tools (get_deal, get_person, get_organization, get_product, list_X) start surfacing the new name or label without restarting the server. Refreshes all four resources in parallel; returns per-resource field count after reload, plus an `errors` count if any resource failed. Activities do not have custom fields on Pipedrive v2 and are intentionally skipped.",
 		Annotations: &annotations,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ refreshFieldCacheInput) (*mcp.CallToolResult, refreshFieldCacheOutput, error) {
 		return nil, refreshAllFieldCaches(ctx, c), nil
 	})
 }
 
-// refreshAllFieldCaches fans out the three reload calls in parallel
-// — Pipedrive's /XFields endpoints are independent so wall-clock cost
-// is max(t1,t2,t3) rather than t1+t2+t3.
+// refreshAllFieldCaches fans out the four reload calls in parallel —
+// Pipedrive's /XFields endpoints are independent, so the wall-clock cost
+// is the slowest one rather than their sum.
 func refreshAllFieldCaches(ctx context.Context, c cacheClient) refreshFieldCacheOutput {
-	rows := make([]fieldCacheRefresh, 3)
+	rows := make([]fieldCacheRefresh, 4)
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
 		count, err := c.ReloadDealFields(ctx)
@@ -68,6 +74,11 @@ func refreshAllFieldCaches(ctx context.Context, c cacheClient) refreshFieldCache
 		count, err := c.ReloadOrganizationFields(ctx)
 		rows[2] = rowFor("organizations", count, err)
 	}()
+	go func() {
+		defer wg.Done()
+		count, err := c.ReloadProductFields(ctx)
+		rows[3] = rowFor("products", count, err)
+	}()
 	wg.Wait()
 
 	out := refreshFieldCacheOutput{Refreshed: rows}
@@ -81,7 +92,12 @@ func refreshAllFieldCaches(ctx context.Context, c cacheClient) refreshFieldCache
 
 func rowFor(resource string, count int, err error) fieldCacheRefresh {
 	row := fieldCacheRefresh{Resource: resource, Count: count}
-	if err != nil {
+	switch {
+	case errors.Is(err, pipedrive.ErrPlanLimit):
+		// A plan without the resource, such as products, has no fields
+		// to cache; that is the workspace's shape, not a failure.
+		row.Unavailable = errorText(err)
+	case err != nil:
 		row.Error = errorText(err)
 	}
 	return row

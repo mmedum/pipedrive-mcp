@@ -14,17 +14,20 @@ import (
 )
 
 type fakeCacheClient struct {
-	dealCount   int
-	personCount int
-	orgCount    int
+	dealCount    int
+	personCount  int
+	orgCount     int
+	productCount int
+	productErr   error
 
 	dealErr   error
 	personErr error
 	orgErr    error
 
-	dealCalls   atomic.Int64
-	personCalls atomic.Int64
-	orgCalls    atomic.Int64
+	dealCalls    atomic.Int64
+	personCalls  atomic.Int64
+	orgCalls     atomic.Int64
+	productCalls atomic.Int64
 }
 
 func (f *fakeCacheClient) ReloadDealFields(_ context.Context) (int, error) {
@@ -42,6 +45,11 @@ func (f *fakeCacheClient) ReloadOrganizationFields(_ context.Context) (int, erro
 	return f.orgCount, f.orgErr
 }
 
+func (f *fakeCacheClient) ReloadProductFields(_ context.Context) (int, error) {
+	f.productCalls.Add(1)
+	return f.productCount, f.productErr
+}
+
 type cacheRow struct {
 	Resource string `json:"resource"`
 	Count    int    `json:"count"`
@@ -55,7 +63,7 @@ type cacheOutput struct {
 
 func TestRefreshFieldCache_HappyPath(t *testing.T) {
 	fake := &fakeCacheClient{
-		dealCount: 18, personCount: 12, orgCount: 7,
+		dealCount: 18, personCount: 12, orgCount: 7, productCount: 3,
 	}
 	res := testutil.CallTool(t, func(s *mcp.Server) {
 		tools.RegisterCache(s, fake)
@@ -69,10 +77,10 @@ func TestRefreshFieldCache_HappyPath(t *testing.T) {
 	if out.Errors != 0 {
 		t.Errorf("errors = %d; want 0 on full success", out.Errors)
 	}
-	if len(out.Refreshed) != 3 {
-		t.Fatalf("refreshed rows = %d; want 3", len(out.Refreshed))
+	if len(out.Refreshed) != 4 {
+		t.Fatalf("refreshed rows = %d; want 4", len(out.Refreshed))
 	}
-	want := map[string]int{"deals": 18, "persons": 12, "organizations": 7}
+	want := map[string]int{"deals": 18, "persons": 12, "organizations": 7, "products": 3}
 	for _, row := range out.Refreshed {
 		if row.Error != "" {
 			t.Errorf("%s row carries unexpected error: %q", row.Resource, row.Error)
@@ -81,7 +89,7 @@ func TestRefreshFieldCache_HappyPath(t *testing.T) {
 			t.Errorf("%s count = %d; want %d", row.Resource, row.Count, want[row.Resource])
 		}
 	}
-	if fake.dealCalls.Load() != 1 || fake.personCalls.Load() != 1 || fake.orgCalls.Load() != 1 {
+	if fake.dealCalls.Load() != 1 || fake.personCalls.Load() != 1 || fake.orgCalls.Load() != 1 || fake.productCalls.Load() != 1 {
 		t.Errorf("each Reload should fire exactly once; got deals=%d persons=%d orgs=%d",
 			fake.dealCalls.Load(), fake.personCalls.Load(), fake.orgCalls.Load())
 	}
@@ -141,8 +149,34 @@ func TestRefreshFieldCache_RunsInParallel(t *testing.T) {
 		Name:      "refresh_field_cache",
 		Arguments: map[string]any{},
 	})
-	if fake.dealCalls.Load()+fake.personCalls.Load()+fake.orgCalls.Load() != 3 {
-		t.Errorf("expected 3 Reload calls (1 per resource); got d=%d p=%d o=%d",
-			fake.dealCalls.Load(), fake.personCalls.Load(), fake.orgCalls.Load())
+	if fake.dealCalls.Load()+fake.personCalls.Load()+fake.orgCalls.Load()+fake.productCalls.Load() != 4 {
+		t.Errorf("expected 4 Reload calls (1 per resource); got d=%d p=%d o=%d pr=%d",
+			fake.dealCalls.Load(), fake.personCalls.Load(), fake.orgCalls.Load(), fake.productCalls.Load())
+	}
+}
+
+// A plan without products answers the product-field reload with [plan];
+// that is the workspace's shape, so it is reported and not counted.
+func TestRefreshFieldCache_APlanWithoutProductsIsNotAnError(t *testing.T) {
+	fake := &fakeCacheClient{
+		dealCount: 18, personCount: 12, orgCount: 7,
+		productErr: &pipedrive.APIError{Class: pipedrive.ErrPlanLimit, Status: 415, Message: "Feature is not enabled"},
+	}
+	var out struct {
+		Refreshed []struct {
+			Resource    string `json:"resource"`
+			Error       string `json:"error"`
+			Unavailable string `json:"unavailable"`
+		} `json:"refreshed"`
+		Errors int `json:"errors"`
+	}
+	testutil.CallToolInto(t, func(s *mcp.Server) { tools.RegisterCache(s, fake) }, "refresh_field_cache", map[string]any{}, &out)
+	if out.Errors != 0 || out.Refreshed[3].Error != "" || !strings.HasPrefix(out.Refreshed[3].Unavailable, "[plan]") {
+		t.Errorf("refresh = %+v; want products reported unavailable and no error counted", out)
+	}
+	fake.productErr = &pipedrive.APIError{Class: pipedrive.ErrServerError, Status: 503, Message: "down"}
+	testutil.CallToolInto(t, func(s *mcp.Server) { tools.RegisterCache(s, fake) }, "refresh_field_cache", map[string]any{}, &out)
+	if out.Errors != 1 {
+		t.Errorf("a failed product reload counted %d errors, want 1", out.Errors)
 	}
 }

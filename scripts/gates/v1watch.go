@@ -12,7 +12,7 @@ import (
 )
 
 // The sources v1watch reads. Notes and users come from Pipedrive v1
-// because v2 has neither (D-03, D-04); either fact can change between
+// because v2 has neither (D-04, D-105); either fact can change between
 // releases, and these pages are where Pipedrive says so.
 const (
 	v1WatchSpec      = "https://developers.pipedrive.com/docs/api/v1/openapi-v2.yaml"

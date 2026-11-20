@@ -184,7 +184,7 @@ func (fc *FieldCache) Resolve(ctx context.Context, raw map[string]any) map[strin
 //
 // Pipedrive's reference sets no uniqueness on option labels. No live run
 // has created twins, since that edits the workspace's field definitions,
-// which D-07 leaves alone.
+// which D-104 leaves alone.
 // https://developers.pipedrive.com/docs/api/v1/DealFields#addDealField
 func optionTables(opts []FieldOption) (labels map[string]string, options []option, byKey map[string]int) {
 	if len(opts) == 0 {

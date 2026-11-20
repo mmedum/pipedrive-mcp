@@ -27,12 +27,26 @@ type InstallmentRequest struct {
 	BillingDate *string  `json:"billing_date,omitempty"`
 }
 
-// DealProduct is the part of a product attached to a deal that decides
-// whether the deal may hold installments.
+// DealProduct is a product attached to a deal (subset). Its billing
+// frequency and is_enabled decide whether the deal may hold installments.
 type DealProduct struct {
-	ID               int64  `json:"id"`
-	BillingFrequency string `json:"billing_frequency"` // one-time | annually | semi-annually | quarterly | monthly
-	IsEnabled        bool   `json:"is_enabled"`
+	ID                     int64   `json:"id"`
+	DealID                 int64   `json:"deal_id"`
+	ProductID              int64   `json:"product_id"`
+	Name                   string  `json:"name"`
+	ItemPrice              float64 `json:"item_price"`
+	Quantity               float64 `json:"quantity"`
+	Discount               float64 `json:"discount"`
+	DiscountType           string  `json:"discount_type"`
+	Tax                    float64 `json:"tax"`
+	Sum                    float64 `json:"sum"`
+	Currency               string  `json:"currency"`
+	Comments               string  `json:"comments"`
+	BillingFrequency       string  `json:"billing_frequency"` // one-time | annually | semi-annually | quarterly | monthly
+	BillingFrequencyCycles *int    `json:"billing_frequency_cycles"`
+	BillingStartDate       string  `json:"billing_start_date"`
+	IsEnabled              bool    `json:"is_enabled"`
+	UpdateTime             string  `json:"update_time"`
 }
 
 // MaxInstallmentDeals is how many deal ids one list call takes. The v2
@@ -93,18 +107,10 @@ func (c *Client) DeleteInstallment(ctx context.Context, dealID, id int64) error 
 	return c.deleteV2(ctx, installmentsPath(dealID)+"/"+strconv.FormatInt(id, 10))
 }
 
-// ListDealProducts reads the products attached to a deal, first page
-// only. A deal with more than 500 products is beyond what the
-// installment rule needs to see.
+// ListDealProducts reads every product line on a deal, every page.
 // https://developers.pipedrive.com/docs/api/v1/Deals#getDealProducts
 func (c *Client) ListDealProducts(ctx context.Context, dealID int64) ([]DealProduct, error) {
-	q := url.Values{}
-	q.Set("limit", "500")
-	var resp listEnvelope[DealProduct]
-	if err := c.do(ctx, buildPath("/deals/"+strconv.FormatInt(dealID, 10)+"/products", q), &resp); err != nil {
-		return nil, err
-	}
-	return resp.Data, nil
+	return readAll[DealProduct](ctx, c, dealProductsPath(dealID), nil)
 }
 
 func installmentsPath(dealID int64) string {

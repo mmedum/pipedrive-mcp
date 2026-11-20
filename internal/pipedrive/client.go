@@ -61,6 +61,7 @@ type Client struct {
 	dealFields         *FieldCache // lazy-loaded; first ListDeals/GetDeal triggers fetch
 	personFields       *FieldCache // lazy-loaded; first GetPerson triggers fetch
 	organizationFields *FieldCache // lazy-loaded; first GetOrganization triggers fetch
+	productFields      *FieldCache // lazy-loaded; first GetProduct triggers fetch
 }
 
 // Options configures a new Client. BaseURL is the v2 base (e.g.
@@ -103,6 +104,7 @@ func New(opts Options) *Client {
 	c.dealFields = NewFieldCache(c.ListDealFields)
 	c.personFields = NewFieldCache(c.ListPersonFields)
 	c.organizationFields = NewFieldCache(c.ListOrganizationFields)
+	c.productFields = NewFieldCache(c.ListProductFields)
 	return c
 }
 

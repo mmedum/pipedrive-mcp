@@ -532,7 +532,8 @@ func validateInstallmentValues(in manageInstallmentInput) error {
 // https://developers.pipedrive.com/docs/api/v1/DealInstallments#postInstallment
 func checkInstallmentProducts(dealID int64, products []pipedrive.DealProduct) error {
 	oneTime := false
-	for _, p := range products {
+	for i := range products {
+		p := &products[i]
 		if p.BillingFrequency == "" || p.BillingFrequency == "one-time" {
 			oneTime = true
 			continue

@@ -197,6 +197,28 @@
         "tax_method": "string",
         "update_time": "string"
       }
+    },
+    "Product": {
+      "endpoint": "/products/{id}",
+      "fields": {
+        "add_time": "string",
+        "billing_frequency": "string",
+        "billing_frequency_cycles": "integer",
+        "category": "string",
+        "code": "string",
+        "custom_fields": "object",
+        "description": "string",
+        "id": "integer",
+        "is_deleted": "boolean",
+        "is_linkable": "boolean",
+        "name": "string",
+        "owner_id": "integer",
+        "prices": "array",
+        "tax": "number",
+        "unit": "string",
+        "update_time": "string",
+        "visible_to": "any"
+      }
     }
   },
   "requests": {
@@ -419,6 +441,86 @@
           "description": "string"
         }
       }
+    ],
+    "ProductRequest": [
+      {
+        "method": "POST",
+        "path": "/products",
+        "fields": {
+          "billing_frequency": "string",
+          "billing_frequency_cycles": "integer",
+          "category": "number",
+          "code": "string",
+          "custom_fields": "object",
+          "description": "string",
+          "is_linkable": "boolean",
+          "name": "string",
+          "owner_id": "integer",
+          "prices": "array",
+          "tax": "number",
+          "unit": "string",
+          "visible_to": "number"
+        }
+      },
+      {
+        "method": "PATCH",
+        "path": "/products/{id}",
+        "fields": {
+          "billing_frequency": "string",
+          "billing_frequency_cycles": "integer",
+          "category": "number",
+          "code": "string",
+          "custom_fields": "object",
+          "description": "string",
+          "is_linkable": "boolean",
+          "name": "string",
+          "owner_id": "integer",
+          "prices": "array",
+          "tax": "number",
+          "unit": "string",
+          "visible_to": "number"
+        }
+      }
+    ],
+    "DealProductRequest": [
+      {
+        "method": "POST",
+        "path": "/deals/{id}/products",
+        "fields": {
+          "billing_frequency": "string",
+          "billing_frequency_cycles": "integer",
+          "billing_start_date": "string",
+          "comments": "string",
+          "discount": "number",
+          "discount_type": "string",
+          "is_enabled": "boolean",
+          "item_price": "number",
+          "product_id": "integer",
+          "product_variation_id": "integer",
+          "quantity": "number",
+          "tax": "number",
+          "tax_method": "string"
+        }
+      },
+      {
+        "method": "PATCH",
+        "path": "/deals/{id}/products/{product_attachment_id}",
+        "fields": {
+          "billing_frequency": "string",
+          "billing_frequency_cycles": "integer",
+          "billing_start_date": "string",
+          "comments": "string",
+          "discount": "number",
+          "discount_type": "string",
+          "is_enabled": "boolean",
+          "item_price": "number",
+          "product_id": "integer",
+          "product_variation_id": "integer",
+          "quantity": "number",
+          "tax": "number",
+          "tax_method": "string"
+        }
+      }
     ]
   },
   "queries": {
@@ -574,6 +676,23 @@
     ],
     "/activities/{id}": [
       "include_fields"
-    ]
+    ],
+    "/products": [
+      "cursor",
+      "custom_fields",
+      "filter_id",
+      "ids",
+      "limit",
+      "owner_id",
+      "sort_by",
+      "sort_direction",
+      "updated_since"
+    ],
+    "/productFields": [
+      "cursor",
+      "include_fields",
+      "limit"
+    ],
+    "/products/{id}": []
   }
 }

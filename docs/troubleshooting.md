@@ -156,7 +156,7 @@ not help`.
 
 **Cause:** Pipedrive answered 410: it has retired the endpoint (D-05).
 `get_note`, `list_notes`, `manage_note` and `whoami` run on API v1,
-because v2 has no notes and no users (D-03).
+because v2 has no notes and no users (D-105).
 
 **Impact:** those tools stop working, and nothing in this server can
 fall back.

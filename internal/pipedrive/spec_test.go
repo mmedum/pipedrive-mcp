@@ -138,6 +138,7 @@ func TestUpstreamTypesMatchTheSpec(t *testing.T) {
 		{"Field", reflect.TypeOf(Field{})},
 		{"Installment", reflect.TypeOf(Installment{})},
 		{"DealProduct", reflect.TypeOf(DealProduct{})},
+		{"Product", reflect.TypeOf(Product{})},
 	}
 
 	for _, tc := range cases {
@@ -258,6 +259,8 @@ func TestRequestTypesMatchTheSpec(t *testing.T) {
 		"CreateActivityRequest":     reflect.TypeOf(CreateActivityRequest{}),
 		"UpdateActivityRequest":     reflect.TypeOf(UpdateActivityRequest{}),
 		"InstallmentRequest":        reflect.TypeOf(InstallmentRequest{}),
+		"ProductRequest":            reflect.TypeOf(ProductRequest{}),
+		"DealProductRequest":        reflect.TypeOf(DealProductRequest{}),
 	}
 	if len(spec.Requests) != len(cases) {
 		t.Errorf("%s records %d request types and this test holds %d; add the new one to both", specFixture, len(spec.Requests), len(cases))
@@ -342,6 +345,9 @@ func TestQueriesMatchTheSpec(t *testing.T) {
 	_, _ = c.GetOrganization(ctx, 7)
 	_, _ = c.GetPerson(ctx, 7)
 	_, _ = c.GetActivity(ctx, 7, GetActivityOptions{IncludeAttendees: true})
+	_, _, _ = c.ListProducts(ctx, ListProductsOptions{OwnerID: 1, IDs: []int64{2}, UpdatedSince: "2026-01-01T00:00:00Z", SortBy: "id", SortDirection: "asc", Limit: 5, Cursor: "c"})
+	_, _ = c.GetProduct(ctx, 7)
+	_, _ = c.ListProductFields(ctx)
 
 	// Every path the fixture records has to be reached, so a read that
 	// stops sending, or one the list above leaves out, fails here.
