@@ -750,6 +750,13 @@ pages on the caller's behalf. A page shorter than its limit, or empty,
 is not the end while `next_cursor` is set. `list_pipelines` and
 `list_stages` take no paging.
 
+Definitions are the exception, and are read whole: the pipelines, the
+stages, the three field lists and an installment schedule (D-98). A
+partial set of them does not answer incompletely, it answers wrongly: a
+field past the first page is neither resolved nor writable by name, and
+half a schedule sums to the wrong amount. Each is small, and a read
+stops at a page cap.
+
 A model pays for every call and every row in its context. A tool that
 followed cursors itself would make one call cost what the workspace's
 size decides, with nothing in the request to say so. The default of 25
@@ -761,9 +768,8 @@ capitals.
 Rejected: tools that follow `next_cursor` and return everything, which
 hides the cost and the size of a sweep.
 Cost: a model that stops at a short page reads an incomplete answer, and
-only the descriptions stop it. `list_pipelines` and `list_stages` read
-one page of Pipedrive's default size, on the bet that a workspace has
-far fewer pipelines than that.
+only the descriptions stop it. A definition read costs as many calls as
+the workspace has pages of that definition.
 
 ### D-16 Five resource templates mirror the get_ tools through the same code
 
@@ -917,10 +923,7 @@ reads it back.
 Rejected: writing custom fields by hash key and option id.
 Cost: two open questions. Labels match case-insensitively, so two
 options that differ only in case resolve to the same one; whether to
-refuse an ambiguous label or match case exactly is undecided (#121). And
-the field-definition listings read one page of Pipedrive's default size
-without following `next_cursor`, so a workspace with more custom fields
-of one kind than that page holds cannot name the rest (#126).
+refuse an ambiguous label or match case exactly is undecided (#121).
 
 ### D-23 Encode refuses rather than guesses, names every bad field, and one bad field refuses the whole map
 

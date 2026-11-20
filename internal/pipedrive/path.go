@@ -1,6 +1,8 @@
 package pipedrive
 
 import (
+	"context"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -42,4 +44,39 @@ func joinInt64s(ids []int64) string {
 		parts[i] = strconv.FormatInt(id, 10)
 	}
 	return strings.Join(parts, ",")
+}
+
+// maxListPages bounds readAll, so a cursor that never ends cannot keep a
+// call going: 20 pages of 500 is far more pipelines, stages or fields
+// than a workspace holds.
+const maxListPages = 20
+
+// readAll reads every page of a v2 list. It serves the definitions this
+// server reads whole, pipelines, stages and the three field lists,
+// because a field the cache never saw is neither resolved by name nor
+// writable by name. Each takes `limit` up to 500 and `cursor`, per
+// Pipedrive's v2 description. That limit=500 is accepted is checked by
+// the integration tests TestCustomFields_ResolveToWorkspaceWords and
+// TestListStages_BelongToThePipelineAsked; no live workspace here holds a
+// second page, so the cursor is checked against a fake alone.
+// https://developers.pipedrive.com/docs/api/v1/DealFields#getDealFields
+func readAll[T any](ctx context.Context, c *Client, path string, q url.Values) ([]T, error) {
+	if q == nil {
+		q = url.Values{}
+	}
+	q.Set("limit", "500")
+	var out []T
+	for range maxListPages {
+		var resp listEnvelope[T]
+		if err := c.do(ctx, buildPath(path, q), &resp); err != nil {
+			return nil, err
+		}
+		out = append(out, resp.Data...)
+		if resp.AdditionalData.NextCursor == "" {
+			return out, nil
+		}
+		q.Set("cursor", resp.AdditionalData.NextCursor)
+	}
+	// A cursor that never ends is Pipedrive's fault, not the caller's.
+	return nil, fmt.Errorf("%w: %s runs past %d pages", ErrServerError, path, maxListPages)
 }
