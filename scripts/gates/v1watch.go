@@ -31,6 +31,7 @@ var v1WatchCarveOut = []struct {
 	{"/users", regexp.MustCompile(`/v1/users/me([^/A-Za-z0-9_]|$)`), "/v1/users/me"},
 	{"/leads", regexp.MustCompile(`/v1/leads(/\{id\}|/archived)?([^/A-Za-z0-9_{]|$)`), "/v1/leads"},
 	{"/leadLabels", regexp.MustCompile(`/v1/leadLabels([^/A-Za-z0-9_{]|$)`), "/v1/leadLabels"},
+	{"/files", regexp.MustCompile(`/v1/files(/\{id\})?([^/A-Za-z0-9_{]|$)`), "/v1/files"},
 	{"/goals", regexp.MustCompile(`/v1/goals(/find|/\{id\}(/results)?)?([^/A-Za-z0-9_{]|$)`), "/v1/goals"},
 }
 

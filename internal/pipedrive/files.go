@@ -135,5 +135,5 @@ func (c *Client) UpdateFile(ctx context.Context, id int64, name, description *st
 // integration test TestWrite_FileRoundTrip.
 // https://developers.pipedrive.com/docs/api/v1/Files#deleteFile
 func (c *Client) DeleteFile(ctx context.Context, id int64) error {
-	return c.deleteV1(ctx, "/files/"+strconv.FormatInt(id, 10), nil)
+	return c.deleteV1(ctx, "/files/"+strconv.FormatInt(id, 10))
 }

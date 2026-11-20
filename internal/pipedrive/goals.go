@@ -154,5 +154,5 @@ func (c *Client) UpdateGoal(ctx context.Context, id string, req GoalRequest) (*G
 // Checked by the integration test TestWrite_GoalRoundTrip.
 // https://developers.pipedrive.com/docs/api/v1/Goals#deleteGoal
 func (c *Client) DeleteGoal(ctx context.Context, id string) error {
-	return c.deleteV1(ctx, "/goals/"+url.PathEscape(id), nil)
+	return c.deleteV1(ctx, "/goals/"+url.PathEscape(id))
 }

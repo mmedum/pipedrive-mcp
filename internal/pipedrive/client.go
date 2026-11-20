@@ -170,11 +170,11 @@ func (c *Client) putV1(ctx context.Context, path string, body, out any) error {
 	return c.exec(ctx, http.MethodPut, apiV1, path, body, out)
 }
 
-// deleteV1 is a DELETE on /api/v1, which deletes a note. Retried as
-// postV1 is: after a 5xx the note may be gone, and a retry's 404 would
-// hide the failure that mattered.
-func (c *Client) deleteV1(ctx context.Context, path string, out any) error {
-	return c.exec(ctx, http.MethodDelete, apiV1, path, nil, out)
+// deleteV1 is a DELETE on /api/v1, whose answer no caller reads. Retried
+// as postV1 is: after a 5xx the record may be gone, and a retry's 404
+// would hide the failure that mattered.
+func (c *Client) deleteV1(ctx context.Context, path string) error {
+	return c.exec(ctx, http.MethodDelete, apiV1, path, nil, nil)
 }
 
 // deleteV2 is a DELETE on /api/v2, retried as deleteV1 is. A v2 delete

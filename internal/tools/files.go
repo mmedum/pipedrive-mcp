@@ -70,7 +70,7 @@ type listFilesOutput struct {
 type manageFileInput struct {
 	Action        string   `json:"action" jsonschema:"upload, update or delete"`
 	FileID        int64    `json:"file_id,omitempty" jsonschema:"the file to act on, required by update and delete"`
-	Path          string   `json:"path,omitempty" jsonschema:"the file to upload, as a path inside the folder PIPEDRIVE_UPLOAD_DIR names, such as quotes/offer.pdf; required by upload. Nothing outside that folder can be uploaded"`
+	Path          string   `json:"path,omitempty" jsonschema:"the file to upload, as a path inside the server's upload folder, such as quotes/offer.pdf; required by upload. Nothing outside that folder can be uploaded"`
 	DealID        int64    `json:"deal_id,omitempty" jsonschema:"attach the upload to this deal; upload needs exactly one of the record ids"`
 	PersonID      int64    `json:"person_id,omitempty" jsonschema:"attach the upload to this person"`
 	OrgID         int64    `json:"org_id,omitempty" jsonschema:"attach the upload to this organization"`
@@ -150,7 +150,7 @@ func RegisterFiles(s *mcp.Server, c filesClient, opts RegisterOptions) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "manage_file",
-		Description: "Upload a file to a deal, person, organization, product, activity, lead or project, rename or describe one, or delete one. upload takes path, a file inside the folder the server's PIPEDRIVE_UPLOAD_DIR setting names, and exactly one record id; with no such folder set, upload is refused, and nothing outside the folder can be read. update takes file_id and name or description, and refuses to replace a value that is there unless you name it in overwrite. Deleting is soft: Pipedrive marks the file deleted and removes it for good after 30 days, so delete takes dry_run and expect_version and no permitting flag, but NOTHING HERE PUTS IT BACK. Files come from Pipedrive v1, and these tools leave in a minor release if Pipedrive retires it.",
+		Description: "Upload a file to a deal, person, organization, product, activity, lead or project, rename or describe one, or delete one. upload takes path, a file inside the folder the server's " + config.EnvUploadDir + " setting names, and exactly one record id; with no such folder set, upload is refused, and nothing outside the folder can be read. update takes file_id and name or description, and refuses to replace a value that is there unless you name it in overwrite. Deleting is soft: Pipedrive marks the file deleted and removes it for good after 30 days, so delete takes dry_run and expect_version and no permitting flag, but NOTHING HERE PUTS IT BACK. Files come from Pipedrive v1, and these tools leave in a minor release if Pipedrive retires it.",
 		Annotations: mutatingAnnotations(),
 	}, manageFileHandler(c, opts))
 }

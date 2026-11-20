@@ -13,10 +13,10 @@ a minor release could break the tool surface, and several did.
 
 **One carve-out, and it is deliberate.** The tools for notes
 (`get_note`, `list_notes`, `manage_note`), `whoami`, leads
-(`get_lead`, `list_leads`, `list_lead_labels`, `manage_lead`) and goals
-(`list_goals`, `get_goal`, `manage_goal`) run on Pipedrive API v1,
-because v2 exposes no `/notes`, no `/users/me`, no lead records and no
-goals — so there is no equivalent to move them to. The v1
+(`get_lead`, `list_leads`, `list_lead_labels`, `manage_lead`), goals
+(`list_goals`, `get_goal`, `manage_goal`) and files (`get_file`,
+`list_files`, `manage_file`) run on Pipedrive API v1, because v2 exposes
+no `/notes`, no `/users/me`, no lead records, no goals and no files — so there is no equivalent to move them to. The v1
 endpoints they call are not on Pipedrive's
 [deprecation list](https://developers.pipedrive.com/changelog/post/deprecation-of-selected-api-v1-endpoints).
 Those tools sit **outside** the compatibility promise: if v1 stops
@@ -36,6 +36,7 @@ other tool is covered by the promise in full.
 - `get_project`, `list_projects`, `list_project_boards` and `manage_project` read, write, archive and delete projects.
 - `get_lead`, `list_leads`, `list_lead_labels` and `manage_lead` read and write leads on Pipedrive v1, outside the compatibility promise; deleting one is permanent and needs `confirm: true`.
 - `list_goals`, `get_goal` and `manage_goal` read goals and their progress, and write them, on Pipedrive v1, outside the compatibility promise; a delete is permanent and needs `confirm: true`.
+- `get_file`, `list_files` and `manage_file` read, upload, rename and delete files on Pipedrive v1, outside the compatibility promise; uploads read only from `PIPEDRIVE_UPLOAD_DIR`.
 
 ### Changed
 

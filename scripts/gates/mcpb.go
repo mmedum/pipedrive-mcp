@@ -649,6 +649,7 @@ func identityProblems(m manifest, files []staged) []string {
 const (
 	diagnostics = "diagnostics, set by hand while chasing a problem"
 	tuning      = "tuning, whose default suits an install"
+	grant       = "a grant to read a folder, which an install leaves off until its owner names one by hand (D-106)"
 )
 
 // bundleLeftOut is every variable the server reads that the bundle does
@@ -657,6 +658,7 @@ var bundleLeftOut = map[string]string{
 	config.EnvLogLevel:    diagnostics,
 	config.EnvLogFormat:   diagnostics,
 	config.EnvHTTPTimeout: tuning,
+	config.EnvUploadDir:   grant,
 }
 
 // bundleVarsFrom is the settings the bundle asks for at install: every
