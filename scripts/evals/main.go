@@ -224,6 +224,10 @@ func score(ctx context.Context, h *Harness, t Task, f Fixture, cfg, model string
 				fmt.Printf("       → %s\n", traceAnswer(c.Result))
 			}
 		}
+		// The reply, because a run that calls nothing has no trace, and
+		// only its words tell a model that asked first from one that
+		// misread the task.
+		fmt.Printf("    reply: %s\n", clip(r.Text))
 	}
 	if res.Unverified != "" {
 		fmt.Printf("  UNVERIFIED %s\n", res.Unverified)
