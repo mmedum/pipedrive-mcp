@@ -194,6 +194,18 @@ means the default rather than a value the server refuses.
   A call makes up to three attempts, so it can take three timeouts and
   the waits between them.
 
+### `PIPEDRIVE_UPLOAD_DIR`
+
+- **Required**: no.
+- **Default**: unset, and `manage_file` uploads nothing.
+- **Type**: an absolute path to a directory that exists when the server
+  starts; any other value stops the server at start.
+- **Effect**: the one folder `manage_file` uploads from (D-106). A call
+  names a path inside it, and a path that leaves it, through `..` or a
+  symbolic link, is refused. An upload reads at most 50 MiB. The
+  Claude Desktop bundle does not ask for it; set it in the client's
+  server environment.
+
 ### `PIPEDRIVE_INTEGRATION_WRITES`
 
 - **Required**: no, and the server never reads it.

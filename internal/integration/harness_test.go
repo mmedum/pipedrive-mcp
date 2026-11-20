@@ -17,6 +17,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mmedum/pipedrive-mcp/internal/app"
+	"github.com/mmedum/pipedrive-mcp/internal/config"
 	"github.com/mmedum/pipedrive-mcp/internal/credentials"
 	"github.com/mmedum/pipedrive-mcp/internal/pipedrive"
 	"github.com/mmedum/pipedrive-mcp/internal/server/testutil"
@@ -68,6 +69,10 @@ var (
 	// tests skip with it rather than fail, so the tag stays safe to
 	// carry in a job that has no credentials.
 	skipReason string
+
+	// uploadDir is the suite's own upload folder, which it names in
+	// PIPEDRIVE_UPLOAD_DIR before the server starts.
+	uploadDir string
 )
 
 // requireOwnPipeline returns the pipeline the suite may transition
@@ -103,6 +108,18 @@ func run(m *testing.M) int {
 	// PIPEDRIVE_DRY_RUN floor meaning here what they mean in the
 	// binary — this suite dropped the floor once by assembling the
 	// arguments by hand.
+	dir, err := os.MkdirTemp("", "pipedrive-mcp-upload-")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "integration: %v\n", err)
+		return 1
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	if err = os.Setenv(config.EnvUploadDir, dir); err != nil {
+		fmt.Fprintf(os.Stderr, "integration: %v\n", err)
+		return 1
+	}
+	uploadDir = dir
+
 	settings, err := app.Resolve()
 	if err != nil {
 		skipReason = skipMessage(err)

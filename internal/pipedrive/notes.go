@@ -161,5 +161,5 @@ func (c *Client) UpdateNote(ctx context.Context, id int64, req UpdateNoteRequest
 // TestWrite_NoteRoundTrip.
 // https://developers.pipedrive.com/docs/api/v1/Notes#deleteNote
 func (c *Client) DeleteNote(ctx context.Context, id int64) error {
-	return c.deleteV1(ctx, "/notes/"+strconv.FormatInt(id, 10), nil)
+	return c.deleteV1(ctx, "/notes/"+strconv.FormatInt(id, 10))
 }

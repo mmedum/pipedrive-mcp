@@ -143,7 +143,7 @@ func (c *Client) UpdateLead(ctx context.Context, id string, req LeadRequest) (*L
 // the integration test TestWrite_LeadRoundTrip.
 // https://developers.pipedrive.com/docs/api/v1/Leads#deleteLead
 func (c *Client) DeleteLead(ctx context.Context, id string) error {
-	return c.deleteV1(ctx, "/leads/"+url.PathEscape(id), nil)
+	return c.deleteV1(ctx, "/leads/"+url.PathEscape(id))
 }
 
 // ListLeadLabels returns every lead label; the endpoint does not page.

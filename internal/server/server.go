@@ -27,9 +27,9 @@ Start with search. It is the natural-language gateway: it turns a name into the 
 
 whoami says which account the token acts as. Call it before attributing anything to "me": its user_id is the owner_id a record gets when you create one without naming an owner, so it is what turns "my open deals" into list_deals(owner_id=...), and it reports the timezone an activity's due_time is written in.
 
-Read one record with get_deal, get_person, get_organization, get_activity or get_note, and many with the matching list_ tool. A get_ is one call and a list_ is one call, but a list_ you then page through is as many calls as you ask for, so filter rather than sweeping. Custom fields come back resolved to the names they carry in the workspace rather than the 40-character hashes Pipedrive stores them under, and a dropdown comes back as its label rather than the option id, with (id N) after it where two options share the label, so you can read them and quote them directly; refresh_field_cache re-reads both after somebody adds, renames or extends a field in the Pipedrive UI.
+Read one record with get_deal, get_person, get_organization, get_activity, get_note or get_file, and many with the matching list_ tool. A get_ is one call and a list_ is one call, but a list_ you then page through is as many calls as you ask for, so filter rather than sweeping. Custom fields come back resolved to the names they carry in the workspace rather than the 40-character hashes Pipedrive stores them under, and a dropdown comes back as its label rather than the option id, with (id N) after it where two options share the label, so you can read them and quote them directly; refresh_field_cache re-reads both after somebody adds, renames or extends a field in the Pipedrive UI.
 
-Every mutation goes through a manage_ tool — manage_deal, manage_person, manage_organization, manage_activity, manage_note, manage_installment, manage_product, manage_deal_product, manage_project, manage_lead, manage_goal — with an action saying which.
+Every mutation goes through a manage_ tool — manage_deal, manage_person, manage_organization, manage_activity, manage_note, manage_installment, manage_product, manage_deal_product, manage_project, manage_lead, manage_goal, manage_file — with an action saying which.
 
 Writing is guarded. A manage_ tool reads its target before it writes and refuses to replace ANY field that already holds a value unless you name that field in overwrite, e.g. overwrite: ["title", "value"] — the refusal lists exactly the names to pass, and naming fewer than it listed is still refused over the rest; filling a field that is empty destroys nothing and needs no permission. expect_version refuses a write whose record moved since you read it. Pipedrive has no undo, so take a refusal as information rather than an obstacle, and reach for dry_run when you are not sure what is there. overwrite carries a decision the USER made, not a way past a refusal: if a write is refused and the user has not said to replace what is there, report what the refusal named and stop. Re-sending the same write with overwrite makes the guard decorative. The named transitions — mark_won, mark_lost, move_stage, reopen, complete, archive, unarchive — take no overwrite, because the field they change is the field you named.
 
@@ -39,7 +39,7 @@ Three things no amount of retrying will fix. Activity type (call, email, meeting
 
 Resources pipedrive://deals/{id}, and the same for persons, organizations, activities and notes, carry what the matching get_ tool returns, for attaching a record rather than calling a tool. They take no options, so include_attendees and include_notes still need the tool, and a deal's resource carries the deal without its installments, which get_deal and list_installments report.
 
-Everything here is Pipedrive v2 except notes, leads and goals, which v2 does not expose; those come from v1 and behave the same way, except that deleting a note is soft — it clears active_flag, and nothing here sets it back — and deleting a lead or a goal is permanent, so it needs confirm. Custom fields are writable on deals, people and organizations: pass custom_fields keyed by the names a get_ reports, and give a dropdown its label as a get_ reports it rather than an option id. ARCHIVING IS NOT CLOSING: archive takes a deal out of the pipeline and out of list_deals — they are their own collection, so pass archived to read them — and an archived deal accepts no edit until you unarchive it. mark_lost is what 'we lost it' means. Files are not here.`
+Everything here is Pipedrive v2 except notes, leads, goals and files, which v2 does not expose; those come from v1 and behave the same way, except that deleting a note or a file is soft — it clears active_flag, and nothing here sets it back — and deleting a lead or a goal is permanent, so it needs confirm. Custom fields are writable on deals, people and organizations: pass custom_fields keyed by the names a get_ reports, and give a dropdown its label as a get_ reports it rather than an option id. ARCHIVING IS NOT CLOSING: archive takes a deal out of the pipeline and out of list_deals — they are their own collection, so pass archived to read them — and an archived deal accepts no edit until you unarchive it. mark_lost is what 'we lost it' means.`
 
 // Name is the server's MCP implementation name, and the binary's.
 const Name = "pipedrive-mcp"
@@ -58,7 +58,8 @@ const Name = "pipedrive-mcp"
 // cancel cleanly instead of running orphaned to completion.
 func New(ctx context.Context, version string, client *pipedrive.Client, cfg config.Config) *mcp.Server {
 	return newServer(ctx, version, client, cfg.CompanyDomain, tools.RegisterOptions{
-		DryRun: cfg.DryRun,
+		DryRun:    cfg.DryRun,
+		UploadDir: cfg.UploadDir,
 	})
 }
 
@@ -88,6 +89,7 @@ func newServer(ctx context.Context, version string, client *pipedrive.Client, do
 	tools.RegisterProjects(srv, client, opts)
 	tools.RegisterLeads(srv, client, opts)
 	tools.RegisterGoals(srv, client, opts)
+	tools.RegisterFiles(srv, client, opts)
 	tools.RegisterCache(srv, client)
 	tools.RegisterSearch(srv, client)
 	tools.RegisterWhoAmI(srv, client)

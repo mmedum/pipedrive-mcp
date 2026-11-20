@@ -15,4 +15,7 @@ package tools
 // honored only the per-call input would write anyway.
 type RegisterOptions struct {
 	DryRun bool // mirrors PIPEDRIVE_DRY_RUN
+	// UploadDir mirrors PIPEDRIVE_UPLOAD_DIR: the one directory
+	// manage_file uploads from, empty for none (D-106).
+	UploadDir string
 }

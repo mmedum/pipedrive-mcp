@@ -56,7 +56,7 @@ func loadReads() map[string]int {
 func TestEnvVars(t *testing.T) {
 	want := []string{
 		"LOG_FORMAT", "LOG_LEVEL", "PIPEDRIVE_API_TOKEN", "PIPEDRIVE_COMPANY_DOMAIN",
-		"PIPEDRIVE_DRY_RUN", "PIPEDRIVE_HTTP_TIMEOUT",
+		"PIPEDRIVE_DRY_RUN", "PIPEDRIVE_HTTP_TIMEOUT", "PIPEDRIVE_UPLOAD_DIR",
 	}
 	if got := config.EnvVars(); !slices.Equal(got, want) {
 		t.Errorf("EnvVars =\n%v\nwant\n%v", got, want)
@@ -712,5 +712,23 @@ func TestConfigurationDocVars_ReadsOnlyTheVariablesSection(t *testing.T) {
 	want := map[string]int{"LOG_LEVEL": 1, "PIPEDRIVE_DRY_RUN": 2}
 	if !maps.Equal(counts, want) || !slices.Equal(unread, []string{"### OLD_KNOB"}) {
 		t.Errorf("configurationDocVars = %v, %q; want %v, [### OLD_KNOB]", counts, unread, want)
+	}
+}
+
+// PIPEDRIVE_UPLOAD_DIR is checked at start: an absolute path to a
+// directory, or the server does not start (D-106).
+func TestLoad_UploadDirMustBeAnAbsoluteDirectory(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "f")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"uploads", file, filepath.Join(dir, "missing")} {
+		if _, err := load(map[string]string{config.EnvUploadDir: bad}); err == nil {
+			t.Errorf("%s=%q loaded; want a refusal", config.EnvUploadDir, bad)
+		}
+	}
+	if c, err := load(map[string]string{config.EnvUploadDir: dir}); err != nil || c.UploadDir != dir {
+		t.Errorf("a directory = %+v, %v", c, err)
 	}
 }
