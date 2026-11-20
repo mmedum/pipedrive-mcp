@@ -37,13 +37,13 @@ func (f *fakeGoalsClient) FindGoals(_ context.Context, opts pipedrive.FindGoalsO
 	return []pipedrive.Goal{*f.goal}, nil
 }
 
-func (f *fakeGoalsClient) GoalResult(_ context.Context, id, start, end string) (*pipedrive.Goal, int64, error) {
+func (f *fakeGoalsClient) GoalResult(_ context.Context, id, start, end string) (*pipedrive.Goal, float64, error) {
 	if id != f.goal.ID {
 		return nil, 0, &pipedrive.APIError{Class: pipedrive.ErrNotFound, Status: 404}
 	}
 	f.lastPeriod = [2]string{start, end}
 	out := *f.goal
-	return &out, 2, nil
+	return &out, 2.5, nil
 }
 
 func (f *fakeGoalsClient) CreateGoal(_ context.Context, req pipedrive.GoalRequest) (*pipedrive.Goal, error) {
@@ -77,13 +77,13 @@ func callGoals(t *testing.T, f *fakeGoalsClient, opts tools.RegisterOptions, too
 func TestGetGoal_MeasuresFromTheGoalsStartByDefault(t *testing.T) {
 	fake := newGoalsFake()
 	var out struct {
-		Progress    int64  `json:"progress"`
-		PeriodStart string `json:"period_start"`
+		Progress    float64 `json:"progress"`
+		PeriodStart string  `json:"period_start"`
 	}
 	if res := callGoals(t, fake, tools.RegisterOptions{}, "get_goal", map[string]any{"goal_id": testGoalID}, &out); res.IsError {
 		t.Fatalf("get_goal = %s", contentText(res))
 	}
-	if out.PeriodStart != "2030-01-01" || fake.lastPeriod[0] != "2030-01-01" || out.Progress != 2 {
+	if out.PeriodStart != "2030-01-01" || fake.lastPeriod[0] != "2030-01-01" || out.Progress != 2.5 {
 		t.Errorf("get_goal = %+v, period %v; want progress from the goal's start", out, fake.lastPeriod)
 	}
 	if res := callGoals(t, fake, tools.RegisterOptions{}, "get_goal", map[string]any{"goal_id": "../deals"}, nil); !strings.HasPrefix(contentText(res), "[validation]") {
@@ -152,5 +152,30 @@ func TestManageGoal_DeleteIsPermanentSoItNeedsConfirm(t *testing.T) {
 	}
 	if res := callGoals(t, fake, tools.RegisterOptions{}, "manage_goal", args, nil); res.IsError || fake.deletes != 1 {
 		t.Errorf("confirmed delete = %s, deletes = %d", contentText(res), fake.deletes)
+	}
+}
+
+func TestManageGoal_ATypeChangeDropsTheParamsTheNewTypeDoesNotTake(t *testing.T) {
+	fake := newGoalsFake()
+	stage := int64(4)
+	fake.goal.Type = pipedrive.GoalType{Name: "deals_progressed", Params: pipedrive.GoalParams{PipelineID: []int64{6}, StageID: &stage}}
+	args := map[string]any{"action": "update", "goal_id": testGoalID, "type_name": "deals_won", "overwrite": []string{"type_name", "stage_id"}}
+	if res := callGoals(t, fake, tools.RegisterOptions{}, "manage_goal", args, nil); res.IsError || fake.updates != 1 {
+		t.Fatalf("type change = %s", contentText(res))
+	}
+	if typ := fake.lastReq.Type; typ == nil || typ.Name != "deals_won" || typ.Params.StageID != nil || len(typ.Params.PipelineID) != 1 {
+		t.Errorf("request type = %+v; want deals_won, its pipelines, and no stage", fake.lastReq.Type)
+	}
+}
+
+func TestGoals_RefuseAPeriodOutOfOrderOrHalfGiven(t *testing.T) {
+	fake := newGoalsFake()
+	for tool, args := range map[string]map[string]any{
+		"list_goals": {"period_start": "2030-01-01"},
+		"get_goal":   {"goal_id": testGoalID, "period_start": "2030-06-01", "period_end": "2030-01-01"},
+	} {
+		if res := callGoals(t, fake, tools.RegisterOptions{}, tool, args, nil); !strings.HasPrefix(contentText(res), "[validation]") {
+			t.Errorf("%s %v = %q; want [validation]", tool, args, contentText(res))
+		}
 	}
 }

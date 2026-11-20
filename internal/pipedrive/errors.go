@@ -52,6 +52,7 @@ type envelope struct {
 	ErrorInfo string `json:"error_info,omitempty"`
 	// StatusText is where the goals service, which answers /v1/goals,
 	// puts its message: {"statusText":"Invalid Request","statusCode":400}.
+	// Checked by the integration test TestWrite_GoalRoundTrip.
 	StatusText string `json:"statusText,omitempty"`
 }
 

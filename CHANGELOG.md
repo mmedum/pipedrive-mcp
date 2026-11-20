@@ -35,7 +35,7 @@ other tool is covered by the promise in full.
 - `list_deal_products` and `manage_deal_product` read and change the products on a deal; removing one is permanent and needs `confirm: true`.
 - `get_project`, `list_projects`, `list_project_boards` and `manage_project` read, write, archive and delete projects.
 - `get_lead`, `list_leads`, `list_lead_labels` and `manage_lead` read and write leads on Pipedrive v1, outside the compatibility promise; deleting one is permanent and needs `confirm: true`.
-- `list_goals`, `get_goal` and `manage_goal` read goals and their progress, and write them, on Pipedrive v1; deleting one is permanent and needs `confirm: true`.
+- `list_goals`, `get_goal` and `manage_goal` read goals and their progress, and write them, on Pipedrive v1, outside the compatibility promise; a delete is permanent and needs `confirm: true`.
 
 ### Changed
 

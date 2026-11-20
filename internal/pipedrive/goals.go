@@ -109,13 +109,14 @@ func (c *Client) FindGoals(ctx context.Context, opts FindGoalsOptions) ([]Goal, 
 // lie inside the goal's own duration: a period outside it, today's for a
 // goal that has not started included, answers 400 "Invalid Request".
 // Checked by the integration test TestWrite_GoalRoundTrip.
-func (c *Client) GoalResult(ctx context.Context, id, start, end string) (*Goal, int64, error) {
+func (c *Client) GoalResult(ctx context.Context, id, start, end string) (*Goal, float64, error) {
 	q := url.Values{}
 	q.Set("period.start", start)
 	q.Set("period.end", end)
 	var resp itemEnvelope[struct {
-		Goal     Goal  `json:"goal"`
-		Progress int64 `json:"progress"`
+		Goal Goal `json:"goal"`
+		// A sum goal's progress is an amount, which can carry a fraction.
+		Progress float64 `json:"progress"`
 	}]
 	if err := c.doV1(ctx, buildPath("/goals/"+url.PathEscape(id)+"/results", q), &resp); err != nil {
 		return nil, 0, err
