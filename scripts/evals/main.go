@@ -208,7 +208,7 @@ func score(ctx context.Context, h *Harness, t Task, f Fixture, cfg, model string
 	// read the refusal and re-sent with overwrite" produce the same end
 	// state, and they are the difference between a server defect and
 	// the finding this suite exists to make. Args are the fixture's own
-	// invented values and ids, so printing them carries nobody's data.
+	// invented values and ids; an answer prints as traceAnswer allows.
 	if res.Failed {
 		for i, c := range r.Calls {
 			args, _ := json.Marshal(c.Args)
@@ -216,7 +216,13 @@ func score(ctx context.Context, h *Harness, t Task, f Fixture, cfg, model string
 			if c.IsError {
 				flag = " [refused]"
 			}
-			fmt.Printf("    %d. %s%s %s\n", i+1, c.Tool, flag, clipArgs(string(args)))
+			fmt.Printf("    %d. %s%s %s\n", i+1, c.Tool, flag, clip(string(args)))
+			if c.IsError {
+				// The answer, because "[refused]" above marks any error,
+				// and only the class or the CLI's text says whether the
+				// guard or the client stopped the call.
+				fmt.Printf("       → %s\n", traceAnswer(c.Result))
+			}
 		}
 	}
 	if res.Unverified != "" {
@@ -238,6 +244,10 @@ func drive(ctx context.Context, prompt, cfg, model string, budget float64) *run 
 		// Only this server's tools. An eval that let the model reach
 		// for a shell would be scoring the shell.
 		"--strict-mcp-config",
+		// No user settings: an ask rule there, such as the README's
+		// permissions.ask for the manage_ tools, denies the call in -p
+		// mode, and the eval then scores the runner's machine.
+		"--setting-sources", "project",
 		"--allowed-tools", toolPrefix + "*",
 		"--disallowed-tools", "Bash,Read,Write,Edit,WebFetch,WebSearch",
 		"--model", model,
@@ -302,13 +312,4 @@ func report(results []result, created, edited []string) error {
 		return fmt.Errorf("%d task(s) failed", failed)
 	}
 	return nil
-}
-
-// clipArgs keeps one call's arguments to a line.
-func clipArgs(s string) string {
-	const limit = 160
-	if len(s) > limit {
-		return s[:limit] + "…"
-	}
-	return s
 }
