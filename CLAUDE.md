@@ -34,7 +34,8 @@ path, the error classes or the package layout.
    token**, and leave tool handlers silent (D-59, D-60, D-61).
    `TestClient_NoLogOrErrorCarriesTheSearchTerm` and
    `TestSettings_LogValue_RedactsTheToken` hold it.
-4. **Call Pipedrive v2, and v1 for notes and `whoami` alone** (D-03).
+4. **Call Pipedrive v2, and v1 for notes, `whoami`, leads, files and goals
+   alone** (D-105).
    v2 is the default, and the v1 tools sit outside the compatibility
    promise (D-04). `TestClient_WhoAmI_UsesV1` and
    `TestClient_ListNotes_FiltersAndV1Pagination` hold the two.

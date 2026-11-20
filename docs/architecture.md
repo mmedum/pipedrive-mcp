@@ -329,11 +329,11 @@ symptom in [troubleshooting.md](troubleshooting.md).
 | --- | --- | --- | --- |
 | D-01 | One Go binary serves one Pipedrive workspace over stdio; nothing is hosted | accepted | smoke, review |
 | D-02 | The server serves the current MCP revision beside the handshake revisions, through an SDK kept current | accepted | smoke, TestSDKVersionMatchesGoMod, staleness |
-| D-03 | Pipedrive v2 is the default, and notes and whoami are the only v1 carve-outs | accepted | TestClient_WhoAmI_UsesV1, TestClient_ListNotes_FiltersAndV1Pagination, review |
+| D-03 | Pipedrive v2 is the default, and notes and whoami are the only v1 carve-outs | superseded by D-105 | TestClient_WhoAmI_UsesV1, TestClient_ListNotes_FiltersAndV1Pagination, review |
 | D-04 | The v1 tools sit outside the compatibility promise and leave in a MINOR release if v1 stops answering | accepted | TestV1CarveOutStillAnswers, integration |
 | D-05 | A 410 is [gone], never retried, and on a v1 path says the endpoint has no v2 equivalent | accepted | TestClassify_410ExplainsOnlyOnV1, TestEverySentinelHasItsOwnClass |
 | D-06 | The startup probe is GET /api/v2/dealFields?limit=1, its answer discarded and its failure fatal | accepted | TestProbeAuth_SucceedsAgainstTheWorkspace, TestNewProbeClient, integration |
-| D-07 | Products, leads, files, projects, goals and the unmodeled resources are outside the 1.x surface | accepted | review |
+| D-07 | Products, leads, files, projects, goals and the unmodeled resources are outside the 1.x surface | superseded by D-104 | review |
 | D-08 | No tool merges two records | accepted | review |
 | D-09 | The surface follows the shipped Google Workspace MCP servers: discrete reads, one manage_ tool per noun taking an action | accepted | schema-ack, review |
 | D-10 | Tool descriptions follow one house style, and its mechanical rules are checked on the dump | accepted | descriptions, TestActionFieldDescribesEveryAction, review |
@@ -430,6 +430,8 @@ symptom in [troubleshooting.md](troubleshooting.md).
 | D-101 | A 402 is [account], and a 415 or a limit-reached 403 is [plan] | accepted | TestClassify, TestEverySentinelHasItsOwnClass, TestTroubleshootingDocListsEveryErrorClass |
 | D-102 | No log line per tool call | rejected | review |
 | D-103 | No token reload while the server runs | rejected | review |
+| D-104 | Products, projects, leads, files and goals have tools; the other unmodeled resources do not | accepted | TestRegister_ListsItsToolsWithTheirSchemas, review |
+| D-105 | Pipedrive v2 is the default; notes, whoami, leads, files and goals are the v1 carve-outs | accepted | TestClient_WhoAmI_UsesV1, TestClient_ListNotes_FiltersAndV1Pagination, v1-watch, review |
 
 ### D-01 One Go binary serves one Pipedrive workspace over stdio; nothing is hosted
 
@@ -477,6 +479,8 @@ Cost: what the server serves moves with the SDK pin. `sdkVersion` in
 `TestSDKVersionMatchesGoMod` holds.
 
 ### D-03 Pipedrive v2 is the default, and notes and whoami are the only v1 carve-outs
+
+Superseded by D-105, which adds leads, files and goals.
 
 Every call goes to Pipedrive API v2, except notes and the signed-in
 user. Those come from v1, through `Client.doV1`, `postV1`, `putV1` and
@@ -574,6 +578,8 @@ stay out of production use, and nothing but its help text keeps it
 there.
 
 ### D-07 Products, leads, files, projects, goals and the unmodeled resources are outside the 1.x surface
+
+Superseded by D-104, which gives the five resources their milestone.
 
 Products, leads, files, projects and goals have no tools in the 1.x
 surface. Nor do webhooks, mail and mail threads, subscriptions and
@@ -2869,4 +2875,45 @@ as the `[auth]` entry in
 [troubleshooting.md](troubleshooting.md#auth) says; the `[auth]` error
 itself carries only Pipedrive's message.
 
-Next ID: D-104
+### D-104 Products, projects, leads, files and goals have tools; the other unmodeled resources do not
+
+Products, projects, leads, files and goals each have reads and guarded
+writes, released together as one milestone in one minor release. The
+products a deal carries have their own tools, since a deal's
+installments depend on them (D-98). Webhooks, mail and mail threads,
+subscriptions and recurring revenue, saved filters, currencies,
+deal-to-lead conversion, followers, deal participants as a managed
+relation, and the creation and alteration of custom-field definitions
+still have no tools. A field's values are readable and writable (D-18,
+D-22); its definition is not.
+
+Each of the five is a resource of its own, so each tool follows the
+guarded-write contract (D-27): a read before a write, `overwrite` for a
+populated field, `expect_version`, `dry_run`, and the delete posture its
+semantics call for, soft (D-47) or permanent (D-99). `search` already
+turned a product, file or lead name into an id; the tools let a model
+act on it.
+
+Rejected: adding the five one at a time across releases, which D-07
+also rejected; keeping them out, which leaves `search` finding records
+nothing here can read.
+Cost: five more resources' worth of tools, three of them on v1 (D-105).
+
+### D-105 Pipedrive v2 is the default; notes, whoami, leads, files and goals are the v1 carve-outs
+
+Every call goes to Pipedrive API v2, except notes, the signed-in user,
+leads, files and goals. Those come from v1, through `Client.doV1`,
+`postV1`, `putV1` and `deleteV1`, because Pipedrive's v2 description
+has no `/notes`, no `/users/me`, no `/leads` beyond search and
+conversion, no `/files` and no `/goals`
+([v2 description](https://developers.pipedrive.com/docs/api/v1/openapi-v2.yaml)).
+Like notes, the v1 tools sit outside the compatibility promise and leave
+in a minor release if v1 stops answering (D-04), and `v1-watch` checks
+Pipedrive's pages for their retirement.
+
+Rejected: leaving leads, files and goals out until v2 has them, which
+leaves D-104's milestone without three of its five resources.
+Cost: more of the surface rests on the API version Pipedrive treats as
+the older one, and each v1 tool can leave in a minor release.
+
+Next ID: D-106
