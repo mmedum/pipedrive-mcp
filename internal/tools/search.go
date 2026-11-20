@@ -34,7 +34,8 @@ var allowedSearchTypes = map[string]bool{
 const searchMinTermLen = 2
 
 type searchHit struct {
-	ID      int64          `json:"id" jsonschema:"the matched record's numeric id"`
+	ID      int64          `json:"id" jsonschema:"the matched record's numeric id; 0 for a lead, whose id is lead_id"`
+	LeadID  string         `json:"lead_id,omitempty" jsonschema:"a lead's id, a UUID, which get_lead and manage_lead take"`
 	Type    string         `json:"type" jsonschema:"deal | person | organization | product | file | lead"`
 	Name    string         `json:"name" jsonschema:"the record's human-readable name (deal title for deals, full name for everything else)"`
 	Score   float64        `json:"score" jsonschema:"Pipedrive's relevance score; higher is a better match"`
@@ -205,9 +206,14 @@ func summarizeHit(h pipedrive.SearchHit) searchHit {
 		ID:    pipedrive.ItemInt64(h.Item, "id"),
 		Type:  pipedrive.ItemString(h.Item, "type"),
 	}
-	if out.Type == string(pipedrive.ItemTypeDeal) {
+	switch pipedrive.ItemType(out.Type) {
+	case pipedrive.ItemTypeLead:
+		// A lead's id is a UUID, which the numeric id cannot carry.
+		out.LeadID = pipedrive.ItemString(h.Item, "id")
 		out.Name = pipedrive.ItemString(h.Item, "title")
-	} else {
+	case pipedrive.ItemTypeDeal:
+		out.Name = pipedrive.ItemString(h.Item, "title")
+	default:
 		out.Name = pipedrive.ItemString(h.Item, "name")
 	}
 	for k, v := range h.Item {

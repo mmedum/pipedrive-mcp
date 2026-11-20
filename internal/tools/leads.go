@@ -185,7 +185,11 @@ func listLeadsHandler(c leadsClient) mcp.ToolHandlerFor[listLeadsInput, listLead
 		if in.Archived && in.UpdatedSince != "" {
 			return errorResult(fmt.Errorf("%w: the archived leads take no updated_since", pipedrive.ErrValidation)), listLeadsOutput{}, nil
 		}
-		start, err := decodeV1Cursor(in.Cursor)
+		listing := "leads"
+		if in.Archived {
+			listing = "leads:archived"
+		}
+		start, err := decodeV1Cursor(listing, in.Cursor)
 		if err != nil {
 			return errorResult(err), listLeadsOutput{}, nil
 		}
@@ -197,7 +201,7 @@ func listLeadsHandler(c leadsClient) mcp.ToolHandlerFor[listLeadsInput, listLead
 		if err != nil {
 			return errorResult(err), listLeadsOutput{}, nil
 		}
-		out := listLeadsOutput{Leads: make([]leadSummary, 0, len(leads)), NextCursor: encodeV1Cursor(page)}
+		out := listLeadsOutput{Leads: make([]leadSummary, 0, len(leads)), NextCursor: encodeV1Cursor(listing, page)}
 		for i := range leads {
 			out.Leads = append(out.Leads, summarizeLead(&leads[i]))
 		}
@@ -340,6 +344,9 @@ func createLeadAction(ctx context.Context, c leadsClient, in manageLeadInput) (*
 func writeLeadAction(ctx context.Context, c leadsClient, in manageLeadInput) (*mcp.CallToolResult, manageLeadOutput) {
 	req := leadRequestFor(in)
 	transition := in.Action != "update"
+	if transition && leadHasEditFields(in) {
+		return errorResult(fmt.Errorf("%w: %s changes is_archived alone; send other fields in an update", pipedrive.ErrValidation, in.Action)), manageLeadOutput{}
+	}
 	if transition {
 		req = pipedrive.LeadRequest{IsArchived: ptr(in.Action == "archive")}
 	}
@@ -359,6 +366,11 @@ func writeLeadAction(ctx context.Context, c leadsClient, in manageLeadInput) (*m
 		return res, manageLeadOutput{}
 	}
 	return nil, manageLeadOutput{Lead: summarizeLead(lead), Changed: changed}
+}
+
+func leadHasEditFields(in manageLeadInput) bool {
+	return in.Title != nil || in.OwnerID != nil || in.PersonID != nil || in.OrgID != nil ||
+		in.Value != nil || in.ExpectedCloseDate != nil || in.LabelIDs != nil
 }
 
 // deleteLeadAction deletes a lead for good, so it takes confirm (D-99); a

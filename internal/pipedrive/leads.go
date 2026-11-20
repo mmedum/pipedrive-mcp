@@ -78,7 +78,10 @@ func (c *Client) GetLead(ctx context.Context, id string) (*Lead, error) {
 	return &l, nil
 }
 
-// ListLeads lists leads, or archived leads, a page at a time.
+// ListLeads lists leads, or archived leads, a page at a time. v1 answers
+// with the pagination block notes use, next_start included, though the
+// reference lists start, limit and more_items_in_collection alone.
+// Checked by the integration test TestV1CarveOutStillAnswers/list_leads.
 func (c *Client) ListLeads(ctx context.Context, opts ListLeadsOptions) ([]Lead, *V1Pagination, error) {
 	q := url.Values{}
 	for k, v := range map[string]int64{"owner_id": opts.OwnerID, "person_id": opts.PersonID, "organization_id": opts.OrganizationID} {
