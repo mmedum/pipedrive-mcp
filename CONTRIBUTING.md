@@ -225,8 +225,8 @@ installs to one exact version; `make pins` holds both (D-86).
 
 ## Changelog
 
-A change to watched source, what the binary is built from or the
-bundle's manifest, needs an entry under `## [Unreleased]` in
+A change to watched source, what the binary is built from, a bump of
+the MCP SDK or the bundle's manifest, needs an entry under `## [Unreleased]` in
 `CHANGELOG.md`, in the same pull request (D-90). Leave out changes only
 contributors see, unless they must act on them; such a line starts
 `For contributors:`.
