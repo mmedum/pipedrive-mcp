@@ -2547,8 +2547,9 @@ A pull request that changes watched source adds at least one entry under
 `## [Unreleased]` in `CHANGELOG.md`. Watched source is what the binary
 is built from: any file but a test in the directory of a package of this
 module `./cmd/...` imports, a file such a package embeds, the bundle's
-manifest, which a person reads when installing it, and `go.mod` outside
-its require and tool lines. A bump of the MCP SDK counts all the same,
+manifest, which a person reads when installing it, `.goreleaser.yaml`,
+which is how the release is built, and `go.mod` outside its require and
+tool lines. A bump of the MCP SDK counts all the same,
 because `TestSDKVersionMatchesGoMod` makes it change `sdkVersion` in
 `internal/server/dump.go`, and the SDK decides what a client sees. Test
 data never counts. The `changelog` gate reads the diff from the
@@ -2560,7 +2561,10 @@ removes `[Unreleased]`, a heading it adds counts as the unreleased
 section.
 
 The release notes are that section (D-91), so a change with no entry
-ships unannounced. An entry added under a released heading is invisible
+ships unannounced. A change nobody using the server can see passes with
+a `Changelog: none, <why>` footer on the newest commit while the
+CHANGELOG is untouched, which keeps contributor detail out of the
+release notes. An entry added under a released heading is invisible
 to anyone reading the release it belongs to, on the page as in the file.
 
 Rejected: an entry under any heading, which can land under a version

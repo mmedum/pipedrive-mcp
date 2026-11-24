@@ -116,7 +116,7 @@ path, the error classes or the package layout.
 
 - `make check` passes. On a pull request CI also runs `schema-ack`, and
   the `changelog` gate, which wants an entry under `[Unreleased]` for a
-  change to watched source (D-90).
+  change to watched source, or a `Changelog: none` footer (D-90).
 - New behavior has tests, and the schema diff has been read
   (`make dump-schemas` against the last tag's).
 - `/simplify` and `/code-review medium` have run, at medium rather than

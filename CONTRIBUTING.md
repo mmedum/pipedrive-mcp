@@ -225,11 +225,20 @@ installs to one exact version; `make pins` holds both (D-86).
 
 ## Changelog
 
-A change to watched source, what the binary is built from, a bump of
-the MCP SDK or the bundle's manifest, needs an entry under `## [Unreleased]` in
-`CHANGELOG.md`, in the same pull request (D-90). Leave out changes only
-contributors see, unless they must act on them; such a line starts
-`For contributors:`.
+A change to watched source needs an entry under `## [Unreleased]` in
+`CHANGELOG.md`, in the same pull request (D-90): to what the binary is
+built from, to `.goreleaser.yaml` or to the bundle's manifest, or a bump
+of the MCP SDK. Leave out changes only contributors see, unless they must act on
+them; such a line starts `For contributors:`.
+
+A change nobody using the server can see, such as a refactor, leaves the
+CHANGELOG as it is and ends a commit's message with a footer that says
+why: `Changelog: none, the text is unchanged line for line`. Only the
+newest commit's footer counts, since it ends the squashed commit's
+message, so put it there, and split a user-visible change into its own
+pull request. The footer waives
+nothing when the CHANGELOG changed, when go.mod changed outside its
+require lines, or when the MCP SDK moved.
 
 - **Sections** are the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   set: Added, Changed, Deprecated, Removed, Fixed and Security, in that

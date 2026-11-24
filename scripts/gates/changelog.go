@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 // changelogGate fails when a pull request changes what users get, what the
@@ -28,19 +29,23 @@ func changelogGate(w io.Writer, args []string) error {
 	}
 	base, head := args[0], args[1]
 
-	changed, err := git("diff", "--name-only", "--no-renames", base, head)
+	changed, err := git("diff", "--name-only", "--no-renames", "-z", base, head)
 	if err != nil {
 		return couldNotRun{err}
 	}
+	// NUL-separated, so a path git would quote reads as it is.
+	changed = strings.ReplaceAll(strings.TrimRight(changed, "\x00"), "\x00", "\n")
 	shipped, err := listShipped(".")
 	if err != nil {
 		return couldNotRun{err}
 	}
 	touched := touchesWatched(changed, shipped)
-	if !touched && strings.Contains("\n"+changed, "\ngo.mod\n") {
-		if touched, err = goModChangedBetween(base, head); err != nil {
+	goModBuilt, unwaivable := false, false
+	if strings.Contains("\n"+changed+"\n", "\ngo.mod\n") {
+		if goModBuilt, unwaivable, err = goModChange(base, head); err != nil {
 			return couldNotRun{err}
 		}
+		touched = touched || goModBuilt
 	}
 	if !touched {
 		_, _ = fmt.Fprintln(w, "nothing users get changed; skipping the CHANGELOG check")
@@ -55,9 +60,24 @@ func changelogGate(w io.Writer, args []string) error {
 	if err != nil {
 		return couldNotRun{err}
 	}
+	// The waiver is read only when the CHANGELOG is untouched, so a footer
+	// cannot hide a misplaced entry, and never for a go.mod change the gate
+	// counts.
+	if strings.TrimSpace(diff) == "" && !unwaivable {
+		// Only the newest commit's footer counts: it ends the squashed
+		// commit's message.
+		message, err := git("log", "-1", "--format=%B", head)
+		if err != nil {
+			return couldNotRun{err}
+		}
+		if reason := changelogWaiver(message); reason != "" {
+			_, _ = fmt.Fprintf(w, "what users get changed, and a commit says no entry is needed: %s\n", reason)
+			return nil
+		}
+	}
 	if strings.TrimSpace(diff) == "" {
 		return fmt.Errorf("what users get changed but %s did not; the release notes are "+
-			"%s's section, so the change would ship unannounced", changelogFile, changelogFile)
+			"%s's section, so the change would ship unannounced. %s", changelogFile, changelogFile, refusalHint(unwaivable))
 	}
 	d := readChangelogDiff(diff)
 	if n := addedUnderUnreleased(d); n == 0 {
@@ -69,6 +89,94 @@ func changelogGate(w io.Writer, args []string) error {
 	return nil
 }
 
+// goModChange reads a go.mod change from base to head: built says it
+// changed outside the require lines, and unwaivable that no footer may
+// waive it, which a moved MCP SDK adds through the dump's sdkVersion pin
+// (D-90).
+func goModChange(base, head string) (built, unwaivable bool, err error) {
+	if built, err = goModChangedBetween(base, head); err != nil || built {
+		return built, built, err
+	}
+	sdk, err := sdkMovedBetween(base, head)
+	return false, sdk, err
+}
+
+// sdkMovedBetween reports whether go.mod requires another MCP SDK version
+// at head than at base.
+func sdkMovedBetween(base, head string) (bool, error) {
+	var versions [2]string
+	for i, rev := range []string{base, head} {
+		text, err := git("show", rev+":go.mod")
+		if err != nil {
+			return false, err
+		}
+		versions[i] = sdkRequired(text)
+	}
+	return versions[0] != versions[1], nil
+}
+
+// sdkRequired is the MCP SDK version a go.mod requires. Only a require
+// directive, on its own line or in its block, names the version built; an
+// exclude or replace block does not.
+func sdkRequired(gomod string) string {
+	version, inRequire := "", false
+	for line := range strings.SplitSeq(gomod, "\n") {
+		code, _, _ := strings.Cut(line, "//")
+		f := strings.Fields(code)
+		switch {
+		case inRequire && len(f) == 1 && f[0] == ")":
+			inRequire = false
+		case len(f) == 2 && f[0] == "require" && f[1] == "(", len(f) == 1 && f[0] == "require(":
+			inRequire = true
+		case len(f) == 3 && f[0] == "require" && strings.Trim(f[1], `"`) == sdkModulePath:
+			version = f[2]
+		case inRequire && len(f) == 2 && strings.Trim(f[0], `"`) == sdkModulePath:
+			version = f[1]
+		}
+	}
+	return version
+}
+
+// sdkModulePath is the MCP SDK's module, whose version D-90 counts.
+const sdkModulePath = "github.com/modelcontextprotocol/go-sdk"
+
+// refusalHint says how a refused pull request passes: with the footer, or,
+// for a change no footer waives, only with an entry.
+func refusalHint(unwaivable bool) string {
+	if unwaivable {
+		return "A go.mod change outside its require lines, or a bump of the MCP SDK, always needs one"
+	}
+	return changelogWaiverHint
+}
+
+// changelogWaiverHint says how a change nobody using the server sees passes.
+const changelogWaiverHint = "If nothing a user sees changed, leave the CHANGELOG as it is and end the newest " +
+	"commit's message with `Changelog: none, <why>`"
+
+// changelogWaiver is the reason a commit message's footer gives for
+// needing no entry: `Changelog: none, <why>`, the token and the word in any
+// case. The word ends at a character that cannot be part of a word, so
+// `none.` counts and `none_yet` does not. A footer with no reason, or in the
+// `Changelog #` reference form, waives nothing.
+func changelogWaiver(message string) string {
+	wordChar := func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' }
+	for _, f := range footers(message) {
+		if f.ref || !strings.EqualFold(f.token, "Changelog") {
+			continue
+		}
+		text := strings.TrimSpace(f.text)
+		end := strings.IndexFunc(text, func(r rune) bool { return !wordChar(r) })
+		if end < 0 || !strings.EqualFold(text[:end], "none") {
+			continue
+		}
+		rest := strings.TrimLeftFunc(text[end:], func(r rune) bool { return !wordChar(r) })
+		if reason := strings.Join(strings.Fields(rest), " "); reason != "" {
+			return reason
+		}
+	}
+	return ""
+}
+
 // touchesWatched reports whether the diff changes a file the binary is
 // built from. Test data is left out: a refreshed fixture, such as the spec
 // snapshot each release takes, changes nothing a user sees.
@@ -77,7 +185,7 @@ func touchesWatched(nameOnlyDiff string, shipped *shippedSource) bool {
 		if strings.Contains("/"+f, "/testdata/") {
 			continue
 		}
-		if shipped.has(f) {
+		if shipped.has(f) || f == ".goreleaser.yaml" {
 			return true
 		}
 	}
