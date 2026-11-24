@@ -76,12 +76,8 @@ func changelogGate(w io.Writer, args []string) error {
 		}
 	}
 	if strings.TrimSpace(diff) == "" {
-		hint := changelogWaiverHint
-		if unwaivable {
-			hint = "A go.mod change outside its require lines, or a bump of the MCP SDK, always needs one"
-		}
 		return fmt.Errorf("what users get changed but %s did not; the release notes are "+
-			"%s's section, so the change would ship unannounced. %s", changelogFile, changelogFile, hint)
+			"%s's section, so the change would ship unannounced. %s", changelogFile, changelogFile, refusalHint(unwaivable))
 	}
 	d := readChangelogDiff(diff)
 	if n := addedUnderUnreleased(d); n == 0 {
@@ -114,30 +110,43 @@ func sdkMovedBetween(base, head string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		// Only a require directive, on its own line or in its block, names
-		// the version built; an exclude or replace block does not.
-		inRequire := false
-		for line := range strings.SplitSeq(text, "\n") {
-			code, _, _ := strings.Cut(line, "//")
-			f := strings.Fields(code)
-			switch {
-			case inRequire && len(f) == 1 && f[0] == ")":
-				inRequire = false
-				continue
-			case len(f) == 2 && f[0] == "require" && f[1] == "(", len(f) == 1 && f[0] == "require(":
-				inRequire = true
-				continue
-			case len(f) == 3 && f[0] == "require":
-				f = f[1:]
-			case !inRequire:
-				continue
-			}
-			if len(f) == 2 && strings.Trim(f[0], `"`) == "github.com/modelcontextprotocol/go-sdk" {
-				versions[i] = f[1]
-			}
-		}
+		versions[i] = sdkRequired(text)
 	}
 	return versions[0] != versions[1], nil
+}
+
+// sdkRequired is the MCP SDK version a go.mod requires. Only a require
+// directive, on its own line or in its block, names the version built; an
+// exclude or replace block does not.
+func sdkRequired(gomod string) string {
+	version, inRequire := "", false
+	for line := range strings.SplitSeq(gomod, "\n") {
+		code, _, _ := strings.Cut(line, "//")
+		f := strings.Fields(code)
+		switch {
+		case inRequire && len(f) == 1 && f[0] == ")":
+			inRequire = false
+		case len(f) == 2 && f[0] == "require" && f[1] == "(", len(f) == 1 && f[0] == "require(":
+			inRequire = true
+		case len(f) == 3 && f[0] == "require" && strings.Trim(f[1], `"`) == sdkModulePath:
+			version = f[2]
+		case inRequire && len(f) == 2 && strings.Trim(f[0], `"`) == sdkModulePath:
+			version = f[1]
+		}
+	}
+	return version
+}
+
+// sdkModulePath is the MCP SDK's module, whose version D-90 counts.
+const sdkModulePath = "github.com/modelcontextprotocol/go-sdk"
+
+// refusalHint says how a refused pull request passes: with the footer, or,
+// for a change no footer waives, only with an entry.
+func refusalHint(unwaivable bool) string {
+	if unwaivable {
+		return "A go.mod change outside its require lines, or a bump of the MCP SDK, always needs one"
+	}
+	return changelogWaiverHint
 }
 
 // changelogWaiverHint says how a change nobody using the server sees passes.
