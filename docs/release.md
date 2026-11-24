@@ -13,6 +13,17 @@ cannot be withdrawn (D-97).
 
 - `make check` passes, and `make leaks-history` passes over everything
   the repository has published, which `make check` does not read (D-89).
+- Run `govulncheck` on the previous tag. A dependency bump other than
+  the MCP SDK carries no CHANGELOG line of its own (D-90). For each
+  advisory reported there and not at `HEAD`, find the change that
+  cleared it. When that change is such a bump, the advisory gets its
+  line under Security.
+
+  ```bash
+  git worktree add ../pipedrive-mcp-prev "$(git describe --tags --abbrev=0)"
+  make -C ../pipedrive-mcp-prev vuln
+  git worktree remove ../pipedrive-mcp-prev
+  ```
 - `make integration-writes` has run if the release touches the write
   path or a response shape, and `make evals` if it changes text the
   model reads (D-79, D-80). `CONTRIBUTING.md` says what each writes.

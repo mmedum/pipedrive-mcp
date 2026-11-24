@@ -2548,9 +2548,12 @@ A pull request that changes watched source adds at least one entry under
 is built from: any file but a test in the directory of a package of this
 module `./cmd/...` imports, a file such a package embeds, the bundle's
 manifest, which a person reads when installing it, and `go.mod` outside
-its require and tool lines. Test data never counts. The `changelog` gate
-reads the diff from the merge-base and counts the bullets at the margin
-it adds under that heading, outside fenced code.
+its require and tool lines. A bump of the MCP SDK counts all the same,
+because `TestSDKVersionMatchesGoMod` makes it change `sdkVersion` in
+`internal/server/dump.go`, and the SDK decides what a client sees. Test
+data never counts. The `changelog` gate reads the diff from the
+merge-base and counts the bullets at the margin it adds under that
+heading, outside fenced code.
 
 A release cut renames the heading to the version, so in a diff that
 removes `[Unreleased]`, a heading it adds counts as the unreleased
@@ -2566,8 +2569,9 @@ included, where a reader of the changelog expects what changes the
 server; a hand list of watched trees, which a new package passes by
 being on no list.
 Cost: a change outside the binary, such as `scripts/` or a dependency
-bump, needs no entry, so whether it deserves one is left to review. The
-gate needs a merge-base, so it runs on a pull request and not in
+bump, needs no entry, so whether it deserves one is left to review. A
+bump that fixes an advisory is found at release time (`docs/release.md`).
+The gate needs a merge-base, so it runs on a pull request and not in
 `make check`.
 
 ### D-91 The release notes are the CHANGELOG section, and every version heading has its link
