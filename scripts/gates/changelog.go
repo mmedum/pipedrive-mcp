@@ -64,18 +64,24 @@ func changelogGate(w io.Writer, args []string) error {
 	// cannot hide a misplaced entry, and never for a go.mod change the gate
 	// counts.
 	if strings.TrimSpace(diff) == "" && !unwaivable {
-		log, err := git("log", "--format=%B%x00", base+".."+head)
+		// Only the newest commit's footer counts: it ends the squashed
+		// commit's message.
+		message, err := git("log", "-1", "--format=%B", head)
 		if err != nil {
 			return couldNotRun{err}
 		}
-		if reason := changelogWaiver(strings.Split(log, "\x00")); reason != "" {
+		if reason := changelogWaiver(message); reason != "" {
 			_, _ = fmt.Fprintf(w, "what users get changed, and a commit says no entry is needed: %s\n", reason)
 			return nil
 		}
 	}
 	if strings.TrimSpace(diff) == "" {
+		hint := changelogWaiverHint
+		if unwaivable {
+			hint = "A go.mod change outside its require lines, or a bump of the MCP SDK, always needs one"
+		}
 		return fmt.Errorf("what users get changed but %s did not; the release notes are "+
-			"%s's section, so the change would ship unannounced. %s", changelogFile, changelogFile, changelogWaiverHint)
+			"%s's section, so the change would ship unannounced. %s", changelogFile, changelogFile, hint)
 	}
 	d := readChangelogDiff(diff)
 	if n := addedUnderUnreleased(d); n == 0 {
@@ -108,11 +114,23 @@ func sdkMovedBetween(base, head string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
+		// Only a require directive, on its own line or in its block, names
+		// the version built; an exclude or replace block does not.
+		inRequire := false
 		for line := range strings.SplitSeq(text, "\n") {
 			code, _, _ := strings.Cut(line, "//")
 			f := strings.Fields(code)
-			if len(f) > 0 && f[0] == "require" {
+			switch {
+			case inRequire && len(f) == 1 && f[0] == ")":
+				inRequire = false
+				continue
+			case len(f) == 2 && f[0] == "require" && f[1] == "(", len(f) == 1 && f[0] == "require(":
+				inRequire = true
+				continue
+			case len(f) == 3 && f[0] == "require":
 				f = f[1:]
+			case !inRequire:
+				continue
 			}
 			if len(f) == 2 && strings.Trim(f[0], `"`) == "github.com/modelcontextprotocol/go-sdk" {
 				versions[i] = f[1]
@@ -123,29 +141,28 @@ func sdkMovedBetween(base, head string) (bool, error) {
 }
 
 // changelogWaiverHint says how a change nobody using the server sees passes.
-const changelogWaiverHint = "If nothing a user sees changed, leave the CHANGELOG as it is and end a commit's " +
-	"message with `Changelog: none, <why>`"
+const changelogWaiverHint = "If nothing a user sees changed, leave the CHANGELOG as it is and end the newest " +
+	"commit's message with `Changelog: none, <why>`"
 
-// changelogWaiver is the reason a commit footer gives for needing no
-// entry: `Changelog: none, <why>`, the token and the word in any case, the
-// word ended by anything but a letter. A footer with no reason, or in the
+// changelogWaiver is the reason a commit message's footer gives for
+// needing no entry: `Changelog: none, <why>`, the token and the word in any
+// case. The word ends at a character that cannot be part of a word, so
+// `none.` counts and `none_yet` does not. A footer with no reason, or in the
 // `Changelog #` reference form, waives nothing.
-func changelogWaiver(messages []string) string {
-	notLetter := func(r rune) bool { return !unicode.IsLetter(r) }
-	for _, message := range messages {
-		for _, f := range footers(message) {
-			if f.ref || !strings.EqualFold(f.token, "Changelog") {
-				continue
-			}
-			text := strings.TrimSpace(f.text)
-			end := strings.IndexFunc(text, notLetter)
-			if end < 0 || !strings.EqualFold(text[:end], "none") {
-				continue
-			}
-			rest := strings.TrimLeftFunc(text[end:], func(r rune) bool { return notLetter(r) && !unicode.IsDigit(r) })
-			if reason := strings.Join(strings.Fields(rest), " "); reason != "" {
-				return reason
-			}
+func changelogWaiver(message string) string {
+	wordChar := func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' }
+	for _, f := range footers(message) {
+		if f.ref || !strings.EqualFold(f.token, "Changelog") {
+			continue
+		}
+		text := strings.TrimSpace(f.text)
+		end := strings.IndexFunc(text, func(r rune) bool { return !wordChar(r) })
+		if end < 0 || !strings.EqualFold(text[:end], "none") {
+			continue
+		}
+		rest := strings.TrimLeftFunc(text[end:], func(r rune) bool { return !wordChar(r) })
+		if reason := strings.Join(strings.Fields(rest), " "); reason != "" {
+			return reason
 		}
 	}
 	return ""
