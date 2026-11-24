@@ -384,7 +384,7 @@ func TestTheChangelogGateNeedsAGitCheckout(t *testing.T) {
 	mustGit(t, "add", "-A")
 	mustGit(t, "commit", "-q", "-m", "first")
 	err := changelogGate(&strings.Builder{}, []string{"no-such-base", "HEAD"})
-	if !errors.As(err, new(couldNotRun)) || exitCode(err) != 2 || !strings.Contains(err.Error(), "git diff --name-only --no-renames no-such-base HEAD") {
+	if !errors.As(err, new(couldNotRun)) || exitCode(err) != 2 || !strings.Contains(err.Error(), "git diff --name-only --no-renames -z no-such-base HEAD") {
 		t.Errorf("got %v, want a git diff that could not run", err)
 	}
 }
@@ -413,11 +413,11 @@ func TestTheChangelogGateReadsWhatTheBinaryIsBuiltFrom(t *testing.T) {
 		want  string
 	}{
 		{"a package the binary imports, with no entry", map[string]string{"internal/a/a.go": "package a\n\nvar X = 1\n"},
-			"what users get changed but CHANGELOG.md did not; the release notes are CHANGELOG.md's section, so the change would ship unannounced"},
+			"what users get changed but CHANGELOG.md did not; the release notes are CHANGELOG.md's section, so the change would ship unannounced. " + changelogWaiverHint},
 		{"a replace line, with no entry", map[string]string{"go.mod": "module example.com/x\n\ngo 1.27.3\n\nreplace example.com/y => ./y\n"},
-			"what users get changed but CHANGELOG.md did not; the release notes are CHANGELOG.md's section, so the change would ship unannounced"},
+			"what users get changed but CHANGELOG.md did not; the release notes are CHANGELOG.md's section, so the change would ship unannounced. " + changelogWaiverHint},
 		{"the bundle's manifest, with no entry", map[string]string{manifestPath: "{\"name\": \"x\"}\n"},
-			"what users get changed but CHANGELOG.md did not; the release notes are CHANGELOG.md's section, so the change would ship unannounced"},
+			"what users get changed but CHANGELOG.md did not; the release notes are CHANGELOG.md's section, so the change would ship unannounced. " + changelogWaiverHint},
 		{"a package the binary imports, with a blank line under [Unreleased]", map[string]string{
 			"internal/a/a.go": "package a\n\nvar X = 1\n", changelogFile: strings.Replace(changelog, "## [Unreleased]\n", "## [Unreleased]\n\n\n", 1)},
 			"CHANGELOG.md changed but no entry was added under [Unreleased], the section the next release's notes are cut from"},
@@ -434,6 +434,68 @@ func TestTheChangelogGateReadsWhatTheBinaryIsBuiltFrom(t *testing.T) {
 			err := changelogGate(&strings.Builder{}, []string{"base", "HEAD"})
 			if got := fmt.Sprint(err); tc.want == "" && err != nil || tc.want != "" && got != tc.want {
 				t.Errorf("got %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// A change nobody using the server can see passes with a `Changelog: none`
+// footer that says why, when the CHANGELOG is untouched. A footer with no
+// reason, a word that only starts with "none", the reference form, a
+// footer beside a misplaced entry and an MCP SDK bump waive nothing. The
+// release build and a path git quotes are watched.
+func TestTheChangelogGateReadsTheWaiver(t *testing.T) {
+	const changelog = "# Changelog\n\n## [Unreleased]\n\n## [1.0.0]\n\n- First.\n"
+	const gomod = "module example.com/x\n\ngo 1.27.3\n\nrequire github.com/modelcontextprotocol/go-sdk v1.8.0\n"
+	initRepo(t)
+	putAll(t, ".", map[string]string{
+		"go.mod":          "module example.com/x\n\ngo 1.27.3\n",
+		"cmd/x/main.go":   "package main\n\nimport _ \"example.com/x/internal/a\"\n\nfunc main() {}\n",
+		"internal/a/a.go": "package a\n",
+		changelogFile:     changelog,
+	})
+	mustGit(t, "add", "-A")
+	mustGit(t, "commit", "-q", "-m", "base")
+	mustGit(t, "tag", "base")
+	code := map[string]string{"internal/a/a.go": "package a // renamed\n"}
+	for _, tc := range []struct {
+		name, message string
+		files         map[string]string
+		refused       bool
+	}{
+		{"a refactor with a footer", "refactor\n\nChangelog: none, the text is unchanged line for line", code, false},
+		{"a footer in another case, its word ended by a period", "refactor\n\nChangelog: None. a rename", code, false},
+		{"a refactor with no footer", "refactor", code, true},
+		{"a footer with no reason", "refactor\n\nChangelog: none", code, true},
+		{"a word that only starts with none", "change\n\nChangelog: nonetheless user-visible", code, true},
+		{"the reference form", "refactor\n\nChangelog #none, a rename", code, true},
+		{"a footer beside an entry under a released heading", "refactor\n\nChangelog: none, a rename", map[string]string{
+			"internal/a/a.go": "package a // renamed\n", changelogFile: strings.Replace(changelog, "- First.\n", "- First.\n- Late.\n", 1)}, true},
+		{"a bump of the MCP SDK with a footer", "refactor\n\nChangelog: none, a rename", map[string]string{
+			"internal/a/a.go": "package a // renamed\n", "go.mod": strings.Replace(gomod, "v1.8.0", "v1.9.0", 1)}, true},
+		{"the release build", "change", map[string]string{".goreleaser.yaml": "version: 2\n"}, true},
+		{"a shipped file whose name git quotes", "change", map[string]string{"internal/a/naïve notes.md": "x\n"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mustGit(t, "checkout", "-q", "base")
+			if _, sdk := tc.files["go.mod"]; sdk {
+				putAll(t, ".", map[string]string{"go.mod": gomod})
+				mustGit(t, "commit", "-q", "-am", "the SDK at v1.8.0")
+				mustGit(t, "tag", "-f", "sdk-base")
+			}
+			putAll(t, ".", tc.files)
+			mustGit(t, "add", "-A")
+			mustGit(t, "commit", "-q", "-m", tc.message)
+			from := "base"
+			if _, sdk := tc.files["go.mod"]; sdk {
+				from = "sdk-base"
+			}
+			err := changelogGate(&strings.Builder{}, []string{from, "HEAD"})
+			switch {
+			case tc.refused && err == nil:
+				t.Error("passed; want a refusal")
+			case !tc.refused && err != nil:
+				t.Errorf("got %v; want a pass", err)
 			}
 		})
 	}

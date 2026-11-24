@@ -2568,6 +2568,10 @@ already released; an entry for every change, docs and workflows
 included, where a reader of the changelog expects what changes the
 server; a hand list of watched trees, which a new package passes by
 being on no list.
+A change nobody using the server can see passes with a `Changelog:
+none, <why>` commit footer while the CHANGELOG is untouched, which keeps
+contributor detail out of the release notes.
+
 Cost: a change outside the binary, such as `scripts/` or a dependency
 bump, needs no entry, so whether it deserves one is left to review. A
 bump that fixes an advisory is found at release time (`docs/release.md`).

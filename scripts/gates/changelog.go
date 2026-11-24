@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 // changelogGate fails when a pull request changes what users get, what the
@@ -28,19 +29,23 @@ func changelogGate(w io.Writer, args []string) error {
 	}
 	base, head := args[0], args[1]
 
-	changed, err := git("diff", "--name-only", "--no-renames", base, head)
+	changed, err := git("diff", "--name-only", "--no-renames", "-z", base, head)
 	if err != nil {
 		return couldNotRun{err}
 	}
+	// NUL-separated, so a path git would quote reads as it is.
+	changed = strings.ReplaceAll(strings.TrimRight(changed, "\x00"), "\x00", "\n")
 	shipped, err := listShipped(".")
 	if err != nil {
 		return couldNotRun{err}
 	}
 	touched := touchesWatched(changed, shipped)
-	if !touched && strings.Contains("\n"+changed, "\ngo.mod\n") {
-		if touched, err = goModChangedBetween(base, head); err != nil {
+	goModBuilt, unwaivable := false, false
+	if strings.Contains("\n"+changed+"\n", "\ngo.mod\n") {
+		if goModBuilt, unwaivable, err = goModChange(base, head); err != nil {
 			return couldNotRun{err}
 		}
+		touched = touched || goModBuilt
 	}
 	if !touched {
 		_, _ = fmt.Fprintln(w, "nothing users get changed; skipping the CHANGELOG check")
@@ -55,9 +60,22 @@ func changelogGate(w io.Writer, args []string) error {
 	if err != nil {
 		return couldNotRun{err}
 	}
+	// The waiver is read only when the CHANGELOG is untouched, so a footer
+	// cannot hide a misplaced entry, and never for a go.mod change the gate
+	// counts.
+	if strings.TrimSpace(diff) == "" && !unwaivable {
+		log, err := git("log", "--format=%B%x00", base+".."+head)
+		if err != nil {
+			return couldNotRun{err}
+		}
+		if reason := changelogWaiver(strings.Split(log, "\x00")); reason != "" {
+			_, _ = fmt.Fprintf(w, "what users get changed, and a commit says no entry is needed: %s\n", reason)
+			return nil
+		}
+	}
 	if strings.TrimSpace(diff) == "" {
 		return fmt.Errorf("what users get changed but %s did not; the release notes are "+
-			"%s's section, so the change would ship unannounced", changelogFile, changelogFile)
+			"%s's section, so the change would ship unannounced. %s", changelogFile, changelogFile, changelogWaiverHint)
 	}
 	d := readChangelogDiff(diff)
 	if n := addedUnderUnreleased(d); n == 0 {
@@ -69,6 +87,70 @@ func changelogGate(w io.Writer, args []string) error {
 	return nil
 }
 
+// goModChange reads a go.mod change from base to head: built says it
+// changed outside the require lines, and unwaivable that no footer may
+// waive it, which a moved MCP SDK adds through the dump's sdkVersion pin
+// (D-90).
+func goModChange(base, head string) (built, unwaivable bool, err error) {
+	if built, err = goModChangedBetween(base, head); err != nil || built {
+		return built, built, err
+	}
+	sdk, err := sdkMovedBetween(base, head)
+	return false, sdk, err
+}
+
+// sdkMovedBetween reports whether go.mod requires another MCP SDK version
+// at head than at base.
+func sdkMovedBetween(base, head string) (bool, error) {
+	var versions [2]string
+	for i, rev := range []string{base, head} {
+		text, err := git("show", rev+":go.mod")
+		if err != nil {
+			return false, err
+		}
+		for line := range strings.SplitSeq(text, "\n") {
+			code, _, _ := strings.Cut(line, "//")
+			f := strings.Fields(code)
+			if len(f) > 0 && f[0] == "require" {
+				f = f[1:]
+			}
+			if len(f) == 2 && strings.Trim(f[0], `"`) == "github.com/modelcontextprotocol/go-sdk" {
+				versions[i] = f[1]
+			}
+		}
+	}
+	return versions[0] != versions[1], nil
+}
+
+// changelogWaiverHint says how a change nobody using the server sees passes.
+const changelogWaiverHint = "If nothing a user sees changed, leave the CHANGELOG as it is and end a commit's " +
+	"message with `Changelog: none, <why>`"
+
+// changelogWaiver is the reason a commit footer gives for needing no
+// entry: `Changelog: none, <why>`, the token and the word in any case, the
+// word ended by anything but a letter. A footer with no reason, or in the
+// `Changelog #` reference form, waives nothing.
+func changelogWaiver(messages []string) string {
+	notLetter := func(r rune) bool { return !unicode.IsLetter(r) }
+	for _, message := range messages {
+		for _, f := range footers(message) {
+			if f.ref || !strings.EqualFold(f.token, "Changelog") {
+				continue
+			}
+			text := strings.TrimSpace(f.text)
+			end := strings.IndexFunc(text, notLetter)
+			if end < 0 || !strings.EqualFold(text[:end], "none") {
+				continue
+			}
+			rest := strings.TrimLeftFunc(text[end:], func(r rune) bool { return notLetter(r) && !unicode.IsDigit(r) })
+			if reason := strings.Join(strings.Fields(rest), " "); reason != "" {
+				return reason
+			}
+		}
+	}
+	return ""
+}
+
 // touchesWatched reports whether the diff changes a file the binary is
 // built from. Test data is left out: a refreshed fixture, such as the spec
 // snapshot each release takes, changes nothing a user sees.
@@ -77,7 +159,7 @@ func touchesWatched(nameOnlyDiff string, shipped *shippedSource) bool {
 		if strings.Contains("/"+f, "/testdata/") {
 			continue
 		}
-		if shipped.has(f) {
+		if shipped.has(f) || f == ".goreleaser.yaml" {
 			return true
 		}
 	}
